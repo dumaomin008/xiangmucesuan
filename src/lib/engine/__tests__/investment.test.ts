@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Decimal } from "../decimal";
-import { newtonRaphsonIrr } from "../investment";
+import { newtonRaphsonIrr, firstPositiveMonth } from "../investment";
 
 describe("InvestmentCalculator", () => {
   it("常规正负现金流可计算 IRR", () => {
@@ -39,5 +39,18 @@ describe("InvestmentCalculator", () => {
     const result = newtonRaphsonIrr(flows);
     expect(result.reason).toBeNull();
     expect(result.irr?.isFinite()).toBe(true);
+  });
+
+  it("首次转正：Month0=-180万, 每月+10万, Month18累计=0", () => {
+    let cumulative = new Decimal(0);
+    const rows = [];
+    const nets = [new Decimal(-1800000), ...Array.from({ length: 24 }, () => new Decimal(100000))];
+    for (let i = 0; i < nets.length; i++) {
+      cumulative = cumulative.plus(nets[i]);
+      rows.push({ monthIndex: i, cumulativeCashFlow: cumulative });
+    }
+    expect(rows[17].cumulativeCashFlow.toString()).toBe("-100000");
+    expect(rows[18].cumulativeCashFlow.toString()).toBe("0");
+    expect(firstPositiveMonth(rows)).toBe(18);
   });
 });

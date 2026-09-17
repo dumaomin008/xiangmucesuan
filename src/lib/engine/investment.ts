@@ -72,9 +72,24 @@ export function newtonRaphsonIrr(
   return { irr: annual, reason: null };
 }
 
+/**
+ * 首次累计现金流转正：previous < 0 且 current >= 0。
+ * Month 0 已经 >= 0 时返回 0，不得误判为 Month 1。
+ * 整个测算期均未转正则返回 null。
+ */
 export function firstPositiveMonth(cashFlows: { monthIndex: number; cumulativeCashFlow: Decimal }[]): number | null {
-  const found = cashFlows.find((row) => row.cumulativeCashFlow.gte(0));
-  return found ? found.monthIndex : null;
+  for (let i = 0; i < cashFlows.length; i++) {
+    const current = cashFlows[i].cumulativeCashFlow;
+    if (i === 0) {
+      if (current.gte(0)) return cashFlows[i].monthIndex;
+      continue;
+    }
+    const previous = cashFlows[i - 1].cumulativeCashFlow;
+    if (previous.lt(0) && current.gte(0)) {
+      return cashFlows[i].monthIndex;
+    }
+  }
+  return null;
 }
 
 export function calcIrrForYears(

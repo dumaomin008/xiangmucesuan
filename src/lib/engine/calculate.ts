@@ -165,6 +165,7 @@ export function calculateScheme(input: SchemeCalculationInput): SchemeCalculatio
   const vehicleMonthlyRevenue = safeDiv(monthlyRevenue, new Decimal(input.fleetSize));
   const vehicleMonthlyProfit = safeDiv(monthlyProfit, new Decimal(input.fleetSize));
 
+  const recoveredMonth = firstPositiveMonth(cashFlows);
   const traces = [
     ...buildTraces({
       input,
@@ -216,7 +217,7 @@ export function calculateScheme(input: SchemeCalculationInput): SchemeCalculatio
       ruleCode: "R008",
       ruleVersion: input.ruleSet.ruleVersionId,
       calculationExpression: "vat_payable = MAX(0, output_vat - input_vat)",
-      explanation: "税额为负时利润表记 0。",
+      explanation: "税额为负时利润表记 0。现金流按进项税规则处理留抵，默认 CARRY_FORWARD，负增值税不形成当月现金流入。",
       sourceParameterSnapshot: {},
       sortNo: 22,
     },
@@ -234,6 +235,43 @@ export function calculateScheme(input: SchemeCalculationInput): SchemeCalculatio
         loan_cycle_months: String(input.finance.workingCapitalLoanCycle),
       },
       sortNo: 23,
+    },
+    {
+      resultCode: "first_positive_month",
+      resultName: "首次现金流转正月份",
+      resultValue: recoveredMonth == null ? null : String(recoveredMonth),
+      unit: "月",
+      ruleCode: "R009",
+      ruleVersion: input.ruleSet.ruleVersionId,
+      calculationExpression: "previous cumulative < 0 AND current cumulative >= 0，含 Month 0 初始投资",
+      explanation:
+        recoveredMonth == null
+          ? "测算期内累计现金流未转正。"
+          : recoveredMonth === 0
+            ? "Month 0 累计现金流已非负，不记为第 1 月。"
+            : `累计现金流在第 ${recoveredMonth} 月首次由负转非负。`,
+      sourceParameterSnapshot: {
+        month0_net: cashFlows[0] ? cashFlows[0].currentNetCashFlow.toString() : "0",
+      },
+      sortNo: 24,
+    },
+    {
+      resultCode: "vat_cash_rule",
+      resultName: "现金流增值税口径",
+      resultValue: input.inputVatRules.find((item) => item.code === input.finance.inputVatRule)?.negativeVatHandling ?? "CARRY_FORWARD",
+      unit: "",
+      ruleCode: "R008",
+      ruleVersion: input.ruleSet.ruleVersionId,
+      calculationExpression:
+        "CARRY_FORWARD: vatCashOut = MAX(0, outputVat - openingCredit - inputVat); RECOGNIZE_NEGATIVE: vatCashOut = outputVat - inputVat",
+      explanation:
+        "V1 默认 CARRY_FORWARD：进项超过销项形成留抵，不在当月记现金流入。RECOGNIZE_NEGATIVE 表示当月差额全部计入现金流，进项大于销项视为退税流入。",
+      sourceParameterSnapshot: {
+        input_vat_rule: input.finance.inputVatRule,
+        negative_vat_handling:
+          input.inputVatRules.find((item) => item.code === input.finance.inputVatRule)?.negativeVatHandling ?? "CARRY_FORWARD",
+      },
+      sortNo: 25,
     },
   ];
 
@@ -281,6 +319,11 @@ export function calculateScheme(input: SchemeCalculationInput): SchemeCalculatio
       taxCashOut: roundMoney(row.taxCashOut),
       currentNetCashFlow: roundMoney(row.currentNetCashFlow),
       cumulativeCashFlow: roundMoney(row.cumulativeCashFlow),
+      openingVatCredit: roundMoney(row.openingVatCredit),
+      outputVat: roundMoney(row.outputVat),
+      inputVat: roundMoney(row.inputVat),
+      vatCreditUsed: roundMoney(row.vatCreditUsed),
+      closingVatCredit: roundMoney(row.closingVatCredit),
     })),
     annualCashFlows: annualCashFlows.map((row) => ({
       ...row,
@@ -290,7 +333,7 @@ export function calculateScheme(input: SchemeCalculationInput): SchemeCalculatio
     irr,
     irrReason,
     irrByYears,
-    firstPositiveMonth: firstPositiveMonth(cashFlows),
+    firstPositiveMonth: recoveredMonth,
     cumulativeCashFlow: cashFlows.length
       ? roundMoney(cashFlows[cashFlows.length - 1].cumulativeCashFlow)
       : new Decimal(0),

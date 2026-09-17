@@ -281,6 +281,8 @@ export interface CostBreakdownItem {
 
 export interface MonthlyCashFlow {
   monthIndex: number;
+  isOperatingMonth: boolean;
+  isProjectMonth: boolean;
   revenueCashIn: Decimal;
   operatingCashOut: Decimal;
   vehicleCashOut: Decimal;
@@ -288,6 +290,11 @@ export interface MonthlyCashFlow {
   taxCashOut: Decimal;
   currentNetCashFlow: Decimal;
   cumulativeCashFlow: Decimal;
+  openingVatCredit: Decimal;
+  outputVat: Decimal;
+  inputVat: Decimal;
+  vatCreditUsed: Decimal;
+  closingVatCredit: Decimal;
 }
 
 export interface AnnualCashFlow {

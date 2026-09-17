@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CalculationSubnav } from "@/components/nav";
 import { Button, Card, PageHeader, StatusBadge } from "@/components/ui";
 import { api } from "@/lib/client";
-import { formatMoney, formatPercent } from "@/lib/format";
+import { formatFirstPositiveMonth, formatMoney, formatPercent } from "@/lib/format";
 
 type Scheme = {
   id: string;
@@ -49,7 +49,7 @@ const FIELDS: { key: keyof CompareRow; label: string; format?: (v: CompareRow) =
   { key: "monthlyProfit", label: "月利润", format: (r) => formatMoney(r.monthlyProfit) },
   { key: "profitMargin", label: "利润率", format: (r) => (r.profitMargin ? formatPercent(r.profitMargin) : "无法计算") },
   { key: "irr", label: "IRR", format: (r) => (r.irr ? formatPercent(r.irr) : "无法计算") },
-  { key: "firstPositiveMonth", label: "首次转正月份", format: (r) => (r.firstPositiveMonth ? `第 ${r.firstPositiveMonth} 月` : "—") },
+  { key: "firstPositiveMonth", label: "首次转正月份", format: (r) => (r.firstPositiveMonth == null ? "—" : formatFirstPositiveMonth(r.firstPositiveMonth)) },
 ];
 
 export default function ComparePage() {

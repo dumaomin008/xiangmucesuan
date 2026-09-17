@@ -4,9 +4,9 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { CalculationSubnav } from "@/components/nav";
-import { Card, PageHeader } from "@/components/ui";
+import { Card, MetricCard, PageHeader } from "@/components/ui";
 import { api } from "@/lib/client";
-import { explainUnavailable, formatMoney, formatPercent } from "@/lib/format";
+import { explainUnavailable, formatFirstPositiveMonth, formatMoney, formatMonthLabel, formatPercent } from "@/lib/format";
 
 type Row = {
   monthIndex: number;
@@ -27,6 +27,7 @@ type Annual = {
 };
 
 type ResultPayload = {
+  firstPositiveMonth?: number | null;
   payload: {
     annualCashFlows?: Annual[];
     irrByYears?: { years: number; irr: string | null; reason: string | null }[];
@@ -38,16 +39,20 @@ export default function CashFlowPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [annual, setAnnual] = useState<Annual[]>([]);
   const [irrByYears, setIrrByYears] = useState<{ years: number; irr: string | null; reason: string | null }[]>([]);
+  const [firstPositive, setFirstPositive] = useState<number | null>(null);
   useEffect(() => {
     api<Row[]>(`/api/calculation-schemes/${schemeId}/cash-flow`).then(setRows);
     api<ResultPayload>(`/api/calculation-schemes/${schemeId}/results`)
       .then((res) => {
         setAnnual(res.payload.annualCashFlows ?? []);
         setIrrByYears(res.payload.irrByYears ?? []);
+        setFirstPositive(res.firstPositiveMonth ?? null);
       })
       .catch(() => undefined);
   }, [schemeId]);
 
+  const month0 = rows.find((r) => r.monthIndex === 0);
+  const last = rows[rows.length - 1];
   const chart = rows.map((r) => ({
     month: r.monthIndex,
     current: Number(r.currentNetCashFlow),
@@ -57,7 +62,15 @@ export default function CashFlowPage() {
   return (
     <div>
       <CalculationSubnav projectId={projectId} schemeId={schemeId} />
-      <PageHeader title="现金流" subtitle="按月份生成，不只保存最终值。首付与月租按租赁规则落入对应月份。" />
+      <PageHeader
+        title="现金流"
+        subtitle="Month 0 计入初始投资。月度现金流聚合为年度，IRR 与投资回收期使用同一套时间轴。"
+      />
+      <div className="mb-5 grid gap-4 md:grid-cols-3">
+        <MetricCard label="初始投资" value={formatMoney(month0?.currentNetCashFlow)} hint="0期 / 初始投入，含车辆首付" />
+        <MetricCard label="累计现金流" value={formatMoney(last?.cumulativeCashFlow)} hint="已包含 Month 0 初始投资" />
+        <MetricCard label="首次转正月份" value={formatFirstPositiveMonth(firstPositive)} hint="previous < 0 且 current ≥ 0" />
+      </div>
       <Card className="mb-5 h-[360px]">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={chart}>
@@ -75,6 +88,7 @@ export default function CashFlowPage() {
             <XAxis dataKey="month" />
             <YAxis />
             <Tooltip
+              labelFormatter={(label) => formatMonthLabel(Number(label))}
               contentStyle={{
                 borderRadius: 16,
                 border: "1px solid rgba(255,255,255,0.5)",
@@ -82,7 +96,7 @@ export default function CashFlowPage() {
                 backdropFilter: "blur(20px)",
               }}
             />
-            <Area type="monotone" dataKey="current" name="当期现金流" stroke="#667EEA" fill="url(#c1)" />
+            <Area type="monotone" dataKey="current" name="当期净现金流" stroke="#667EEA" fill="url(#c1)" />
             <Area type="monotone" dataKey="cumulative" name="累计现金流" stroke="#2AF598" fill="url(#c2)" />
           </AreaChart>
         </ResponsiveContainer>
@@ -100,8 +114,8 @@ export default function CashFlowPage() {
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.monthIndex} className="border-t border-black/[0.04]">
-                <td className="px-4 py-3">{r.monthIndex}</td>
+              <tr key={r.monthIndex} className={`border-t border-black/[0.04] ${r.monthIndex === 0 ? "bg-[#667EEA]/[0.04]" : ""}`}>
+                <td className="px-4 py-3 font-medium">{formatMonthLabel(r.monthIndex)}</td>
                 <td className="px-4 py-3">{formatMoney(r.revenueCashIn)}</td>
                 <td className="px-4 py-3">{formatMoney(r.operatingCashOut)}</td>
                 <td className="px-4 py-3">{formatMoney(r.vehicleCashOut)}</td>
@@ -116,7 +130,7 @@ export default function CashFlowPage() {
       </Card>
       {annual.length > 0 && (
         <Card className="mt-5 overflow-x-auto p-0">
-          <div className="px-4 pt-4 text-[16px] font-semibold">年度现金流（Excel IRR 用这一套）</div>
+          <div className="px-4 pt-4 text-[16px] font-semibold">年度现金流（由月度聚合，IRR 用这一套）</div>
           <table className="mt-2 min-w-full text-left text-sm">
             <thead className="text-[12px] text-sn-muted">
               <tr>
@@ -130,7 +144,7 @@ export default function CashFlowPage() {
             <tbody>
               {annual.map((r) => (
                 <tr key={r.yearIndex} className="border-t border-black/[0.04]">
-                  <td className="px-4 py-3">{r.yearIndex === 0 ? "初始期" : `第 ${r.yearIndex} 年`}</td>
+                  <td className="px-4 py-3">{r.yearIndex === 0 ? "0期 / 初始投入" : `第 ${r.yearIndex} 年`}</td>
                   <td className="px-4 py-3">{r.active ? "是" : "否"}</td>
                   <td className="px-4 py-3">{formatMoney(r.currentNetCashFlow)}</td>
                   <td className="px-4 py-3">{formatMoney(r.cumulativeCashFlow)}</td>

@@ -16,7 +16,7 @@ describe("calculateScheme 集成", () => {
     )).toBe(true);
     expect(output.monthlyProfit.eq(output.monthlyRevenue.minus(output.monthlyTotalCost))).toBe(true);
     expect(output.profitMargin).not.toBeNull();
-    expect(output.cashFlows).toHaveLength(60);
+    expect(output.cashFlows).toHaveLength(61);
     expect(output.traces.find((t) => t.resultCode === "energy_cost")).toBeTruthy();
     expect(output.costBreakdown.map((c) => c.code)).toEqual(
       expect.arrayContaining(["vehicle_cost", "driver_cost", "energy_cost", "finance_cost", "tax_cost"]),

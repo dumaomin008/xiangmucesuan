@@ -1,3 +1,14 @@
+export function formatFirstPositiveMonth(month: number | null | undefined): string {
+  if (month === null || month === undefined) return "测算期内未转正";
+  if (month === 0) return "0期 / 初始投入已非负";
+  return `第 ${month} 月`;
+}
+
+export function formatMonthLabel(monthIndex: number): string {
+  if (monthIndex === 0) return "0期 / 初始投入";
+  return String(monthIndex);
+}
+
 export function formatMoney(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === "") return "—";
   const n = Number(value);

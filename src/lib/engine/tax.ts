@@ -62,3 +62,55 @@ export function calcTaxCostForProfit(
   }
   return vatPayable;
 }
+
+function minDec(a: Decimal, b: Decimal): Decimal {
+  return a.lte(b) ? a : b;
+}
+
+function maxDec(a: Decimal, b: Decimal): Decimal {
+  return a.gte(b) ? a : b;
+}
+
+export type VatSettlement = {
+  openingVatCredit: Decimal;
+  outputVat: Decimal;
+  inputVat: Decimal;
+  vatCreditUsed: Decimal;
+  vatCashOut: Decimal;
+  closingVatCredit: Decimal;
+};
+
+/**
+ * V1 现金流 VAT 结算。
+ * CARRY_FORWARD：进项超过销项时形成留抵，当月不产生现金流入。
+ * RECOGNIZE_NEGATIVE：当月进销项差额全部计入现金流，进项大于销项视为退税流入，不结转留抵。
+ */
+export function settleMonthlyVat(params: {
+  openingVatCredit: Decimal;
+  outputVat: Decimal;
+  inputVat: Decimal;
+  handling: InputVatRuleInput["negativeVatHandling"];
+}): VatSettlement {
+  const { openingVatCredit, outputVat, inputVat, handling } = params;
+  if (handling === "RECOGNIZE_NEGATIVE") {
+    const vatCreditUsed = minDec(outputVat, inputVat);
+    return {
+      openingVatCredit,
+      outputVat,
+      inputVat,
+      vatCreditUsed: vatCreditUsed.gt(0) ? vatCreditUsed : new Decimal(0),
+      vatCashOut: outputVat.minus(inputVat),
+      closingVatCredit: new Decimal(0),
+    };
+  }
+
+  const availableCredit = openingVatCredit.plus(inputVat);
+  return {
+    openingVatCredit,
+    outputVat,
+    inputVat,
+    vatCreditUsed: minDec(outputVat, availableCredit),
+    vatCashOut: maxDec(new Decimal(0), outputVat.minus(availableCredit)),
+    closingVatCredit: maxDec(new Decimal(0), availableCredit.minus(outputVat)),
+  };
+}

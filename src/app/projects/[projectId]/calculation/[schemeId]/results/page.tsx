@@ -6,7 +6,7 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import { CalculationSubnav } from "@/components/nav";
 import { Card, MetricCard, PageHeader } from "@/components/ui";
 import { api } from "@/lib/client";
-import { explainUnavailable, formatMoney, formatPercent, formatQty } from "@/lib/format";
+import { explainUnavailable, formatFirstPositiveMonth, formatMoney, formatPercent, formatQty } from "@/lib/format";
 import { Character } from "@/components/empty";
 
 type Result = {
@@ -171,7 +171,7 @@ export default function ResultsPage() {
         <MetricCard
           label="IRR"
           value={result.irr ? formatPercent(result.irr) : "无法计算"}
-          hint={explainUnavailable(result.irrReason) || `首次转正：第 ${result.firstPositiveMonth ?? "—"} 月`}
+          hint={explainUnavailable(result.irrReason) || `首次转正：${formatFirstPositiveMonth(result.firstPositiveMonth)}`}
         />
         <MetricCard label="单车月收入" value={formatMoney(result.vehicleMonthlyRevenue)} />
         <MetricCard label="单车月利润" value={formatMoney(result.vehicleMonthlyProfit)} />
@@ -223,7 +223,7 @@ export default function ResultsPage() {
           <div className="mt-4 grid grid-cols-2 gap-3">
             <div className="rounded-sn-md bg-sn-subtle p-4">
               <div className="text-[12px] text-sn-muted">首次现金流转正</div>
-              <div className="mt-1 text-[22px] font-bold">{result.firstPositiveMonth ? `第 ${result.firstPositiveMonth} 月` : "测算期内未转正"}</div>
+              <div className="mt-1 text-[22px] font-bold">{formatFirstPositiveMonth(result.firstPositiveMonth)}</div>
             </div>
             <div className="rounded-sn-md bg-sn-subtle p-4">
               <div className="text-[12px] text-sn-muted">规则版本</div>

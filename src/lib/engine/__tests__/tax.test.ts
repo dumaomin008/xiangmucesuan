@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Decimal } from "../decimal";
-import { calcInputVat, calcOutputVat, calcTaxCostForProfit, calcVatPayable } from "../tax";
+import { calcInputVat, calcOutputVat, calcTaxCostForProfit, calcVatPayable, settleMonthlyVat } from "../tax";
 
 describe("TaxCalculator", () => {
   it("正常销项税", () => {
@@ -26,5 +26,16 @@ describe("TaxCalculator", () => {
       },
     });
     expect(inputVat.toString()).toBe("130");
+  });
+
+  it("CARRY_FORWARD 留抵：负差不形成现金流入", () => {
+    const settled = settleMonthlyVat({
+      openingVatCredit: new Decimal(0),
+      outputVat: new Decimal(50000),
+      inputVat: new Decimal(80000),
+      handling: "CARRY_FORWARD",
+    });
+    expect(settled.vatCashOut.toString()).toBe("0");
+    expect(settled.closingVatCredit.toString()).toBe("30000");
   });
 });

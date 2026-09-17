@@ -99,7 +99,8 @@ describe("Excel 黄金样本 /tests/golden", () => {
     input.vehicle.leaseType = "HIRE_PURCHASE";
     input.vehicle.downPaymentPerVehicle = "60000";
     const v5 = calculateExcelV5(input);
-    expect(v5.cashFlows[0].monthIndex).toBe(1);
+    expect(v5.cashFlows[0].monthIndex).toBe(0);
+    expect(v5.cashFlows[0].currentNetCashFlow.lt(0)).toBe(true);
     expect(v5.annualCashFlows[0].currentNetCashFlow.lt(0)).toBe(true);
     expect(v5.cashFlows.some((row) => row.cumulativeCashFlow.gte(0))).toBe(true);
     const irr4 = v5.irrByYears.find((row) => row.years === 4);

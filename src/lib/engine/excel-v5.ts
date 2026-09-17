@@ -7,6 +7,7 @@ import { calcExcelInputVat, calcExcelOutputVat, calcExcelVatPayable } from "./ta
 import { getLeaseType, isExcelPureLease, resolveManagementFee } from "./rule-engine";
 import { calcSegmentRevenue, resolveRevenueFormula } from "./revenue";
 import { resolveSegmentDriverPerTrip } from "./variable-cost";
+import { buildHorizonCashFlows, IRR_MAX_YEARS } from "./cash-flow";
 import type {
   AnnualCashFlow,
   DriverCostSource,
@@ -446,7 +447,8 @@ export function calculateExcelMonthlyPnl(input: SchemeCalculationInput): {
   };
 }
 
-function revenueHorizonMonths(ctx: ExcelWorkingContext): number {
+/** 项目经营期以月为最小单位，禁止先按年截断再反推月份 */
+export function resolveProjectHorizonMonths(ctx: ExcelWorkingContext): number {
   if (ctx.projectOperatingMonths > 0) return ctx.projectOperatingMonths;
   if (ctx.isPureLease) {
     if (ctx.installmentMonths > 0) return ctx.installmentMonths;
@@ -457,199 +459,60 @@ function revenueHorizonMonths(ctx: ExcelWorkingContext): number {
   return ctx.calculationYears * 12;
 }
 
-function yearActive(ctx: ExcelWorkingContext, year: number, kind: "revenueWindow" | "rentFull" | "rentResidual"): boolean {
-  const monthCursor = year * 12;
-  if (ctx.projectOperatingMonths > 0) {
-    return monthCursor <= ctx.projectOperatingMonths;
-  }
-  if (ctx.isPureLease) {
-    return monthCursor <= revenueHorizonMonths(ctx);
-  }
-  if (kind === "rentFull") return monthCursor <= ctx.installmentMonths;
-  if (kind === "rentResidual") return monthCursor > ctx.installmentMonths && monthCursor <= ctx.depreciationMonths.toNumber();
-  return monthCursor <= ctx.depreciationMonths.toNumber();
+function resolveVatHandling(input: SchemeCalculationInput): "CARRY_FORWARD" | "RECOGNIZE_NEGATIVE" {
+  const found = input.inputVatRules.find((item) => item.code === input.finance.inputVatRule);
+  return found?.negativeVatHandling ?? "CARRY_FORWARD";
 }
 
-function annualRent(ctx: ExcelWorkingContext, year: number): Decimal {
-  if (ctx.isPureLease) {
-    return yearActive(ctx, year, "rentFull") ? ctx.monthlyRent.mul(ctx.fleetSize).mul(12) : new Decimal(0);
-  }
-  if (yearActive(ctx, year, "rentFull")) {
-    return ctx.monthlyRent.mul(ctx.fleetSize).mul(12);
-  }
-  if (yearActive(ctx, year, "rentResidual")) {
-    return new Decimal(ctx.installmentMonths % 12).mul(ctx.monthlyRent).mul(ctx.fleetSize);
-  }
-  return new Decimal(0);
+function buildExcelCashFlows(
+  input: SchemeCalculationInput,
+  pnl: ReturnType<typeof calculateExcelMonthlyPnl>,
+  maxYear = IRR_MAX_YEARS,
+) {
+  const { total, ctx, actualMonthly } = pnl;
+  return buildHorizonCashFlows({
+    calculationYears: input.calculationYears,
+    irrMaxYears: maxYear,
+    projectHorizonMonths: resolveProjectHorizonMonths(ctx),
+    operatingMonthsYear: ctx.operatingMonths.toNumber(),
+    installmentMonths: ctx.installmentMonths,
+    downPaymentTotal: ctx.downPayment.mul(ctx.fleetSize),
+    inputStandardRate: ctx.inputStandardRate,
+    inputInsuranceRate: ctx.inputInsuranceRate,
+    outputVatRate: ctx.outputVatRate,
+    monthlyRevenue: total.revenue,
+    actualMonthly,
+    operatingPnl: {
+      driverCost: total.driverCost,
+      tollCost: total.tollCost,
+      loadingCost: total.loadingCost,
+      infoCost: total.infoCost,
+      energyCost: total.energyCost,
+      tireCost: total.tireCost,
+    },
+    discountRate: ctx.discountRate,
+    receivableMonths: ctx.receivableMonths,
+    wcRate: ctx.wcRate,
+    loanCycleMonths: ctx.loanCycleMonths,
+    vatHandling: resolveVatHandling(input),
+  });
 }
 
-/** Excel 年度现金流 AI61 / AJ61… 及 IRR(4/5/6/8年) */
+/** 年度现金流由月度聚合：Year N = SUM(Month (N-1)*12+1 ~ N*12)，Year 0 = Month 0 */
 export function calculateExcelAnnualCashFlows(
   input: SchemeCalculationInput,
   pnl = calculateExcelMonthlyPnl(input),
-  maxYear = 8,
+  maxYear = IRR_MAX_YEARS,
 ): AnnualCashFlow[] {
-  const { total, ctx, actualMonthly } = pnl;
-  const down = ctx.downPayment.mul(ctx.fleetSize);
-  const year0InputVat = down.mul(ctx.inputStandardRate).div(ctx.inputStandardRate.plus(1));
-  const year0Vat = new Decimal(0).minus(year0InputVat);
-  const year0Net = down.negated().plus(year0Vat);
-
-  const rows: AnnualCashFlow[] = [
-    { yearIndex: 0, currentNetCashFlow: year0Net, cumulativeCashFlow: year0Net, active: true },
-  ];
-  let cumulative = year0Net;
-
-  for (let year = 1; year <= maxYear; year++) {
-    const active = yearActive(ctx, year, "revenueWindow");
-    if (!active) {
-      cumulative = cumulative.plus(0);
-      rows.push({ yearIndex: year, currentNetCashFlow: new Decimal(0), cumulativeCashFlow: cumulative, active: false });
-      continue;
-    }
-
-    const revenue = total.revenue.mul(ctx.operatingMonths);
-    const rent = annualRent(ctx, year);
-    const times12 = (monthlyActual: Decimal) => monthlyActual.mul(12);
-    const timesOp = (monthlyPnl: Decimal) => monthlyPnl.mul(ctx.operatingMonths);
-
-    const managementFee = times12(actualMonthly.managementFee);
-    const roadFee = times12(actualMonthly.roadFee);
-    const maintenanceFee = times12(actualMonthly.maintenanceFee);
-    const inspectionFee = times12(actualMonthly.inspectionFee);
-    const insuranceFee = times12(actualMonthly.insuranceFee);
-    const parkingFee = times12(actualMonthly.parkingFee);
-    const heaterFee = times12(actualMonthly.heaterFee);
-    const consumableFee = times12(actualMonthly.consumableFee);
-    const driverCost = timesOp(total.driverCost);
-    const tollCost = timesOp(total.tollCost);
-    const loadingCost = timesOp(total.loadingCost);
-    const infoCost = timesOp(total.infoCost);
-    const energyCost = timesOp(total.energyCost);
-    const tireCost = timesOp(total.tireCost);
-    const advanceCost = revenue.mul(ctx.discountRate).div(12).mul(ctx.receivableMonths);
-    const sum41to55 = rent
-      .plus(managementFee)
-      .plus(roadFee)
-      .plus(maintenanceFee)
-      .plus(inspectionFee)
-      .plus(insuranceFee)
-      .plus(parkingFee)
-      .plus(heaterFee)
-      .plus(consumableFee)
-      .plus(driverCost)
-      .plus(tollCost)
-      .plus(loadingCost)
-      .plus(infoCost)
-      .plus(energyCost)
-      .plus(tireCost);
-    const wcInterest = sum41to55.mul(ctx.wcRate).div(12).mul(ctx.loanCycleMonths);
-    const outputVat = calcExcelOutputVat(revenue, ctx.outputVatRate);
-    const inputVat = calcExcelInputVat({
-      vehicleCost: rent,
-      energyCost,
-      tireCost,
-      insuranceCost: insuranceFee,
-      inputStandardRate: ctx.inputStandardRate,
-      inputInsuranceRate: ctx.inputInsuranceRate,
-    });
-    const vatPayable = calcExcelVatPayable(outputVat, inputVat);
-    const current = revenue.minus(sum41to55).minus(advanceCost).minus(wcInterest).minus(vatPayable);
-    cumulative = cumulative.plus(current);
-    rows.push({ yearIndex: year, currentNetCashFlow: current, cumulativeCashFlow: cumulative, active: true });
-  }
-
-  return rows;
+  return buildExcelCashFlows(input, pnl, maxYear).annual;
 }
 
-/** Excel 月度现金流 AJ3–AJ25，并按测算年数展开 */
+/** 月度现金流：Month 0 初始投资 + Month 1~N 经营月 */
 export function calculateExcelMonthlyCashFlows(
   input: SchemeCalculationInput,
   pnl = calculateExcelMonthlyPnl(input),
 ): MonthlyCashFlow[] {
-  const { total, ctx, actualMonthly } = pnl;
-  const months = input.calculationYears * 12;
-  const rows: MonthlyCashFlow[] = [];
-  let cumulative = new Decimal(0);
-
-  for (let month = 1; month <= months; month++) {
-    const year = Math.ceil(month / 12);
-    const monthInYear = ((month - 1) % 12) + 1;
-    const active = yearActive(ctx, year, "revenueWindow") || (ctx.isPureLease && month <= ctx.installmentMonths);
-    const operating = active && monthInYear <= ctx.operatingMonths.toNumber();
-    const revenue = operating ? total.revenue : new Decimal(0);
-    const rent = month <= ctx.installmentMonths ? actualMonthly.rent : new Decimal(0);
-    const managementFee = active ? actualMonthly.managementFee : new Decimal(0);
-    const roadFee = active ? actualMonthly.roadFee : new Decimal(0);
-    const maintenanceFee = active ? actualMonthly.maintenanceFee : new Decimal(0);
-    const inspectionFee = active ? actualMonthly.inspectionFee : new Decimal(0);
-    const insuranceFee = active ? actualMonthly.insuranceFee : new Decimal(0);
-    const parkingFee = active ? actualMonthly.parkingFee : new Decimal(0);
-    const heaterFee = active ? actualMonthly.heaterFee : new Decimal(0);
-    const consumableFee = active ? actualMonthly.consumableFee : new Decimal(0);
-    const driverCost = operating ? total.driverCost : new Decimal(0);
-    const tollCost = operating ? total.tollCost : new Decimal(0);
-    const loadingCost = operating ? total.loadingCost : new Decimal(0);
-    const infoCost = operating ? total.infoCost : new Decimal(0);
-    const energyCost = operating ? total.energyCost : new Decimal(0);
-    const tireCost = operating ? total.tireCost : new Decimal(0);
-    const advanceCost = revenue.mul(ctx.discountRate).div(12).mul(ctx.receivableMonths);
-    const sum5to19 = rent
-      .plus(managementFee)
-      .plus(roadFee)
-      .plus(maintenanceFee)
-      .plus(inspectionFee)
-      .plus(insuranceFee)
-      .plus(parkingFee)
-      .plus(heaterFee)
-      .plus(consumableFee)
-      .plus(driverCost)
-      .plus(tollCost)
-      .plus(loadingCost)
-      .plus(infoCost)
-      .plus(energyCost)
-      .plus(tireCost);
-    const wcInterest = sum5to19.mul(ctx.wcRate).div(12).mul(ctx.loanCycleMonths);
-    const outputVat = calcExcelOutputVat(revenue, ctx.outputVatRate);
-    const inputVat = calcExcelInputVat({
-      vehicleCost: rent,
-      energyCost,
-      tireCost,
-      insuranceCost: insuranceFee,
-      inputStandardRate: ctx.inputStandardRate,
-      inputInsuranceRate: ctx.inputInsuranceRate,
-    });
-    const vatCash = outputVat.minus(inputVat);
-    const operatingCashOut = managementFee
-      .plus(roadFee)
-      .plus(maintenanceFee)
-      .plus(inspectionFee)
-      .plus(insuranceFee)
-      .plus(parkingFee)
-      .plus(heaterFee)
-      .plus(consumableFee)
-      .plus(driverCost)
-      .plus(tollCost)
-      .plus(loadingCost)
-      .plus(infoCost)
-      .plus(energyCost)
-      .plus(tireCost)
-      .plus(advanceCost);
-    const current = revenue.minus(sum5to19).minus(advanceCost).minus(wcInterest).minus(vatCash);
-    cumulative = cumulative.plus(current);
-    rows.push({
-      monthIndex: month,
-      revenueCashIn: revenue,
-      operatingCashOut,
-      vehicleCashOut: rent,
-      financingCashFlow: wcInterest,
-      taxCashOut: vatCash,
-      currentNetCashFlow: current,
-      cumulativeCashFlow: cumulative,
-    });
-  }
-
-  return rows;
+  return buildExcelCashFlows(input, pnl).monthly;
 }
 
 export function calculateExcelIrrByYears(annual: AnnualCashFlow[]): { years: number; irr: Decimal | null; reason: string | null }[] {
@@ -661,8 +524,7 @@ export function calculateExcelIrrByYears(annual: AnnualCashFlow[]): { years: num
 
 export function calculateExcelV5(input: SchemeCalculationInput) {
   const pnl = calculateExcelMonthlyPnl(input);
-  const annualCashFlows = calculateExcelAnnualCashFlows(input, pnl);
-  const cashFlows = calculateExcelMonthlyCashFlows(input, pnl);
+  const { monthly: cashFlows, annual: annualCashFlows } = buildExcelCashFlows(input, pnl);
   const irrByYears = calculateExcelIrrByYears(annualCashFlows);
   const irr8 = irrByYears.find((item) => item.years === 8) ?? irrByYears[irrByYears.length - 1];
   return {

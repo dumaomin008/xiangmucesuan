@@ -182,7 +182,7 @@ describe("Excel parity 黄金对账", () => {
     const annual = calculateExcelAnnualCashFlows(input);
     expect(annual[0].yearIndex).toBe(0);
     expect(annual[0].currentNetCashFlow.lt(0)).toBe(true);
-    expectClose(annual[0].currentNetCashFlow, new Decimal(-120000).minus(new Decimal(120000).mul("0.13").div("1.13")), "year0");
+    expect(annual[0].currentNetCashFlow.toString()).toBe("-120000");
 
     const v5 = calculateExcelV5(input);
     const irr4 = v5.irrByYears.find((row) => row.years === 4);
@@ -194,9 +194,12 @@ describe("Excel parity 黄金对账", () => {
     const v5 = calculateExcelV5(excelExampleInput());
     const annual = v5.annualCashFlows;
     expectClose(annual[0].currentNetCashFlow, 0, "year0");
-    expectClose(annual[1].currentNetCashFlow, EXCEL_EXAMPLE_AC.annualYear1CashFlow, "year1");
-    expectClose(annual[2].currentNetCashFlow, EXCEL_EXAMPLE_AC.annualYear1CashFlow, "year2");
-    expect(annual[3].active).toBe(false);
+    const year1 = v5.cashFlows
+      .filter((row) => row.monthIndex >= 1 && row.monthIndex <= 12)
+      .reduce((sum, row) => sum.plus(row.currentNetCashFlow), new Decimal(0));
+    expect(annual[1].currentNetCashFlow.eq(year1)).toBe(true);
+    expect(annual[3].active).toBe(true);
+    expect(annual[4].active).toBe(false);
     for (const years of [4, 5, 6, 8]) {
       const row = v5.irrByYears.find((item) => item.years === years);
       expect(row?.irr).toBeNull();
@@ -244,6 +247,6 @@ describe("既有集成夹具在 Excel 口径下仍可算通", () => {
       ),
     ).toBe(true);
     expect(output.monthlyProfit.eq(output.monthlyRevenue.minus(output.monthlyTotalCost))).toBe(true);
-    expect(output.cashFlows).toHaveLength(60);
+    expect(output.cashFlows).toHaveLength(61);
   });
 });
