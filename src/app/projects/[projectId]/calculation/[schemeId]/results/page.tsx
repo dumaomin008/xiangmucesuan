@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { Fragment, useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { CalculationSubnav } from "@/components/nav";
@@ -77,16 +77,18 @@ type Result = {
 
 export default function ResultsPage() {
   const { projectId, schemeId } = useParams<{ projectId: string; schemeId: string }>();
+  const snapshotId = useSearchParams().get("snapshotId");
   const [result, setResult] = useState<Result | null>(null);
   const [open, setOpen] = useState<Result["items"][number] | null>(null);
   const [expanded, setExpanded] = useState<string>("");
   const [error, setError] = useState("");
 
   useEffect(() => {
-    api<Result>(`/api/calculation-schemes/${schemeId}/results`)
+    const qs = snapshotId ? `?snapshotId=${snapshotId}` : "";
+    api<Result>(`/api/calculation-schemes/${schemeId}/results${qs}`)
       .then(setResult)
       .catch((e) => setError(e.message));
-  }, [schemeId]);
+  }, [schemeId, snapshotId]);
 
   const show = (code: string) => {
     const item = result?.items.find((i) => i.resultCode === code);

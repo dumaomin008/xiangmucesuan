@@ -96,6 +96,7 @@ export default function WizardPage() {
   const [errors, setErrors] = useState<{ field: string; message: string }[]>([]);
   const [warnings, setWarnings] = useState<{ field: string; message: string }[]>([]);
   const [banner, setBanner] = useState("");
+  const [calculating, setCalculating] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const segmentTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
@@ -426,7 +427,7 @@ export default function WizardPage() {
                     }}
                   />
                 </Field>
-                <Field label="线路权重" hint="高级字段，非必填，待业务确认">
+                <Field label="线路权重" hint="预留字段，不参与本期测算。原 Excel 五组 20% 含义待业务确认。">
                   <TextInput
                     type="number"
                     value={currentRoute.weight ?? ""}
@@ -749,19 +750,26 @@ export default function WizardPage() {
             </Card>
           )}
           <Button
+            disabled={calculating || errors.length > 0}
             onClick={async () => {
-              await persist(scheme);
-              const v = await validate();
-              if (v.errors.length) return;
+              if (calculating) return;
+              setCalculating(true);
               try {
+                await persist(scheme);
+                const v = await validate();
+                if (v.errors.length) return;
                 await api(`/api/calculation-schemes/${schemeId}/calculate`, { method: "POST" });
                 router.push(`/projects/${projectId}/calculation/${schemeId}/results`);
               } catch (e) {
-                setBanner(e instanceof Error ? e.message : "测算失败");
+                const err = e as Error & { payload?: { code?: string; field?: string; message?: string } };
+                const parts = [err.payload?.code, err.payload?.field, err.payload?.message || err.message].filter(Boolean);
+                setBanner(parts.join(" · ") || "测算失败");
+              } finally {
+                setCalculating(false);
               }
             }}
           >
-            开始测算
+            {calculating ? "正在测算..." : "开始测算"}
           </Button>
         </div>
       )}

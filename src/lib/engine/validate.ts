@@ -8,8 +8,8 @@ export function validateSchemeInput(input: SchemeCalculationInput): {
   const errors: ValidationIssue[] = [];
   const warnings: ValidationIssue[] = [];
 
-  const pushError = (field: string, message: string) => {
-    errors.push({ code: "CALC_PARAMETER_INVALID", field, message, level: "error" });
+  const pushError = (field: string, message: string, code = "CALC_PARAMETER_INVALID") => {
+    errors.push({ code, field, message, level: "error" });
   };
   const pushWarning = (field: string, message: string) => {
     warnings.push({ code: "CALC_PARAMETER_WARNING", field, message, level: "warning" });
@@ -38,7 +38,7 @@ export function validateSchemeInput(input: SchemeCalculationInput): {
 
   const enabledRoutes = input.routes.filter((r) => r.enabled);
   if (enabledRoutes.length === 0) {
-    pushError("routes", "至少需要一条启用中的线路");
+    errors.push({ code: "NO_ENABLED_SEGMENT", field: "routes", message: "至少需要一条启用中的线路", level: "error" });
   }
 
   const missingStd = input.standardParameters.filter((p) => p.value === "" || p.value == null);
@@ -50,9 +50,7 @@ export function validateSchemeInput(input: SchemeCalculationInput): {
   }
 
   for (const route of enabledRoutes) {
-    if (!route.weight && route.weight !== 0) {
-      pushWarning(`route.${route.id}.weight`, `线路「${route.routeName}」权重未配置`);
-    }
+    // route.weight 为 RESERVED：V1 不参与收入/成本计算，原 Excel 五组 20% 待业务确认。
     const segs = route.segments.filter((s) => s.enabled);
     if (segs.length === 0) {
       pushError(`route.${route.id}.segments`, `线路「${route.routeName}」至少需要一个路段`);
@@ -69,13 +67,15 @@ export function validateSchemeInput(input: SchemeCalculationInput): {
       const months = safeNum(seg.operatingMonthsYear);
 
       if (distance === null || distance.lte(0)) pushError(`${prefix}.distance_km`, "路段没有有效里程");
-      if (distance !== null && distance.lt(0)) pushError(`${prefix}.distance_km`, "里程不得为负");
-      if (price === null) pushError(`${prefix}.freight_price`, "运价为空");
+      if (price === null) pushError(`${prefix}.freight_price`, "运价为空", "INVALID_FREIGHT_PRICE");
+      if (price !== null && price.lt(0)) pushError(`${prefix}.freight_price`, "运价不得为负", "INVALID_FREIGHT_PRICE");
       if (load !== null && load.lt(0)) pushError(`${prefix}.load_ton`, "载重不得为负");
       if (trips === null || trips.lte(0)) pushError(`${prefix}.trips_per_vehicle_month`, "单车月运营趟数必须大于0");
-      if (trips !== null && trips.lt(0)) pushError(`${prefix}.trips_per_vehicle_month`, "趟数不得为负");
       if (energyLoaded === null || energyEmpty === null) pushError(`${prefix}.energy`, "必要能耗为空");
+      if (energyLoaded !== null && energyLoaded.lt(0)) pushError(`${prefix}.energy`, "满载能耗不得为负");
+      if (energyEmpty !== null && energyEmpty.lt(0)) pushError(`${prefix}.energy`, "空载能耗不得为负");
       if (electricity === null) pushError(`${prefix}.electricity_price`, "电价为空");
+      if (electricity !== null && electricity.lt(0)) pushError(`${prefix}.electricity_price`, "电价不得为负");
       if (months === null || months.lte(0) || months.gt(12)) {
         if (input.finance.operatingMonthsYear == null) {
           pushError(`${prefix}.operating_months_year`, "年运营月数必须在 1–12 之间");
@@ -143,6 +143,33 @@ export function validateSchemeInput(input: SchemeCalculationInput): {
   const tireLife = safeNum(input.vehicle.tireLifeKm);
   if (tireLife !== null && tireLife.lte(0) && input.vehicle.tireCount > 0) {
     pushError("tire_life_km", "轮胎寿命必须大于 0，否则轮胎成本分母为 0");
+  }
+
+  const vehicleNonNeg: [string, string][] = [
+    [input.vehicle.downPaymentPerVehicle, "down_payment_per_vehicle"],
+    [input.vehicle.monthlyRentPerVehicle, "monthly_rent_per_vehicle"],
+    [input.vehicle.managementFeePerVehicle, "management_fee"],
+    [input.vehicle.roadMaintenanceFee, "road_maintenance_fee"],
+    [input.vehicle.maintenanceFee, "maintenance_fee"],
+    [input.vehicle.annualInspectionFee, "inspection_fee"],
+    [input.vehicle.insuranceFee, "insurance_fee"],
+    [input.vehicle.parkingFee, "parking_fee"],
+    [input.vehicle.heaterFee, "heater_fee"],
+    [input.vehicle.consumableFee, "consumable_fee"],
+    [input.vehicle.tireUnitPrice, "tire_unit_price"],
+    [input.vehicle.driverCost, "driver_cost"],
+  ];
+  for (const [value, field] of vehicleNonNeg) {
+    const n = safeNum(value);
+    if (n !== null && n.lt(0)) pushError(field, "该费用不得为负");
+  }
+  if (input.vehicle.installmentMonths < 0) pushError("installment_months", "分期月份不得为负");
+  if (input.vehicle.tireCount < 0) pushError("tire_count", "轮胎数量不得为负");
+  if (input.calculationYears <= 0) pushError("calculation_years", "测算年限必须为正整数");
+  if (input.finance.receivableCycle < 0) pushError("receivable_cycle", "回款周期不得为负");
+  if (input.finance.workingCapitalLoanCycle < 0) pushError("working_capital_loan_cycle", "贷款周期不得为负");
+  if (input.finance.projectOperatingMonths != null && input.finance.projectOperatingMonths < 0) {
+    pushError("project_operating_months", "项目经营月数不得为负");
   }
 
   return { errors, warnings };

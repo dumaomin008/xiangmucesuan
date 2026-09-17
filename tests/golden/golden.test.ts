@@ -181,6 +181,8 @@ describe("Excel 黄金样本 /tests/golden", () => {
       const baseline = rows.find((r) => r.isBaseline);
       expect(baseline?.monthlyProfit).toBe(origin.monthlyProfit.toFixed(2));
       expect(baseline?.monthlyRevenue).toBe(origin.monthlyRevenue.toFixed(2));
+      expect(baseline?.monthlyCost).toBe(origin.monthlyTotalCost.toFixed(2));
+      expect(baseline?.profitMargin).toBe(origin.profitMargin ? origin.profitMargin.toFixed(4) : null);
     }
   });
 });

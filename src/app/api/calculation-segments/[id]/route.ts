@@ -2,16 +2,17 @@ import { prisma } from "@/lib/db";
 import { actorFrom, fail, ok } from "@/lib/api";
 import { canEdit } from "@/lib/auth";
 import { EngineError } from "@/lib/engine/decimal";
+import { requireEditableSegment } from "@/lib/services/scheme";
+import { assertSegmentNonNegative, readJson } from "@/lib/guards";
 
 export async function PUT(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     const { role } = actorFrom(req);
     if (!canEdit(role)) return fail(new EngineError("FORBIDDEN", "role", "当前角色不能编辑路段"), 403);
-    const body = await req.json();
+    const current = await requireEditableSegment(id);
+    const body = (await readJson(req)) as Record<string, unknown>;
     if (body.move && (body.move === "up" || body.move === "down")) {
-      const current = await prisma.calculationRouteSegment.findUnique({ where: { id } });
-      if (!current) return fail(new Error("路段不存在"), 404);
       const neighbor = await prisma.calculationRouteSegment.findFirst({
         where: {
           routeId: current.routeId,
@@ -32,15 +33,16 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       return ok(list);
     }
 
+    assertSegmentNonNegative(body);
     const segment = await prisma.calculationRouteSegment.update({
       where: { id },
       data: {
-        segmentName: body.segmentName,
-        originName: body.originName,
-        destinationName: body.destinationName,
+        segmentName: String(body.segmentName ?? current.segmentName),
+        originName: String(body.originName ?? current.originName),
+        destinationName: String(body.destinationName ?? current.destinationName),
         distanceKm: String(body.distanceKm ?? "0"),
         freightPrice: String(body.freightPrice ?? "0"),
-        freightPriceUnit: body.freightPriceUnit,
+        freightPriceUnit: String(body.freightPriceUnit ?? current.freightPriceUnit),
         loadTon: String(body.loadTon ?? "0"),
         tripsPerVehicleMonth: String(body.tripsPerVehicleMonth ?? "0"),
         operatingMonthsYear: String(body.operatingMonthsYear ?? "12"),
@@ -51,8 +53,8 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         emptyEnergyConsumption: String(body.emptyEnergyConsumption ?? "0"),
         electricityPrice: String(body.electricityPrice ?? "0"),
         driverCostPerTrip: String(body.driverCostPerTrip ?? "0"),
-        enabled: body.enabled ?? true,
-        sortNo: body.sortNo,
+        enabled: (body.enabled as boolean | undefined) ?? true,
+        sortNo: (body.sortNo as number | undefined) ?? current.sortNo,
       },
     });
     return ok(segment);
@@ -66,6 +68,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     const { id } = await params;
     const { role } = actorFrom(req);
     if (!canEdit(role)) return fail(new EngineError("FORBIDDEN", "role", "当前角色不能删除路段"), 403);
+    await requireEditableSegment(id);
     await prisma.calculationRouteSegment.delete({ where: { id } });
     return ok({ ok: true });
   } catch (err) {

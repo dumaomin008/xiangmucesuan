@@ -2,17 +2,19 @@ import { prisma } from "@/lib/db";
 import { actorFrom, fail, ok } from "@/lib/api";
 import { canEdit } from "@/lib/auth";
 import { EngineError } from "@/lib/engine/decimal";
+import { requireEditableRoute } from "@/lib/services/scheme";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
     const { role } = actorFrom(req);
     if (!canEdit(role)) return fail(new EngineError("FORBIDDEN", "role", "当前角色不能复制线路"), 403);
+    await requireEditableRoute(id);
     const source = await prisma.calculationRoute.findUnique({
       where: { id },
       include: { segments: true },
     });
-    if (!source) return fail(new Error("线路不存在"), 404);
+    if (!source) return fail(new EngineError("NOT_FOUND", "route", "线路不存在"));
     const count = await prisma.calculationRoute.count({ where: { schemeId: source.schemeId } });
     const created = await prisma.calculationRoute.create({
       data: {
@@ -41,6 +43,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
             loadedEnergyConsumption: seg.loadedEnergyConsumption,
             emptyEnergyConsumption: seg.emptyEnergyConsumption,
             electricityPrice: seg.electricityPrice,
+            driverCostPerTrip: seg.driverCostPerTrip,
             enabled: true,
           })),
         },

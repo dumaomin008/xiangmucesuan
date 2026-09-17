@@ -3,6 +3,12 @@ import { actorFrom, fail, ok } from "@/lib/api";
 import { canEdit } from "@/lib/auth";
 import { EngineError } from "@/lib/engine/decimal";
 import { audit } from "@/lib/services/scheme";
+import {
+  assertFinanceNonNegative,
+  assertPositiveInt,
+  assertVehicleNonNegative,
+  readJson,
+} from "@/lib/guards";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -18,7 +24,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
         results: { orderBy: { calculatedAt: "desc" }, take: 1 },
       },
     });
-    if (!scheme) return fail(new Error("方案不存在"), 404);
+    if (!scheme) return fail(new EngineError("NOT_FOUND", "scheme", "方案不存在"));
     return ok(scheme);
   } catch (err) {
     return fail(err);
@@ -34,14 +40,40 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
       where: { id },
       include: { vehiclePlan: true, financeTaxPlan: true },
     });
-    if (!scheme) return fail(new Error("方案不存在"), 404);
+    if (!scheme) return fail(new EngineError("NOT_FOUND", "scheme", "方案不存在"));
     if (scheme.status === "baseline") {
       return fail(new EngineError("CALC_PARAMETER_INVALID", "status", "基准方案不可直接覆盖修改，请先复制生成新版本"), 400);
     }
     if (scheme.status === "archived") {
       return fail(new EngineError("CALC_PARAMETER_INVALID", "status", "已归档方案不可修改"), 400);
     }
-    const body = await req.json();
+    const body = (await readJson(req)) as {
+      schemeName?: string;
+      description?: string;
+      leaseType?: string;
+      fleetSize?: number;
+      calculationYears?: number;
+      expectedStartDate?: string;
+      expectedEndDate?: string;
+      vehicle?: Record<string, string | number>;
+      finance?: Record<string, string | number | null>;
+      overrides?: {
+        parameterCode: string;
+        standardValue: string;
+        overrideValue: string;
+        overrideReason?: string;
+        unit?: string | null;
+        parameterName?: string;
+      }[];
+    };
+    if (body.fleetSize != null) assertPositiveInt(body.fleetSize, "fleet_size", "车辆数");
+    if (body.calculationYears != null) assertPositiveInt(body.calculationYears, "calculation_years", "测算年限");
+    if (body.vehicle && typeof body.vehicle === "object") {
+      assertVehicleNonNegative(body.vehicle as Record<string, unknown>);
+    }
+    if (body.finance && typeof body.finance === "object") {
+      assertFinanceNonNegative(body.finance as Record<string, unknown>);
+    }
 
     const updated = await prisma.calculationScheme.update({
       where: { id },
@@ -59,43 +91,43 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
     });
 
     if (body.vehicle && scheme.vehiclePlan) {
-      const vehicle = body.vehicle;
+      const vehicle = body.vehicle as Record<string, string>;
       await prisma.vehiclePlan.update({
         where: { schemeId: id },
         data: {
           fleetSize: updated.fleetSize,
           leaseType: updated.leaseType,
-          downPaymentPerVehicle: vehicle.downPaymentPerVehicle,
+          downPaymentPerVehicle: String(vehicle.downPaymentPerVehicle ?? ""),
           installmentMonths: Number(vehicle.installmentMonths || 0),
-          monthlyRentPerVehicle: vehicle.monthlyRentPerVehicle,
-          managementFeePerVehicle: vehicle.managementFeePerVehicle,
-          roadMaintenanceFee: vehicle.roadMaintenanceFee,
-          maintenanceFee: vehicle.maintenanceFee,
-          annualInspectionFee: vehicle.annualInspectionFee,
-          insuranceFee: vehicle.insuranceFee,
-          parkingFee: vehicle.parkingFee,
-          heaterFee: vehicle.heaterFee,
-          consumableFee: vehicle.consumableFee,
-          tireLifeKm: vehicle.tireLifeKm,
+          monthlyRentPerVehicle: String(vehicle.monthlyRentPerVehicle ?? ""),
+          managementFeePerVehicle: String(vehicle.managementFeePerVehicle ?? ""),
+          roadMaintenanceFee: String(vehicle.roadMaintenanceFee ?? ""),
+          maintenanceFee: String(vehicle.maintenanceFee ?? ""),
+          annualInspectionFee: String(vehicle.annualInspectionFee ?? ""),
+          insuranceFee: String(vehicle.insuranceFee ?? ""),
+          parkingFee: String(vehicle.parkingFee ?? ""),
+          heaterFee: String(vehicle.heaterFee ?? ""),
+          consumableFee: String(vehicle.consumableFee ?? ""),
+          tireLifeKm: String(vehicle.tireLifeKm ?? ""),
           tireCount: Number(vehicle.tireCount || 0),
-          tireUnitPrice: vehicle.tireUnitPrice,
-          driverCost: vehicle.driverCost,
-          driverCostType: vehicle.driverCostType,
+          tireUnitPrice: String(vehicle.tireUnitPrice ?? ""),
+          driverCost: String(vehicle.driverCost ?? ""),
+          driverCostType: String(vehicle.driverCostType ?? "PER_VEHICLE_MONTH"),
         },
       });
     }
 
     if (body.finance && scheme.financeTaxPlan) {
-      const finance = body.finance;
+      const finance = body.finance as Record<string, string | number | null>;
       await prisma.financeTaxPlan.update({
         where: { schemeId: id },
         data: {
           receivableCycle: Number(finance.receivableCycle),
           workingCapitalLoanCycle: Number(finance.workingCapitalLoanCycle),
-          workingCapitalInterestRate: finance.workingCapitalInterestRate,
-          discountRate: finance.discountRate,
-          outputVatRate: finance.outputVatRate,
-          inputVatRule: finance.inputVatRule,
+          workingCapitalInterestRate: String(finance.workingCapitalInterestRate ?? ""),
+          discountRate: String(finance.discountRate ?? ""),
+          outputVatRate: String(finance.outputVatRate ?? ""),
+          inputVatRule: String(finance.inputVatRule ?? ""),
           calculationYears: updated.calculationYears,
           depreciationMonths: Number(finance.depreciationMonths || 60),
           projectOperatingMonths:
@@ -169,7 +201,7 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     const { role, actor } = actorFrom(req);
     if (!canEdit(role)) return fail(new EngineError("FORBIDDEN", "role", "当前角色不能删除"), 403);
     const scheme = await prisma.calculationScheme.findUnique({ where: { id } });
-    if (!scheme) return fail(new Error("方案不存在"), 404);
+    if (!scheme) return fail(new EngineError("NOT_FOUND", "scheme", "方案不存在"));
     if (scheme.status !== "draft") {
       return fail(new EngineError("CALC_PARAMETER_INVALID", "status", "只能删除草稿方案"), 400);
     }

@@ -199,6 +199,56 @@ export async function nextSchemeCode(projectId: string) {
 }
 
 export async function executeCalculation(schemeId: string, actor: string) {
+  if (calculatingSchemes.has(schemeId)) {
+    throw new EngineError("CALC_IN_PROGRESS", "scheme", "测算正在进行，请勿重复提交");
+  }
+  calculatingSchemes.add(schemeId);
+  try {
+    return await executeCalculationUnlocked(schemeId, actor);
+  } finally {
+    calculatingSchemes.delete(schemeId);
+  }
+}
+
+const calculatingSchemes = new Set<string>();
+
+export function assertSchemeStatusEditable(status: string) {
+  if (status === "baseline") {
+    throw new EngineError("CALC_PARAMETER_INVALID", "status", "基准方案不可直接覆盖修改，请先复制生成新版本");
+  }
+  if (status === "archived") {
+    throw new EngineError("CALC_PARAMETER_INVALID", "status", "已归档方案不可修改");
+  }
+}
+
+export async function requireEditableScheme(schemeId: string) {
+  const scheme = await prisma.calculationScheme.findUnique({ where: { id: schemeId } });
+  if (!scheme) throw new EngineError("NOT_FOUND", "scheme", "方案不存在");
+  assertSchemeStatusEditable(scheme.status);
+  return scheme;
+}
+
+export async function requireEditableRoute(routeId: string) {
+  const route = await prisma.calculationRoute.findUnique({
+    where: { id: routeId },
+    include: { scheme: true },
+  });
+  if (!route) throw new EngineError("NOT_FOUND", "route", "线路不存在");
+  assertSchemeStatusEditable(route.scheme.status);
+  return route;
+}
+
+export async function requireEditableSegment(segmentId: string) {
+  const segment = await prisma.calculationRouteSegment.findUnique({
+    where: { id: segmentId },
+    include: { route: { include: { scheme: true } } },
+  });
+  if (!segment) throw new EngineError("NOT_FOUND", "segment", "路段不存在");
+  assertSchemeStatusEditable(segment.route.scheme.status);
+  return segment;
+}
+
+async function executeCalculationUnlocked(schemeId: string, actor: string) {
   const scheme = await prisma.calculationScheme.findUnique({ where: { id: schemeId } });
   if (!scheme) throw new EngineError("CALC_PARAMETER_INVALID", "scheme", "方案不存在");
   if (scheme.status === "archived") {

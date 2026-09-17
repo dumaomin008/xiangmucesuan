@@ -27,6 +27,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ project
     const { role, actor } = actorFrom(req);
     if (!canEdit(role)) return fail(new EngineError("FORBIDDEN", "role", "当前角色不能新建测算"), 403);
     const body = await req.json();
+    if (body.fleetSize != null) {
+      const n = Number(body.fleetSize);
+      if (!Number.isInteger(n) || n <= 0) {
+        return fail(new EngineError("CALC_PARAMETER_INVALID", "fleet_size", "车辆数必须为正整数"));
+      }
+    }
     const std = await prisma.standardParameter.findMany({ where: { enabled: true } });
     const pick = (code: string, fallback: string) => std.find((p) => p.parameterCode === code)?.value ?? fallback;
 

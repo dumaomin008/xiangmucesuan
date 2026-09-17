@@ -1,6 +1,6 @@
 export function formatFirstPositiveMonth(month: number | null | undefined): string {
   if (month === null || month === undefined) return "测算期内未转正";
-  if (month === 0) return "0期 / 初始投入已非负";
+  if (month === 0) return "无需回收初始投资";
   return `第 ${month} 月`;
 }
 

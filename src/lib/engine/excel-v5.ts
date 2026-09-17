@@ -177,7 +177,7 @@ export function buildExcelContext(input: SchemeCalculationInput): ExcelWorkingCo
 
   const totalWeight = segments.reduce((sum, seg) => sum.plus(seg.weight), new Decimal(0));
   if (totalWeight.isZero()) {
-    throw new EngineError("CALC_DIV_ZERO", "allocation_weight", "路段里程×趟数合计为 0，无法按 Excel 口径分摊");
+    throw new EngineError("ZERO_ALLOCATION_DENOMINATOR", "allocation_weight", "路段里程×趟数合计为 0，无法按 Excel 口径分摊");
   }
 
   return {

@@ -110,7 +110,14 @@ export function calculateScheme(input: SchemeCalculationInput): SchemeCalculatio
       monthlyMileage: segs.reduce((s, x) => s.plus(x.segmentMonthlyMileage), new Decimal(0)),
       energyCost: segs.reduce((s, x) => s.plus(x.energyCost), new Decimal(0)),
       variableCost: segs.reduce(
-        (s, x) => s.plus(x.energyCost).plus(x.tollCost).plus(x.loadingUnloadingCost).plus(x.informationFeeCost).plus(x.tireCost),
+        (s, x) =>
+          s
+            .plus(x.energyCost)
+            .plus(x.tollCost)
+            .plus(x.loadingUnloadingCost)
+            .plus(x.informationFeeCost)
+            .plus(x.tireCost)
+            .plus(x.driverCost),
         new Decimal(0),
       ),
       fixedCost: segs.reduce((s, x) => {

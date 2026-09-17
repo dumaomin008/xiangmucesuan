@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { CalculationSubnav } from "@/components/nav";
@@ -36,20 +36,22 @@ type ResultPayload = {
 
 export default function CashFlowPage() {
   const { projectId, schemeId } = useParams<{ projectId: string; schemeId: string }>();
+  const snapshotId = useSearchParams().get("snapshotId");
   const [rows, setRows] = useState<Row[]>([]);
   const [annual, setAnnual] = useState<Annual[]>([]);
   const [irrByYears, setIrrByYears] = useState<{ years: number; irr: string | null; reason: string | null }[]>([]);
   const [firstPositive, setFirstPositive] = useState<number | null>(null);
   useEffect(() => {
-    api<Row[]>(`/api/calculation-schemes/${schemeId}/cash-flow`).then(setRows);
-    api<ResultPayload>(`/api/calculation-schemes/${schemeId}/results`)
+    const qs = snapshotId ? `?snapshotId=${snapshotId}` : "";
+    api<Row[]>(`/api/calculation-schemes/${schemeId}/cash-flow${qs}`).then(setRows);
+    api<ResultPayload>(`/api/calculation-schemes/${schemeId}/results${qs}`)
       .then((res) => {
         setAnnual(res.payload.annualCashFlows ?? []);
         setIrrByYears(res.payload.irrByYears ?? []);
         setFirstPositive(res.firstPositiveMonth ?? null);
       })
       .catch(() => undefined);
-  }, [schemeId]);
+  }, [schemeId, snapshotId]);
 
   const month0 = rows.find((r) => r.monthIndex === 0);
   const last = rows[rows.length - 1];

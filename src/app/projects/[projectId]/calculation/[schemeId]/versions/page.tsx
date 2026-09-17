@@ -15,6 +15,7 @@ type Version = {
   changeNote: string | null;
   ruleVersion: string;
   calculationStatus: string;
+  snapshotId: string | null;
 };
 type Log = {
   id: string;
@@ -52,6 +53,14 @@ export default function VersionsPage() {
                 </div>
               </div>
               <StatusBadge status={v.calculationStatus} />
+              {v.snapshotId && (
+                <a
+                  className="text-[13px] font-medium text-sn-primary underline-offset-2 hover:underline"
+                  href={`/projects/${projectId}/calculation/${schemeId}/results?snapshotId=${v.snapshotId}`}
+                >
+                  查看该次结果
+                </a>
+              )}
             </div>
           ))}
           {versions.length === 0 && <p className="text-sn-secondary">尚未形成正式测算版本。</p>}

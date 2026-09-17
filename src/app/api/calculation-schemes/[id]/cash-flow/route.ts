@@ -1,11 +1,12 @@
 import { prisma } from "@/lib/db";
 import { fail, ok } from "@/lib/api";
 
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params;
+    const snapshotId = new URL(req.url).searchParams.get("snapshotId");
     const latest = await prisma.calculationResult.findFirst({
-      where: { schemeId: id },
+      where: snapshotId ? { schemeId: id, snapshotId } : { schemeId: id },
       orderBy: { calculatedAt: "desc" },
     });
     if (!latest) return ok([]);

@@ -7,7 +7,16 @@ export function ok(data: unknown, status = 200) {
 
 export function fail(err: unknown, status?: number) {
   if (err instanceof EngineError) {
-    return Response.json({ code: err.code, field: err.field, message: err.message }, { status: status ?? 400 });
+    const mapped =
+      status ??
+      (err.code === "NOT_FOUND"
+        ? 404
+        : err.code === "FORBIDDEN"
+          ? 403
+          : err.code === "CALC_IN_PROGRESS"
+            ? 409
+            : 400);
+    return Response.json({ code: err.code, field: err.field, message: err.message }, { status: mapped });
   }
   const message = err instanceof Error ? err.message : "服务器异常";
   return Response.json({ code: "INTERNAL_ERROR", field: "", message }, { status: status ?? 500 });

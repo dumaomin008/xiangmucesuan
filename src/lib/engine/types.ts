@@ -47,6 +47,7 @@ export interface RouteInput {
   routeName: string;
   routeCode: string;
   sortNo: number;
+  /** RESERVED：V1 不参与收入/成本计算。原 Excel 五组 20% 权重待业务确认，禁止自行加入测算。 */
   weight: number | null;
   description: string | null;
   enabled: boolean;
