@@ -1,0 +1,380 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id             String   @id @default(cuid())
+  projectCode    String   @unique
+  projectName    String
+  customerName   String
+  projectManager String
+  projectStatus  String
+  startDate      DateTime?
+  endDate        DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  schemes        CalculationScheme[]
+}
+
+model CalculationScheme {
+  id                String   @id @default(cuid())
+  projectId         String
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  schemeName        String
+  schemeCode        String
+  versionNo         String
+  status            String
+  description       String?
+  leaseType         String
+  fleetSize         Int
+  calculationYears  Int
+  expectedStartDate DateTime?
+  expectedEndDate   DateTime?
+  createdBy         String
+  createdAt         DateTime @default(now())
+  updatedBy         String
+  updatedAt         DateTime @updatedAt
+  sourceSchemeId    String?
+  parentVersionId   String?
+  ruleVersionId     String
+  isHistoricalBaseline Boolean @default(false)
+
+  routes            CalculationRoute[]
+  vehiclePlan       VehiclePlan?
+  financeTaxPlan    FinanceTaxPlan?
+  versions          CalculationSchemeVersion[]
+  snapshots         ParameterSnapshot[]
+  results           CalculationResult[]
+  cashFlows         CashFlowResult[]
+  sensitivityTasks  SensitivityTask[]
+  changeLogs        ParameterChangeLog[]
+  overrides         ParameterOverride[]
+}
+
+model CalculationSchemeVersion {
+  id               String   @id @default(cuid())
+  schemeId         String
+  scheme           CalculationScheme @relation(fields: [schemeId], references: [id], onDelete: Cascade)
+  versionNo        String
+  parentVersionId  String?
+  createdBy        String
+  createdAt        DateTime @default(now())
+  changeNote       String?
+  ruleVersion      String
+  calculationStatus String
+  snapshotId       String?
+  resultId         String?
+}
+
+model CalculationRoute {
+  id          String   @id @default(cuid())
+  schemeId    String
+  scheme      CalculationScheme @relation(fields: [schemeId], references: [id], onDelete: Cascade)
+  routeName   String
+  routeCode   String
+  sortNo      Int
+  weight      Float?
+  description String?
+  enabled     Boolean  @default(true)
+  segments    CalculationRouteSegment[]
+}
+
+model CalculationRouteSegment {
+  id                       String   @id @default(cuid())
+  routeId                  String
+  route                    CalculationRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  segmentName              String
+  sortNo                   Int
+  originName               String
+  destinationName          String
+  distanceKm               String
+  freightPrice             String
+  freightPriceUnit         String
+  loadTon                  String
+  tripsPerVehicleMonth     String
+  operatingMonthsYear      String
+  tollPerTrip              String   @default("0")
+  loadingUnloadingFee      String   @default("0")
+  informationFee           String   @default("0")
+  loadedEnergyConsumption  String
+  emptyEnergyConsumption   String
+  electricityPrice         String
+  driverCostPerTrip        String   @default("0")
+  enabled                  Boolean  @default(true)
+}
+
+model VehiclePlan {
+  id                      String  @id @default(cuid())
+  schemeId                String  @unique
+  scheme                  CalculationScheme @relation(fields: [schemeId], references: [id], onDelete: Cascade)
+  fleetSize               Int
+  leaseType               String
+  downPaymentPerVehicle   String  @default("0")
+  installmentMonths       Int     @default(0)
+  monthlyRentPerVehicle   String  @default("0")
+  managementFeePerVehicle String  @default("0")
+  roadMaintenanceFee      String  @default("0")
+  maintenanceFee          String  @default("0")
+  annualInspectionFee     String  @default("0")
+  insuranceFee            String  @default("0")
+  parkingFee              String  @default("0")
+  heaterFee               String  @default("0")
+  consumableFee           String  @default("0")
+  tireLifeKm              String  @default("0")
+  tireCount               Int     @default(0)
+  tireUnitPrice           String  @default("0")
+  driverCost              String  @default("0")
+  driverCostType          String  @default("PER_VEHICLE_MONTH")
+}
+
+model FinanceTaxPlan {
+  id                        String  @id @default(cuid())
+  schemeId                  String  @unique
+  scheme                    CalculationScheme @relation(fields: [schemeId], references: [id], onDelete: Cascade)
+  receivableCycle           Int
+  workingCapitalLoanCycle   Int
+  workingCapitalInterestRate String
+  discountRate              String
+  outputVatRate             String
+  inputVatRule              String
+  calculationYears          Int
+  depreciationMonths        Int     @default(60)
+  projectOperatingMonths    Int?
+}
+
+model ParameterOverride {
+  id             String   @id @default(cuid())
+  schemeId       String
+  scheme         CalculationScheme @relation(fields: [schemeId], references: [id], onDelete: Cascade)
+  parameterCode  String
+  standardValue  String
+  overrideValue  String
+  overrideReason String
+  unit           String?
+  createdBy      String
+  createdAt      DateTime @default(now())
+
+  @@unique([schemeId, parameterCode])
+}
+
+model StandardParameter {
+  id            String   @id @default(cuid())
+  parameterCode String
+  parameterName String
+  category      String
+  value         String
+  unit          String
+  effectiveDate DateTime
+  expireDate    DateTime?
+  version       String
+  enabled       Boolean  @default(true)
+  description   String?
+  scope         String   @default("COMPANY")
+  versions      StandardParameterVersion[]
+}
+
+model StandardParameterVersion {
+  id            String   @id @default(cuid())
+  parameterId   String
+  parameter     StandardParameter @relation(fields: [parameterId], references: [id], onDelete: Cascade)
+  value         String
+  version       String
+  effectiveDate DateTime
+  expireDate    DateTime?
+  createdAt     DateTime @default(now())
+}
+
+model CalculationRule {
+  id          String   @id @default(cuid())
+  ruleCode    String   @unique
+  ruleName    String
+  category    String
+  description String?
+  versions    CalculationRuleVersion[]
+}
+
+model CalculationRuleVersion {
+  id          String   @id @default(cuid())
+  ruleId      String
+  rule        CalculationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  version     String
+  configJson  String
+  effectiveDate DateTime
+  enabled     Boolean @default(true)
+  createdAt   DateTime @default(now())
+
+  @@unique([ruleId, version])
+}
+
+model ManagementFeeTier {
+  id               String   @id @default(cuid())
+  minVehicleCount  Int
+  maxVehicleCount  Int?
+  fee              String
+  effectiveDate    DateTime
+  version          String
+  enabled          Boolean  @default(true)
+}
+
+model LeaseTypeConfig {
+  code                    String  @id
+  name                    String
+  enabled                 Boolean @default(true)
+  showDownPayment         Boolean
+  showInstallment         Boolean
+  showMonthlyRent         Boolean
+  downPaymentRequired     Boolean
+  installmentRequired     Boolean
+  monthlyRentRequired     Boolean
+  cashFlowRuleJson        String
+  sortNo                  Int     @default(0)
+  isPureLease             Boolean @default(false)
+}
+
+model InputVatRuleConfig {
+  code                   String  @id
+  name                   String
+  deductibleCostCodesJson String
+  inputVatRate           String
+  negativeVatHandling    String
+  description            String?
+  enabled                Boolean @default(true)
+}
+
+model FreightPriceUnitConfig {
+  code        String  @id
+  name        String
+  enabled     Boolean @default(true)
+  sortNo      Int     @default(0)
+}
+
+model ParameterSnapshot {
+  id            String   @id @default(cuid())
+  schemeId      String
+  scheme        CalculationScheme @relation(fields: [schemeId], references: [id], onDelete: Cascade)
+  versionNo     String
+  ruleVersionId String
+  payloadJson   String
+  createdBy     String
+  createdAt     DateTime @default(now())
+}
+
+model CalculationResult {
+  id                 String   @id @default(cuid())
+  schemeId           String
+  scheme             CalculationScheme @relation(fields: [schemeId], references: [id], onDelete: Cascade)
+  snapshotId         String
+  ruleVersionId      String
+  monthlyRevenue     String
+  monthlyTotalCost   String
+  monthlyProfit      String
+  profitMargin       String?
+  profitMarginReason String?
+  vehicleMonthlyRevenue String
+  vehicleMonthlyProfit  String
+  monthlyVolume      String
+  monthlyMileage     String
+  irr                String?
+  irrReason          String?
+  irr4y              String?
+  irr5y              String?
+  irr6y              String?
+  irr8y              String?
+  firstPositiveMonth Int?
+  cumulativeCashFlow String
+  payloadJson        String
+  calculatedBy       String
+  calculatedAt       DateTime @default(now())
+  items              CalculationResultItem[]
+}
+
+model CalculationResultItem {
+  id                        String  @id @default(cuid())
+  resultId                  String
+  result                    CalculationResult @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  resultCode                String
+  resultName                String
+  resultValue               String?
+  unit                      String
+  ruleCode                  String
+  ruleVersion               String
+  calculationExpression     String
+  explanation               String
+  sourceParameterSnapshot   String
+  parentCode                String?
+  sortNo                    Int     @default(0)
+}
+
+model CashFlowResult {
+  id                    String @id @default(cuid())
+  schemeId              String
+  scheme                CalculationScheme @relation(fields: [schemeId], references: [id], onDelete: Cascade)
+  snapshotId            String
+  monthIndex            Int
+  revenueCashIn         String
+  operatingCashOut      String
+  vehicleCashOut        String
+  financingCashFlow     String
+  taxCashOut            String
+  currentNetCashFlow    String
+  cumulativeCashFlow    String
+}
+
+model SensitivityTask {
+  id             String   @id @default(cuid())
+  schemeId       String
+  scheme         CalculationScheme @relation(fields: [schemeId], references: [id], onDelete: Cascade)
+  variableCode   String
+  changeMode     String
+  minChange      String
+  maxChange      String
+  step           String
+  status         String
+  createdBy      String
+  createdAt      DateTime @default(now())
+  results        SensitivityResult[]
+}
+
+model SensitivityResult {
+  id              String @id @default(cuid())
+  taskId          String
+  task            SensitivityTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  parameterChange String
+  monthlyRevenue  String
+  monthlyCost     String
+  monthlyProfit   String
+  profitMargin    String?
+  profitDelta     String
+  profitDeltaRate String?
+  isBaseline      Boolean @default(false)
+}
+
+model ParameterChangeLog {
+  id             String   @id @default(cuid())
+  schemeId       String
+  scheme         CalculationScheme @relation(fields: [schemeId], references: [id], onDelete: Cascade)
+  versionId      String?
+  parameterCode  String
+  parameterName  String
+  oldValue       String?
+  newValue       String?
+  unit           String?
+  changeReason   String?
+  changedBy      String
+  changedAt      DateTime @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  action     String
+  entityType String
+  entityId   String
+  actor      String
+  detailJson String
+  createdAt  DateTime @default(now())
+}
