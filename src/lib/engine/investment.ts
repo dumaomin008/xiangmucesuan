@@ -1,4 +1,5 @@
 import { Decimal } from "./decimal";
+import { IRR_REASONS } from "./reasons";
 
 function solveIrr(
   cashFlows: Decimal[],
@@ -7,13 +8,13 @@ function solveIrr(
   tolerance: number,
 ): { irr: Decimal | null; reason: string | null } {
   if (cashFlows.length < 2) {
-    return { irr: null, reason: "现金流期数不足，无法计算" };
+    return { irr: null, reason: IRR_REASONS.IRR_INSUFFICIENT_PERIODS };
   }
 
   const hasPositive = cashFlows.some((v) => v.gt(0));
   const hasNegative = cashFlows.some((v) => v.lt(0));
   if (!hasPositive || !hasNegative) {
-    return { irr: null, reason: "现金流未同时出现正负号，无法计算" };
+    return { irr: null, reason: IRR_REASONS.IRR_NO_SIGN_CHANGE };
   }
 
   let rate = new Decimal(guess);
@@ -23,7 +24,7 @@ function solveIrr(
     for (let t = 0; t < cashFlows.length; t++) {
       const denom = rate.plus(1).pow(t);
       if (denom.isZero()) {
-        return { irr: null, reason: "迭代过程中分母为 0，无法计算" };
+        return { irr: null, reason: IRR_REASONS.IRR_DIV_ZERO };
       }
       npv = npv.plus(cashFlows[t].div(denom));
       if (t > 0) {
@@ -31,18 +32,18 @@ function solveIrr(
       }
     }
     if (dNpv.isZero()) {
-      return { irr: null, reason: "导数为 0，无法计算" };
+      return { irr: null, reason: IRR_REASONS.IRR_NOT_CONVERGED };
     }
     const next = rate.minus(npv.div(dNpv));
     if (!next.isFinite() || next.abs().gt(100)) {
-      return { irr: null, reason: "迭代发散，无法计算" };
+      return { irr: null, reason: IRR_REASONS.IRR_DIVERGED };
     }
     if (next.minus(rate).abs().lt(tolerance)) {
       return { irr: next, reason: null };
     }
     rate = next;
   }
-  return { irr: null, reason: "超过最大迭代次数，无法计算" };
+  return { irr: null, reason: IRR_REASONS.IRR_NOT_CONVERGED };
 }
 
 /** Excel IRR()：对给定周期现金流求解，不做月度年化 */
@@ -66,7 +67,7 @@ export function newtonRaphsonIrr(
   if (monthly.irr == null) return monthly;
   const annual = monthly.irr.plus(1).pow(12).minus(1);
   if (!annual.isFinite()) {
-    return { irr: null, reason: "年化结果非法，无法计算" };
+    return { irr: null, reason: IRR_REASONS.IRR_ANNUALIZE_INVALID };
   }
   return { irr: annual, reason: null };
 }
@@ -83,7 +84,7 @@ export function calcIrrForYears(
   const months = years * 12;
   const slice = monthly.slice(0, months);
   if (slice.length < months) {
-    return { irr: null, reason: `测算年限不足 ${years} 年` };
+    return { irr: null, reason: IRR_REASONS.IRR_HORIZON_SHORT };
   }
   return newtonRaphsonIrr(slice);
 }

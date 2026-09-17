@@ -19,6 +19,6 @@ describe("ProfitCalculator", () => {
   it("营收为 0 时利润率返回 null，不抛除零", () => {
     const result = calcProfitMargin(new Decimal(-100), new Decimal(0));
     expect(result.margin).toBeNull();
-    expect(result.reason).toContain("无法计算");
+    expect(result.reason).toBe("REVENUE_ZERO");
   });
 });

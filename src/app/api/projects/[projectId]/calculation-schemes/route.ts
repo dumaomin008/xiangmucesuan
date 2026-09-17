@@ -85,6 +85,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ project
         calculationYears: scheme.calculationYears,
         depreciationMonths: Number(body.depreciationMonths || pick("STD_DEPRECIATION_MONTHS", "60")),
         projectOperatingMonths: body.projectOperatingMonths ? Number(body.projectOperatingMonths) : null,
+        operatingMonthsYear: body.operatingMonthsYear ? Number(body.operatingMonthsYear) : 12,
       },
     });
 

@@ -1,4 +1,5 @@
 import { Decimal, safeDiv } from "./decimal";
+import { PROFIT_MARGIN_REASONS } from "./reasons";
 
 export function calcTotalCost(params: {
   fixedCost: Decimal;
@@ -22,7 +23,7 @@ export function calcProfitMargin(
 ): { margin: Decimal | null; reason: string | null } {
   const margin = safeDiv(profit, revenue);
   if (margin === null) {
-    return { margin: null, reason: "营收为 0，利润率无法计算" };
+    return { margin: null, reason: PROFIT_MARGIN_REASONS.REVENUE_ZERO };
   }
   return { margin, reason: null };
 }

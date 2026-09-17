@@ -26,6 +26,8 @@ export function formatDateTime(value: string | Date | null | undefined): string 
   return d.toLocaleString("zh-CN", { hour12: false });
 }
 
+export { explainUnavailable, PARAMETER_SOURCE_LABEL } from "./engine/reasons";
+
 export const STATUS_LABEL: Record<string, string> = {
   draft: "草稿",
   calculated: "已测算",

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { fail, ok } from "@/lib/api";
+import { summarizeFreightPricing } from "@/lib/engine/revenue";
 
 export async function POST(req: Request) {
   try {
@@ -15,6 +16,7 @@ export async function POST(req: Request) {
         results: { orderBy: { calculatedAt: "desc" }, take: 1 },
       },
     });
+    const units = await prisma.freightPriceUnitConfig.findMany({ where: { enabled: true } });
     const rows = schemes.map((s) => {
       const segs = s.routes.flatMap((r) => r.segments);
       const avg = (field: keyof (typeof segs)[number]) => {
@@ -23,6 +25,31 @@ export async function POST(req: Request) {
         return (sum / segs.length).toFixed(2);
       };
       const latest = s.results[0];
+      const payload = latest
+        ? (JSON.parse(latest.payloadJson) as {
+            freightPricing?: {
+              mixed: boolean;
+              label: string;
+              averagePrice: string | null;
+              byUnit: { name: string; averagePrice: string; segmentCount: number }[];
+            };
+          })
+        : null;
+      const pricing =
+        payload?.freightPricing ??
+        summarizeFreightPricing({
+          routes: s.routes.map((route) => ({
+            id: route.id,
+            routeName: route.routeName,
+            routeCode: route.routeCode,
+            sortNo: route.sortNo,
+            weight: route.weight,
+            description: route.description,
+            enabled: route.enabled,
+            segments: route.segments.map((seg) => ({ ...seg, enabled: true })),
+          })),
+          freightPriceUnits: units,
+        });
       return {
         id: s.id,
         schemeName: s.schemeName,
@@ -30,7 +57,10 @@ export async function POST(req: Request) {
         status: s.status,
         fleetSize: s.fleetSize,
         routeCount: s.routes.length,
-        avgFreightPrice: avg("freightPrice"),
+        avgFreightPrice: pricing.mixed ? null : pricing.averagePrice,
+        freightPricingLabel: pricing.label,
+        freightPricingMixed: pricing.mixed,
+        freightPricingByUnit: pricing.byUnit,
         avgTrips: avg("tripsPerVehicleMonth"),
         avgElectricityPrice: avg("electricityPrice"),
         avgLoadedEnergy: avg("loadedEnergyConsumption"),

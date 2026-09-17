@@ -77,7 +77,9 @@ export function validateSchemeInput(input: SchemeCalculationInput): {
       if (energyLoaded === null || energyEmpty === null) pushError(`${prefix}.energy`, "必要能耗为空");
       if (electricity === null) pushError(`${prefix}.electricity_price`, "电价为空");
       if (months === null || months.lte(0) || months.gt(12)) {
-        pushError(`${prefix}.operating_months_year`, "年运营月数必须在 1–12 之间");
+        if (input.finance.operatingMonthsYear == null) {
+          pushError(`${prefix}.operating_months_year`, "年运营月数必须在 1–12 之间");
+        }
       }
 
       if (!input.freightPriceUnits.some((u) => u.code === seg.freightPriceUnit)) {
@@ -93,6 +95,21 @@ export function validateSchemeInput(input: SchemeCalculationInput): {
         pushWarning(`${prefix}.loaded_energy_consumption`, `满载能耗明显偏离标准值 ${stdLoaded.toString()}`);
       }
     }
+  }
+
+  const schemeMonths = input.finance.operatingMonthsYear;
+  if (schemeMonths != null && (schemeMonths < 1 || schemeMonths > 12)) {
+    pushError("operating_months_year", "方案级年运营月数必须在 1–12 之间");
+  }
+  const enabledSegMonths = enabledRoutes.flatMap((route) =>
+    route.segments.filter((s) => s.enabled).map((s) => s.operatingMonthsYear),
+  );
+  const uniqueMonths = [...new Set(enabledSegMonths)];
+  if (uniqueMonths.length > 1) {
+    pushWarning(
+      "operating_months_year",
+      `路段年运营月数不一致（${uniqueMonths.join("、")}），正式计算统一使用方案级年运营月数 ${schemeMonths ?? uniqueMonths[0]}`,
+    );
   }
 
   const vat = safeNum(input.finance.outputVatRate);

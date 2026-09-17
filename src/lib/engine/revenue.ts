@@ -1,6 +1,18 @@
 import { Decimal, toDecimal } from "./decimal";
 import { splitMileage } from "./rule-engine";
-import type { SchemeCalculationInput, SegmentInput, SegmentMetrics } from "./types";
+import type {
+  FreightPricingSummary,
+  SchemeCalculationInput,
+  SegmentInput,
+  SegmentMetrics,
+} from "./types";
+
+export function resolveRevenueFormula(
+  unit: string,
+  formulaByUnit: Record<string, "PER_TON" | "PER_TRIP" | "PER_TON_KM">,
+): "PER_TON" | "PER_TRIP" | "PER_TON_KM" {
+  return formulaByUnit[unit] ?? "PER_TON";
+}
 
 export function calcSegmentRevenue(
   segment: SegmentInput,
@@ -13,13 +25,36 @@ export function calcSegmentRevenue(
   const distance = toDecimal(segment.distanceKm);
   const fleet = new Decimal(fleetSize);
 
+  if ((formula === "PER_TON" || formula === "PER_TON_KM") && load.isZero()) {
+    return new Decimal(0);
+  }
   if (formula === "PER_TRIP") {
-    return price.mul(trips).mul(fleet);
+    return fleet.mul(trips).mul(price);
   }
   if (formula === "PER_TON_KM") {
-    return price.mul(load).mul(distance).mul(trips).mul(fleet);
+    return fleet.mul(trips).mul(load).mul(distance).mul(price);
   }
-  return price.mul(load).mul(trips).mul(fleet);
+  return fleet.mul(trips).mul(load).mul(price);
+}
+
+export function revenueExpression(
+  formula: "PER_TON" | "PER_TRIP" | "PER_TON_KM",
+  segment: SegmentInput,
+  fleetSize: number,
+  amount: Decimal,
+): string {
+  const fleet = String(fleetSize);
+  const trips = segment.tripsPerVehicleMonth;
+  const price = segment.freightPrice;
+  const load = segment.loadTon;
+  const distance = segment.distanceKm;
+  if (formula === "PER_TRIP") {
+    return `${fleet} × ${trips} × ${price} = ¥${amount.toString()}`;
+  }
+  if (formula === "PER_TON_KM") {
+    return `${fleet} × ${trips} × ${load} × ${distance} × ${price} = ¥${amount.toString()}`;
+  }
+  return `${fleet} × ${trips} × ${load} × ${price} = ¥${amount.toString()}`;
 }
 
 export function calcVehicleMonthlyVolume(segment: SegmentInput): Decimal {
@@ -59,10 +94,10 @@ export function buildSegmentBaseMetrics(
   | "allocatedFinanceCost"
   | "taxCost"
   | "driverCost"
+  | "driverCostSource"
 > {
   const fleetSize = input.fleetSize;
-  const formulaMap = input.ruleSet.revenue.formulaByUnit;
-  const formula = formulaMap[segment.freightPriceUnit] ?? "PER_TON";
+  const formula = resolveRevenueFormula(segment.freightPriceUnit, input.ruleSet.revenue.formulaByUnit);
   const distanceKm = toDecimal(segment.distanceKm);
   const { loadedDistance, emptyDistance } = splitMileage(distanceKm, input.ruleSet.energyMileage);
   const trips = toDecimal(segment.tripsPerVehicleMonth);
@@ -92,4 +127,44 @@ export function buildSegmentBaseMetrics(
 
 export function calcProjectMonthlyRevenue(segments: { monthlyRevenue: Decimal }[]): Decimal {
   return segments.reduce((sum, s) => sum.plus(s.monthlyRevenue), new Decimal(0));
+}
+
+export function summarizeFreightPricing(
+  input: Pick<SchemeCalculationInput, "routes" | "freightPriceUnits">,
+): FreightPricingSummary {
+  const segments = input.routes
+    .filter((route) => route.enabled)
+    .flatMap((route) => route.segments.filter((seg) => seg.enabled));
+  const nameOf = (code: string) => input.freightPriceUnits.find((u) => u.code === code)?.name ?? code;
+  const groups = new Map<string, { sum: Decimal; count: number }>();
+  for (const seg of segments) {
+    const price = toDecimal(seg.freightPrice);
+    const cur = groups.get(seg.freightPriceUnit) ?? { sum: new Decimal(0), count: 0 };
+    groups.set(seg.freightPriceUnit, { sum: cur.sum.plus(price), count: cur.count + 1 });
+  }
+  const byUnit = [...groups.entries()].map(([code, g]) => ({
+    code,
+    name: nameOf(code),
+    averagePrice: g.sum.div(g.count).toDecimalPlaces(4).toString(),
+    segmentCount: g.count,
+  }));
+  if (byUnit.length === 0) {
+    return { mixed: false, label: "—", averagePrice: null, unitCode: null, byUnit: [] };
+  }
+  if (byUnit.length === 1) {
+    return {
+      mixed: false,
+      label: `平均运价 ${byUnit[0].averagePrice} ${byUnit[0].name}`,
+      averagePrice: byUnit[0].averagePrice,
+      unitCode: byUnit[0].code,
+      byUnit,
+    };
+  }
+  return {
+    mixed: true,
+    label: "多计价口径",
+    averagePrice: null,
+    unitCode: null,
+    byUnit,
+  };
 }

@@ -40,6 +40,7 @@ export async function loadRuleSet(ruleVersionId: string): Promise<RuleSet> {
     energyUnit: parseJson(pick("ENERGY_UNIT") ?? "", { energyUnit: DEFAULT_RULE_SET.energyUnit }).energyUnit,
     energyLoadMode: parseJson(pick("ENERGY_LOAD_MODE") ?? "", { energyLoadMode: DEFAULT_RULE_SET.energyLoadMode }).energyLoadMode,
     vatMode: parseJson(pick("VAT_MODE") ?? "", { vatMode: DEFAULT_RULE_SET.vatMode }).vatMode,
+    vatRates: parseJson(pick("VAT_RATES") ?? "", DEFAULT_RULE_SET.vatRates),
     allocationWeight: parseJson(pick("ALLOCATION") ?? "", { allocationWeight: DEFAULT_RULE_SET.allocationWeight }).allocationWeight,
     workingCapitalBase: parseJson(pick("WC_BASE") ?? "", { workingCapitalBase: DEFAULT_RULE_SET.workingCapitalBase }).workingCapitalBase,
   };
@@ -105,12 +106,7 @@ export async function loadCalculationInput(schemeId: string): Promise<SchemeCalc
         loadedEnergyConsumption: seg.loadedEnergyConsumption,
         emptyEnergyConsumption: seg.emptyEnergyConsumption,
         electricityPrice: seg.electricityPrice,
-        driverCostPerTrip:
-          seg.driverCostPerTrip && seg.driverCostPerTrip !== "0"
-            ? seg.driverCostPerTrip
-            : vehiclePlan.driverCostType === "PER_TRIP"
-              ? vehiclePlan.driverCost
-              : "0",
+        driverCostPerTrip: seg.driverCostPerTrip,
         enabled: seg.enabled,
       })),
     })),
@@ -144,6 +140,7 @@ export async function loadCalculationInput(schemeId: string): Promise<SchemeCalc
       calculationYears: financeTaxPlan.calculationYears,
       depreciationMonths: financeTaxPlan.depreciationMonths ?? 60,
       projectOperatingMonths: financeTaxPlan.projectOperatingMonths,
+      operatingMonthsYear: financeTaxPlan.operatingMonthsYear,
     },
     overrides: scheme.overrides.map((o) => ({
       parameterCode: o.parameterCode,
@@ -219,18 +216,36 @@ export async function executeCalculation(schemeId: string, actor: string) {
   }
 
   const output = calculateScheme(input);
+  const snapshotCount = await prisma.parameterSnapshot.count({ where: { schemeId } });
+  const snapshotVersion = `V${snapshotCount + 1}`;
+  const calculationTime = new Date().toISOString();
   const snapshot = await prisma.parameterSnapshot.create({
     data: {
       schemeId,
-      versionNo: scheme.versionNo,
+      versionNo: snapshotVersion,
       ruleVersionId: input.ruleSet.ruleVersionId,
-      payloadJson: JSON.stringify(input),
+      payloadJson: JSON.stringify({
+        scheme: {
+          id: input.schemeId,
+          schemeName: input.schemeName,
+          versionNo: snapshotVersion,
+          fleetSize: input.fleetSize,
+          leaseType: input.leaseType,
+          calculationYears: input.calculationYears,
+        },
+        routes: input.routes,
+        segments: input.routes.flatMap((r) => r.segments),
+        vehiclePlan: input.vehicle,
+        financeTaxPlan: input.finance,
+        standardParameters: input.standardParameters,
+        overrides: input.overrides,
+        ruleVersion: input.ruleSet.ruleVersionId,
+        ruleSet: input.ruleSet,
+        calculationTime,
+      }),
       createdBy: actor,
     },
   });
-
-  await prisma.cashFlowResult.deleteMany({ where: { schemeId } });
-  await prisma.calculationResult.deleteMany({ where: { schemeId } });
 
   const result = await prisma.calculationResult.create({
     data: {
@@ -260,6 +275,11 @@ export async function executeCalculation(schemeId: string, actor: string) {
         annualCashFlows: output.annualCashFlows,
         irrByYears: output.irrByYears,
         warnings,
+        freightPricing: output.freightPricing,
+        operatingMonthsYear: output.operatingMonthsYear,
+        projectOperatingMonths: output.projectOperatingMonths,
+        snapshotId: snapshot.id,
+        calculationTime,
       }),
       calculatedBy: actor,
       items: {
@@ -298,7 +318,7 @@ export async function executeCalculation(schemeId: string, actor: string) {
   await prisma.calculationSchemeVersion.create({
     data: {
       schemeId,
-      versionNo: scheme.versionNo,
+      versionNo: snapshotVersion,
       parentVersionId: scheme.parentVersionId,
       createdBy: actor,
       changeNote: "正式测算",
@@ -311,7 +331,7 @@ export async function executeCalculation(schemeId: string, actor: string) {
 
   const updated = await prisma.calculationScheme.update({
     where: { id: schemeId },
-    data: { status: "calculated", updatedBy: actor },
+    data: { status: "calculated", versionNo: snapshotVersion, updatedBy: actor },
   });
 
   await audit("CALCULATE", "CalculationScheme", schemeId, actor, {

@@ -1,4 +1,7 @@
-import { Decimal, roundMoney, roundQty } from "./decimal";
+import { Decimal, roundMoney } from "./decimal";
+import { PROFIT_MARGIN_REASON_TEXT, PROFIT_MARGIN_REASONS } from "./reasons";
+import { resolveRevenueFormula, revenueExpression } from "./revenue";
+import { driverCostSourceLabel } from "./variable-cost";
 import type { ResultTraceItem, SegmentMetrics, SchemeCalculationInput } from "./types";
 
 export function money(v: Decimal): string {
@@ -17,6 +20,16 @@ export function buildTraces(params: {
 }): ResultTraceItem[] {
   const ruleVersion = params.input.ruleSet.ruleVersionId;
   const seg = params.sampleSegment;
+  const sampleInputSeg = params.input.routes
+    .flatMap((r) => r.segments)
+    .find((s) => s.id === seg?.segmentId);
+  const formula = sampleInputSeg
+    ? resolveRevenueFormula(sampleInputSeg.freightPriceUnit, params.input.ruleSet.revenue.formulaByUnit)
+    : "PER_TON";
+  const consumption = sampleInputSeg
+    ? (seg?.loadState === "EMPTY" ? sampleInputSeg.emptyEnergyConsumption : sampleInputSeg.loadedEnergyConsumption)
+    : "";
+
   const traces: ResultTraceItem[] = [
     {
       resultCode: "monthly_revenue",
@@ -25,11 +38,14 @@ export function buildTraces(params: {
       unit: "元",
       ruleCode: "R001",
       ruleVersion,
-      calculationExpression: "Σ (freight_price × load_ton × trips_per_vehicle_month × fleet_size) 按运价单位规则",
-      explanation: "各启用路段按规则版本中的运价单位公式独立计收后汇总。",
+      calculationExpression: sampleInputSeg && seg
+        ? `路段示例 ${revenueExpression(formula, sampleInputSeg, params.input.fleetSize, seg.monthlyRevenue)}；全方案按各路段运价单位汇总`
+        : "Σ 路段收入（按 PER_TON / PER_TRIP / PER_TON_KM）",
+      explanation: "各启用路段按 Rule Engine 中的运价单位公式独立计收后汇总。空载时元/吨、元/吨公里收入为 0，元/趟仍可产生收入。",
       sourceParameterSnapshot: {
         fleet_size: String(params.input.fleetSize),
         route_count: String(params.input.routes.length),
+        sample_unit: sampleInputSeg?.freightPriceUnit ?? "",
       },
       sortNo: 1,
     },
@@ -40,17 +56,19 @@ export function buildTraces(params: {
       unit: "元",
       ruleCode: "R004",
       ruleVersion,
-      calculationExpression:
-        "energy_cost = fleet × electricity_price × SUMPRODUCT(IF(load, loaded_kwh_km, empty_kwh_km), distance, trips)；能耗单位 kWh/km，载重为 0 走空载",
-      explanation: "Excel V5：单路段单状态能耗（满载或空载），不是往返双计。",
-      sourceParameterSnapshot: seg
+      calculationExpression: sampleInputSeg
+        ? `${params.input.fleetSize} × ${sampleInputSeg.electricityPrice} × ${consumption} × ${sampleInputSeg.distanceKm} × ${sampleInputSeg.tripsPerVehicleMonth}${seg ? ` = ¥${money(seg.energyCost)}（示例路段）` : ""}`
+        : "energy_cost = fleet × electricity_price × consumption × distance × trips；载重为 0 走空载能耗",
+      explanation: "Excel V5：单路段单状态能耗（满载或空载），载重为 0 使用 emptyEnergyConsumption。",
+      sourceParameterSnapshot: sampleInputSeg
         ? {
-            electricity_price: String(seg.freightPrice ? params.input.routes[0]?.segments[0]?.electricityPrice : ""),
-            loaded_energy_consumption: params.input.routes[0]?.segments[0]?.loadedEnergyConsumption ?? "",
-            empty_energy_consumption: params.input.routes[0]?.segments[0]?.emptyEnergyConsumption ?? "",
-            loaded_mileage: roundQty(seg.loadedMileage).toString(),
-            empty_mileage: roundQty(seg.emptyMileage).toString(),
-            energy_mileage_rule: JSON.stringify(params.input.ruleSet.energyMileage),
+            fleet_size: String(params.input.fleetSize),
+            electricity_price: sampleInputSeg.electricityPrice,
+            loaded_energy_consumption: sampleInputSeg.loadedEnergyConsumption,
+            empty_energy_consumption: sampleInputSeg.emptyEnergyConsumption,
+            distance_km: sampleInputSeg.distanceKm,
+            trips_per_vehicle_month: sampleInputSeg.tripsPerVehicleMonth,
+            load_state: seg?.loadState ?? "",
           }
         : {},
       sortNo: 2,
@@ -70,6 +88,23 @@ export function buildTraces(params: {
         tire_life_km: params.input.vehicle.tireLifeKm,
       },
       sortNo: 3,
+    },
+    {
+      resultCode: "driver_cost",
+      resultName: "司机成本",
+      resultValue: seg ? money(seg.driverCost) : null,
+      unit: "元",
+      ruleCode: "R006",
+      ruleVersion,
+      calculationExpression: "driver_cost = fleet × trips × driver_cost_per_trip（按趟）或方案月固定/单车月",
+      explanation: seg ? driverCostSourceLabel(seg.driverCostSource) : "司机成本按口径汇总。",
+      sourceParameterSnapshot: {
+        driver_cost_type: params.input.vehicle.driverCostType,
+        scheme_driver_cost: params.input.vehicle.driverCost,
+        segment_driver_cost: sampleInputSeg?.driverCostPerTrip ?? "",
+        driver_cost_source: seg?.driverCostSource ?? "",
+      },
+      sortNo: 7,
     },
     {
       resultCode: "monthly_total_cost",
@@ -103,7 +138,9 @@ export function buildTraces(params: {
       ruleCode: "R012",
       ruleVersion,
       calculationExpression: "profit_margin = profit / revenue；revenue = 0 时返回 null",
-      explanation: params.profitMargin ? "利润 / 营收。" : "营收为 0，利润率无法计算，不展示除零错误。",
+      explanation: params.profitMargin
+        ? "利润 / 营收。"
+        : PROFIT_MARGIN_REASON_TEXT[PROFIT_MARGIN_REASONS.REVENUE_ZERO],
       sourceParameterSnapshot: {},
       sortNo: 6,
     },

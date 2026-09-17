@@ -121,4 +121,9 @@ export const DEFAULT_RULE_SET: RuleSet = {
   workingCapitalLoanCycleUnit: "MONTHS",
   vatMode: "EXCEL_INCLUSIVE",
   allocationWeight: "DISTANCE_TIMES_TRIPS",
+  vatRates: {
+    outputInclusiveRate: "0.09",
+    inputStandardRate: "0.13",
+    inputInsuranceRate: "0.06",
+  },
 };

@@ -1,5 +1,29 @@
 import { Decimal, toDecimal } from "./decimal";
-import type { DriverCostType, SegmentInput } from "./types";
+import type { DriverCostSource, DriverCostType, SegmentInput, VehiclePlanInput } from "./types";
+
+export function hasSegmentDriverOverride(value: string | undefined | null): boolean {
+  const raw = String(value ?? "").trim();
+  return raw !== "" && raw !== "0";
+}
+
+export function resolveSegmentDriverPerTrip(
+  segment: SegmentInput,
+  vehicle: Pick<VehiclePlanInput, "driverCost" | "driverCostType">,
+): { amount: Decimal; source: DriverCostSource } {
+  if (hasSegmentDriverOverride(segment.driverCostPerTrip)) {
+    return { amount: toDecimal(segment.driverCostPerTrip || "0"), source: "SEGMENT_OVERRIDE" };
+  }
+  if (vehicle.driverCostType === "PER_TRIP") {
+    return { amount: toDecimal(vehicle.driverCost || "0"), source: "SCHEME_DEFAULT" };
+  }
+  return { amount: new Decimal(0), source: "NONE" };
+}
+
+export function driverCostSourceLabel(source: DriverCostSource): string {
+  if (source === "SEGMENT_OVERRIDE") return "司机成本来源：路段覆盖值";
+  if (source === "SCHEME_DEFAULT") return "司机成本来源：方案默认值";
+  return "司机成本来源：未按趟计";
+}
 
 export function calcDriverCost(params: {
   driverCost: string;

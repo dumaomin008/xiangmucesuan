@@ -6,7 +6,7 @@ import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YA
 import { CalculationSubnav } from "@/components/nav";
 import { Card, PageHeader } from "@/components/ui";
 import { api } from "@/lib/client";
-import { formatMoney, formatPercent } from "@/lib/format";
+import { explainUnavailable, formatMoney, formatPercent } from "@/lib/format";
 
 type Row = {
   monthIndex: number;
@@ -143,6 +143,7 @@ export default function CashFlowPage() {
               {irrByYears.map((row) => (
                 <span key={row.years}>
                   IRR {row.years}年 {row.irr ? formatPercent(row.irr) : "无法计算"}
+                  {row.reason ? `（${explainUnavailable(row.reason)}）` : ""}
                 </span>
               ))}
             </div>

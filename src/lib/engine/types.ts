@@ -11,7 +11,9 @@ export type FreightPriceUnit = string;
 
 export type DriverCostType = "PER_VEHICLE_MONTH" | "PER_TRIP" | "FIXED_MONTH";
 
-export type ParameterSource = "STANDARD" | "PROJECT" | "COMPUTED";
+export type ParameterSource = "STANDARD" | "PROJECT" | "ROUTE" | "SEGMENT" | "COMPUTED" | "OVERRIDE";
+
+export type DriverCostSource = "SEGMENT_OVERRIDE" | "SCHEME_DEFAULT" | "NONE";
 
 export interface SegmentInput {
   id: string;
@@ -86,6 +88,8 @@ export interface FinanceTaxPlanInput {
   depreciationMonths?: number;
   /** 独立经营期限；空则回退 Excel 分期/折旧月数 */
   projectOperatingMonths?: number | null;
+  /** 方案级年运营月数。正式计算唯一来源，优先于路段字段 */
+  operatingMonthsYear?: number | null;
 }
 
 export interface ParameterOverrideInput {
@@ -188,6 +192,11 @@ export interface RuleSet {
   workingCapitalLoanCycleUnit: CycleUnit;
   vatMode: VatMode;
   allocationWeight: AllocationWeight;
+  vatRates: {
+    outputInclusiveRate: string;
+    inputStandardRate: string;
+    inputInsuranceRate: string;
+  };
 }
 
 export interface SchemeCalculationInput {
@@ -243,6 +252,7 @@ export interface SegmentMetrics {
   allocatedFinanceCost: Decimal;
   taxCost: Decimal;
   driverCost: Decimal;
+  driverCostSource: DriverCostSource;
 }
 
 export interface RouteMetrics {
@@ -301,6 +311,14 @@ export interface ResultTraceItem {
   sortNo: number;
 }
 
+export interface FreightPricingSummary {
+  mixed: boolean;
+  label: string;
+  averagePrice: string | null;
+  unitCode: string | null;
+  byUnit: { code: string; name: string; averagePrice: string; segmentCount: number }[];
+}
+
 export interface SchemeCalculationOutput {
   monthlyRevenue: Decimal;
   monthlyFixedCost: Decimal;
@@ -327,6 +345,9 @@ export interface SchemeCalculationOutput {
   traces: ResultTraceItem[];
   warnings: ValidationIssue[];
   ruleVersionId: string;
+  freightPricing: FreightPricingSummary;
+  operatingMonthsYear: number;
+  projectOperatingMonths: number | null;
 }
 
 export const SENSITIVITY_VARIABLES = [

@@ -152,6 +152,7 @@ async function main() {
     { ruleCode: "ENERGY_UNIT", ruleName: "能耗单位", category: "能源", config: { energyUnit: "KWH_PER_KM" } },
     { ruleCode: "ENERGY_LOAD_MODE", ruleName: "满空载判定", category: "能源", config: { energyLoadMode: "SEGMENT_LOAD_STATE" } },
     { ruleCode: "VAT_MODE", ruleName: "增值税口径", category: "税务", config: { vatMode: "EXCEL_INCLUSIVE" } },
+    { ruleCode: "VAT_RATES", ruleName: "增值税税率", category: "税务", config: DEFAULT_RULE_SET.vatRates },
     { ruleCode: "ALLOCATION", ruleName: "路段分摊权重", category: "成本", config: { allocationWeight: "DISTANCE_TIMES_TRIPS" } },
     { ruleCode: "WC_BASE", ruleName: "流贷利息基数", category: "财务", config: { workingCapitalBase: "EXCEL_RENT_PLUS_AC42_AC55" } },
   ];
@@ -392,6 +393,7 @@ async function createFullScheme(opts: {
       inputVatRule: "STANDARD_DEDUCT",
       calculationYears: 5,
       depreciationMonths: 60,
+      operatingMonthsYear: 12,
     },
   });
 
@@ -540,6 +542,7 @@ async function createExcelParityScheme(projectId: string) {
       inputVatRule: "STANDARD_DEDUCT",
       calculationYears: 5,
       depreciationMonths: 60,
+      operatingMonthsYear: 10,
     },
   });
 

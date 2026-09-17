@@ -83,6 +83,7 @@ describe("Excel parity 黄金对账", () => {
     input.routes[0].segments[0].loadTon = "20";
     input.routes[0].segments[0].tripsPerVehicleMonth = "8";
     input.routes[0].segments[0].operatingMonthsYear = "12";
+    input.finance.operatingMonthsYear = 12;
     input.routes[0].segments[0].driverCostPerTrip = "100";
     input.routes[0].segments[0].tollPerTrip = "0";
     input.routes[0].segments[0].informationFee = "0";
@@ -105,12 +106,14 @@ describe("Excel parity 黄金对账", () => {
     expect(total.managementFee.toString()).toBe("2000");
     expect(total.driverCost.toString()).toBe("800");
     expectClose(total.wcInterest, "144.8", "wc");
-    const outputVat = calcExcelOutputVat(new Decimal(1600));
+    const outputVat = calcExcelOutputVat(new Decimal(1600), "0.09");
     const inputVat = calcExcelInputVat({
       vehicleCost: new Decimal(10000),
       energyCost: new Decimal(1600),
       tireCost: new Decimal(80),
       insuranceCost: new Decimal(0),
+      inputStandardRate: "0.13",
+      inputInsuranceRate: "0.06",
     });
     expectClose(total.outputVat, outputVat, "outputVat");
     expectClose(total.inputVat, inputVat, "inputVat");
@@ -144,7 +147,7 @@ describe("Excel parity 黄金对账", () => {
     expect(total.energyCost.toString()).toBe("800");
     const output = calculateScheme(input);
     expect(output.profitMargin).toBeNull();
-    expect(output.profitMarginReason).toContain("无法计算");
+    expect(output.profitMarginReason).toBe("REVENUE_ZERO");
   });
 
   it.each([
@@ -197,11 +200,11 @@ describe("Excel parity 黄金对账", () => {
     for (const years of [4, 5, 6, 8]) {
       const row = v5.irrByYears.find((item) => item.years === years);
       expect(row?.irr).toBeNull();
-      expect(row?.reason).toContain("无法计算");
+      expect(row?.reason).toBe("IRR_NO_SIGN_CHANGE");
     }
     const output = calculateScheme(excelExampleInput());
     expect(output.irr).toBeNull();
-    expect(output.irrReason).toContain("无法计算");
+    expect(output.irrReason).toBe("IRR_NO_SIGN_CHANGE");
   });
 });
 

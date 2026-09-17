@@ -102,8 +102,20 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
             finance.projectOperatingMonths === "" || finance.projectOperatingMonths == null
               ? null
               : Number(finance.projectOperatingMonths),
+          operatingMonthsYear:
+            finance.operatingMonthsYear === "" || finance.operatingMonthsYear == null
+              ? null
+              : Number(finance.operatingMonthsYear),
         },
       });
+      if (finance.operatingMonthsYear !== undefined && finance.operatingMonthsYear !== "" && finance.operatingMonthsYear != null) {
+        const months = String(finance.operatingMonthsYear);
+        const routes = await prisma.calculationRoute.findMany({ where: { schemeId: id }, select: { id: true } });
+        await prisma.calculationRouteSegment.updateMany({
+          where: { routeId: { in: routes.map((r) => r.id) } },
+          data: { operatingMonthsYear: months },
+        });
+      }
     }
 
     if (Array.isArray(body.overrides)) {

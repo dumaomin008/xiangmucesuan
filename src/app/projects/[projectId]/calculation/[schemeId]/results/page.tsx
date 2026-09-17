@@ -2,10 +2,11 @@
 
 import { useParams } from "next/navigation";
 import { Fragment, useEffect, useState } from "react";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { CalculationSubnav } from "@/components/nav";
 import { Card, MetricCard, PageHeader } from "@/components/ui";
 import { api } from "@/lib/client";
-import { formatMoney, formatPercent, formatQty } from "@/lib/format";
+import { explainUnavailable, formatMoney, formatPercent, formatQty } from "@/lib/format";
 import { Character } from "@/components/empty";
 
 type Result = {
@@ -27,6 +28,10 @@ type Result = {
   firstPositiveMonth: number | null;
   payload: {
     costBreakdown: { code: string; name: string; amount: string; share: string | null }[];
+    freightPricing?: { mixed: boolean; label: string; byUnit: { code: string; name: string; averagePrice: string; segmentCount: number }[] };
+    operatingMonthsYear?: number;
+    projectOperatingMonths?: number | null;
+    snapshotId?: string;
     routes: {
       routeId: string;
       routeName: string;
@@ -41,6 +46,8 @@ type Result = {
         segmentName: string;
         distanceKm: string;
         freightPrice: string;
+        freightPriceUnit?: string;
+        driverCostSource?: string;
         tripsPerVehicleMonth: string;
         segmentMonthlyVolume: string;
         monthlyRevenue: string;
@@ -102,10 +109,55 @@ export default function ResultsPage() {
   }
   if (!result) return null;
 
+  const amountOf = (codes: string[]) =>
+    result.payload.costBreakdown
+      .filter((item) => codes.includes(item.code))
+      .reduce((n, item) => n + Number(item.amount || 0), 0);
+
+  const costViz = [
+    { name: "车辆", amount: amountOf(["vehicle_cost"]) },
+    { name: "固定运营", amount: amountOf(["management_fee", "road_maintenance_fee", "maintenance_fee", "inspection_fee", "insurance_fee", "parking_fee", "heater_fee", "consumable_fee"]) },
+    { name: "能源", amount: amountOf(["energy_cost"]) },
+    { name: "轮胎", amount: amountOf(["tire_cost"]) },
+    { name: "司机", amount: amountOf(["driver_cost"]) },
+    { name: "路桥", amount: amountOf(["toll"]) },
+    { name: "装卸", amount: amountOf(["loading_unloading"]) },
+    { name: "信息", amount: amountOf(["information_fee"]) },
+    { name: "财务", amount: amountOf(["finance_cost"]) },
+    { name: "税务", amount: amountOf(["tax_cost"]) },
+  ];
+  const routeViz = result.payload.routes.map((route) => ({
+    name: route.routeName,
+    revenue: Number(route.monthlyRevenue),
+    profit: Number(route.monthlyProfit),
+  }));
+
   return (
     <div>
       <CalculationSubnav projectId={projectId} schemeId={schemeId} />
-      <PageHeader title="测算结果" subtitle="点击任意核心指标可查看计算依据。正式结果以后端引擎为准。" />
+      <PageHeader
+        title="测算结果"
+        subtitle={`点击任意核心指标可查看计算依据。正式结果绑定快照 ${result.payload.snapshotId || "—"}，不会被后续改参覆盖。`}
+      />
+      <div className="mb-4 flex flex-wrap gap-3 text-[13px] text-sn-secondary">
+        <span>年运营月数 {result.payload.operatingMonthsYear ?? "—"} 个月</span>
+        <span>项目经营月数 {result.payload.projectOperatingMonths ?? "按租赁规则"}</span>
+        <span>运价 {result.payload.freightPricing?.label ?? "—"}</span>
+      </div>
+      {result.payload.freightPricing?.mixed && (
+        <Card className="mb-5">
+          <h3 className="mb-2 text-[16px] font-semibold">多计价口径</h3>
+          <p className="text-[13px] text-sn-secondary">方案同时存在不同运价单位，不能计算平均运价。</p>
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            {result.payload.freightPricing.byUnit.map((u) => (
+              <div key={u.code} className="rounded-sn-md bg-sn-subtle p-3">
+                <div className="text-[12px] text-sn-muted">{u.name} · {u.segmentCount} 个路段</div>
+                <div className="mt-1 text-[20px] font-bold">{u.averagePrice}</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
       <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-5">
         <MetricCard label="月营收" value={formatMoney(result.monthlyRevenue)} onClick={() => show("monthly_revenue")} />
         <MetricCard label="月总成本" value={formatMoney(result.monthlyTotalCost)} onClick={() => show("monthly_total_cost")} />
@@ -113,13 +165,13 @@ export default function ResultsPage() {
         <MetricCard
           label="利润率"
           value={result.profitMargin ? formatPercent(result.profitMargin) : "无法计算"}
-          hint={result.profitMarginReason || undefined}
+          hint={explainUnavailable(result.profitMarginReason) || undefined}
           onClick={() => show("profit_margin")}
         />
         <MetricCard
           label="IRR"
           value={result.irr ? formatPercent(result.irr) : "无法计算"}
-          hint={result.irrReason || `首次转正：第 ${result.firstPositiveMonth ?? "—"} 月`}
+          hint={explainUnavailable(result.irrReason) || `首次转正：第 ${result.firstPositiveMonth ?? "—"} 月`}
         />
         <MetricCard label="单车月收入" value={formatMoney(result.vehicleMonthlyRevenue)} />
         <MetricCard label="单车月利润" value={formatMoney(result.vehicleMonthlyProfit)} />
@@ -181,6 +233,48 @@ export default function ResultsPage() {
         </Card>
       </div>
 
+      <div className="mt-5 grid gap-5 lg:grid-cols-2">
+        <Card className="h-[320px]">
+          <h3 className="mb-3 text-[20px] font-semibold">成本构成</h3>
+          <ResponsiveContainer width="100%" height="85%">
+            <BarChart data={costViz}>
+              <CartesianGrid stroke="rgba(0,0,0,0.04)" />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} />
+              <Tooltip
+                contentStyle={{
+                  borderRadius: 16,
+                  border: "1px solid rgba(255,255,255,0.5)",
+                  background: "rgba(255,255,255,0.86)",
+                  backdropFilter: "blur(20px)",
+                }}
+              />
+              <Bar dataKey="amount" name="金额" fill="#667EEA" radius={[8, 8, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+        <Card className="h-[320px]">
+          <h3 className="mb-3 text-[20px] font-semibold">线路利润贡献</h3>
+          <ResponsiveContainer width="100%" height="85%">
+            <BarChart data={routeViz}>
+              <CartesianGrid stroke="rgba(0,0,0,0.04)" />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+              <YAxis tick={{ fontSize: 11 }} />
+              <Tooltip
+                contentStyle={{
+                  borderRadius: 16,
+                  border: "1px solid rgba(255,255,255,0.5)",
+                  background: "rgba(255,255,255,0.86)",
+                  backdropFilter: "blur(20px)",
+                }}
+              />
+              <Bar dataKey="revenue" name="收入" fill="#667EEA" radius={[8, 8, 0, 0]} />
+              <Bar dataKey="profit" name="利润" fill="#34C759" radius={[8, 8, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Card>
+      </div>
+
       <Card className="mt-5 overflow-x-auto">
         <h3 className="mb-4 text-[20px] font-semibold">线路经营分析</h3>
         <table className="min-w-full text-left text-sm">
@@ -217,6 +311,8 @@ export default function ResultsPage() {
                         {seg.segmentName}
                         <div className="text-[12px] text-sn-muted">
                           {seg.loadState === "EMPTY" ? "空载路段" : "满载路段"}
+                          {seg.driverCostSource === "SEGMENT_OVERRIDE" ? " · 司机成本来源：路段覆盖值" : ""}
+                          {seg.driverCostSource === "SCHEME_DEFAULT" ? " · 司机成本来源：方案默认值" : ""}
                           {seg.allocationWeightRaw ? ` · 分摊权重 ${seg.allocationWeightRaw}` : ""}
                         </div>
                       </td>

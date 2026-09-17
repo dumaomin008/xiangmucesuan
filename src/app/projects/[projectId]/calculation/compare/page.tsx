@@ -21,6 +21,9 @@ type CompareRow = {
   fleetSize: number;
   routeCount: number;
   avgFreightPrice: string | null;
+  freightPricingLabel?: string | null;
+  freightPricingMixed?: boolean;
+  freightPricingByUnit?: { name: string; averagePrice: string; segmentCount: number }[];
   avgTrips: string | null;
   avgElectricityPrice: string | null;
   avgLoadedEnergy: string | null;
@@ -36,7 +39,7 @@ type CompareRow = {
 const FIELDS: { key: keyof CompareRow; label: string; format?: (v: CompareRow) => string }[] = [
   { key: "fleetSize", label: "车辆规模", format: (r) => String(r.fleetSize) },
   { key: "routeCount", label: "线路", format: (r) => String(r.routeCount) },
-  { key: "avgFreightPrice", label: "运价(均)", format: (r) => r.avgFreightPrice || "—" },
+  { key: "avgFreightPrice", label: "运价", format: (r) => r.freightPricingLabel || (r.freightPricingMixed ? "多计价口径" : r.avgFreightPrice || "—") },
   { key: "avgTrips", label: "趟数(均)", format: (r) => r.avgTrips || "—" },
   { key: "avgElectricityPrice", label: "电价(均)", format: (r) => r.avgElectricityPrice || "—" },
   { key: "avgLoadedEnergy", label: "能耗(均)", format: (r) => r.avgLoadedEnergy || "—" },

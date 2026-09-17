@@ -92,11 +92,12 @@ export default function WizardPage() {
   const [std, setStd] = useState<Std[]>([]);
   const [routeId, setRouteId] = useState<string>("");
   const [reasons, setReasons] = useState<Record<string, string>>({});
-  const [saveState, setSaveState] = useState("已自动保存草稿");
+  const [saveState, setSaveState] = useState("已自动保存");
   const [errors, setErrors] = useState<{ field: string; message: string }[]>([]);
   const [warnings, setWarnings] = useState<{ field: string; message: string }[]>([]);
   const [banner, setBanner] = useState("");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const segmentTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   const load = useCallback(async () => {
     const [s, m, p] = await Promise.all([
@@ -119,38 +120,43 @@ export default function WizardPage() {
 
   const persist = useCallback(
     async (next: Scheme) => {
-      setSaveState("正在保存草稿…");
-      await api(`/api/calculation-schemes/${schemeId}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          schemeName: next.schemeName,
-          description: next.description,
-          leaseType: next.leaseType,
-          fleetSize: next.fleetSize,
-          calculationYears: next.calculationYears,
-          expectedStartDate: next.expectedStartDate,
-          expectedEndDate: next.expectedEndDate,
-          vehicle: next.vehiclePlan,
-          finance: next.financeTaxPlan,
-          overrides: std
-            .filter((p) => VEHICLE_FIELDS.some((f) => f.std === p.parameterCode))
-            .map((p) => {
-              const field = VEHICLE_FIELDS.find((f) => f.std === p.parameterCode)!;
-              const current = String(next.vehiclePlan[field.key] ?? "");
-              if (current === p.value) return null;
-              return {
-                parameterCode: p.parameterCode,
-                parameterName: p.parameterName,
-                standardValue: p.value,
-                overrideValue: current,
-                overrideReason: reasons[p.parameterCode] || "",
-                unit: p.unit,
-              };
-            })
-            .filter(Boolean),
-        }),
-      });
-      setSaveState("已自动保存草稿");
+      setSaveState("正在保存...");
+      try {
+        await api(`/api/calculation-schemes/${schemeId}`, {
+          method: "PUT",
+          body: JSON.stringify({
+            schemeName: next.schemeName,
+            description: next.description,
+            leaseType: next.leaseType,
+            fleetSize: next.fleetSize,
+            calculationYears: next.calculationYears,
+            expectedStartDate: next.expectedStartDate,
+            expectedEndDate: next.expectedEndDate,
+            vehicle: next.vehiclePlan,
+            finance: next.financeTaxPlan,
+            overrides: std
+              .filter((p) => VEHICLE_FIELDS.some((f) => f.std === p.parameterCode))
+              .map((p) => {
+                const field = VEHICLE_FIELDS.find((f) => f.std === p.parameterCode)!;
+                const current = String(next.vehiclePlan[field.key] ?? "");
+                if (current === p.value) return null;
+                return {
+                  parameterCode: p.parameterCode,
+                  parameterName: p.parameterName,
+                  standardValue: p.value,
+                  overrideValue: current,
+                  overrideReason: reasons[p.parameterCode] || "",
+                  unit: p.unit,
+                };
+              })
+              .filter(Boolean),
+          }),
+        });
+        setSaveState("已自动保存");
+      } catch (e) {
+        setSaveState("保存失败，请重试");
+        setBanner(e instanceof Error ? e.message : "保存失败，请重试");
+      }
     },
     [reasons, schemeId, std],
   );
@@ -159,8 +165,51 @@ export default function WizardPage() {
     setScheme(next);
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
-      persist(next).catch((e) => setBanner(e.message));
+      persist(next).catch(() => undefined);
     }, 800);
+  };
+
+  const persistSegment = async (seg: Segment) => {
+    setSaveState("正在保存...");
+    try {
+      await api(`/api/calculation-segments/${seg.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ ...seg, enabled: true }),
+      });
+      setSaveState("已自动保存");
+    } catch (e) {
+      setSaveState("保存失败，请重试");
+      setBanner(e instanceof Error ? e.message : "保存失败，请重试");
+    }
+  };
+
+  const patchSegment = (schemeSnapshot: Scheme, segId: string, key: keyof Segment, value: string) => {
+    const next: Scheme = {
+      ...schemeSnapshot,
+      routes: schemeSnapshot.routes.map((route) =>
+        route.id !== routeId
+          ? route
+          : {
+              ...route,
+              segments: route.segments.map((seg) => (seg.id === segId ? { ...seg, [key]: value } : seg)),
+            },
+      ),
+    };
+    setScheme(next);
+    const updated = next.routes.find((r) => r.id === routeId)?.segments.find((s) => s.id === segId);
+    if (!updated) return;
+    if (segmentTimers.current[segId]) clearTimeout(segmentTimers.current[segId]);
+    segmentTimers.current[segId] = setTimeout(() => {
+      persistSegment(updated).catch(() => undefined);
+    }, 800);
+  };
+
+  const flushSegment = (seg: Segment) => {
+    if (segmentTimers.current[seg.id]) {
+      clearTimeout(segmentTimers.current[seg.id]);
+      delete segmentTimers.current[seg.id];
+    }
+    persistSegment(seg).catch(() => undefined);
   };
 
   const lease = meta?.leaseTypes.find((l) => l.code === scheme?.leaseType);
@@ -264,8 +313,23 @@ export default function WizardPage() {
           <Field label="车队规模" required unit="辆">
             <TextInput type="number" min={1} value={scheme.fleetSize} onChange={(e) => patch({ fleetSize: Number(e.target.value) })} />
           </Field>
-          <Field label="测算年限" required unit="年">
+          <Field label="测算年限" required unit="年" source="项目填写" hint="用于投资评价和结果展示，例如 5 年。不要和年运营月数混用。">
             <TextInput type="number" min={1} value={scheme.calculationYears} onChange={(e) => patch({ calculationYears: Number(e.target.value) })} />
+          </Field>
+          <Field
+            label="年运营月数"
+            required
+            unit="月"
+            source="项目填写"
+            hint="方案级唯一来源。表示一年实际运营多少个月，用于年收入、年运营成本和年里程。各路段不再单独取值。"
+          >
+            <TextInput
+              type="number"
+              min={1}
+              max={12}
+              value={String(scheme.financeTaxPlan.operatingMonthsYear ?? 12)}
+              onChange={(e) => patchFinance("operatingMonthsYear", Number(e.target.value))}
+            />
           </Field>
           <Field label="预计项目开始时间">
             <TextInput type="date" value={scheme.expectedStartDate?.slice(0, 10) || ""} onChange={(e) => patch({ expectedStartDate: e.target.value })} />
@@ -380,7 +444,7 @@ export default function WizardPage() {
                 <table className="min-w-[1400px] text-left text-[13px]">
                   <thead className="text-sn-muted">
                     <tr>
-                      {["序号", "路段名称", "起点", "终点", "里程 km*", "运价 元/吨*", "运价单位*", "载重 t*", "月趟数*", "年运营月*", "电价 元/kWh*", "满载能耗 kWh/km*", "空载能耗 kWh/km*", "过路费", "装卸费", "信息费", "司机/趟", "辅助指标", "操作"].map((h) => (
+                      {["序号", "路段名称", "起点", "终点", "里程 km*", "运价*", "运价单位*", "载重 t*", "月趟数*", "电价 元/kWh*", "满载能耗 kWh/km*", "空载能耗 kWh/km*", "过路费", "装卸费", "信息费", "司机/趟", "辅助指标", "操作"].map((h) => (
                         <th key={h} className="px-2 py-2 font-medium">
                           {h}
                         </th>
@@ -401,7 +465,6 @@ export default function WizardPage() {
                             ["freightPriceUnit"],
                             ["loadTon"],
                             ["tripsPerVehicleMonth"],
-                            ["operatingMonthsYear"],
                             ["electricityPrice"],
                             ["loadedEnergyConsumption"],
                             ["emptyEnergyConsumption"],
@@ -415,13 +478,8 @@ export default function WizardPage() {
                             {key === "freightPriceUnit" ? (
                               <Select
                                 value={seg[key]}
-                                onChange={async (e) => {
-                                  await api(`/api/calculation-segments/${seg.id}`, {
-                                    method: "PUT",
-                                    body: JSON.stringify({ ...seg, [key]: e.target.value }),
-                                  });
-                                  await refreshRoutes();
-                                }}
+                                onChange={(e) => patchSegment(scheme, seg.id, key, e.target.value)}
+                                onBlur={() => flushSegment({ ...seg, [key]: String(seg[key] ?? "") })}
                               >
                                 {meta.units.map((u) => (
                                   <option key={u.code} value={u.code}>
@@ -433,13 +491,8 @@ export default function WizardPage() {
                               <TextInput
                                 className="min-w-[90px]"
                                 value={String(seg[key] ?? "")}
-                                onChange={async (e) => {
-                                  await api(`/api/calculation-segments/${seg.id}`, {
-                                    method: "PUT",
-                                    body: JSON.stringify({ ...seg, [key]: e.target.value }),
-                                  });
-                                  await refreshRoutes();
-                                }}
+                                onChange={(e) => patchSegment(scheme, seg.id, key, e.target.value)}
+                                onBlur={() => flushSegment(seg)}
                               />
                             )}
                           </td>
@@ -516,7 +569,7 @@ export default function WizardPage() {
                 新增路段
               </Button>
               <p className="mt-3 text-[12px] text-sn-muted">
-                辅助指标仅预览，不作为输入保存。线路/路段数量没有上限。能耗单位必须是 kWh/km，不要按 kWh/100km 填写。载重为 0 时该路段按空载能耗计算整段。
+                辅助指标仅预览，由系统计算，不作为输入保存。路段参数在本地编辑，800ms 后自动保存；失焦也会立即保存。年运营月数在方案基础信息中统一填写。载重为 0 时该路段按空载能耗计算；元/吨和元/吨公里收入为 0，元/趟仍可产生收入。
               </p>
             </Card>
           ) : (
@@ -616,7 +669,7 @@ export default function WizardPage() {
             <Field label="车辆折旧年限" unit="月" hint="非纯租赁用于首付摊销和经营期限">
               <TextInput value={String(scheme.financeTaxPlan.depreciationMonths ?? 60)} onChange={(e) => patchFinance("depreciationMonths", Number(e.target.value))} />
             </Field>
-            <Field label="项目经营月数" unit="月" hint="高级字段。留空则按 Excel：纯租赁用分期月数，非纯租赁用折旧月数">
+            <Field label="项目经营月数" unit="月" source="项目填写" hint="整个项目预计持续多少个月，例如 60、72。用于现金流周期。留空则按 Excel：纯租赁用分期月数，非纯租赁用折旧月数。">
               <TextInput
                 value={scheme.financeTaxPlan.projectOperatingMonths == null ? "" : String(scheme.financeTaxPlan.projectOperatingMonths)}
                 onChange={(e) => patchFinance("projectOperatingMonths", e.target.value === "" ? null : Number(e.target.value))}
@@ -637,7 +690,13 @@ export default function WizardPage() {
                 ))}
               </Select>
             </Field>
-            <p className="text-[13px] text-sn-secondary">可抵扣成本范围由进项税规则配置，不在页面硬编码。</p>
+            <p className="text-[13px] text-sn-secondary">可抵扣成本范围与 9%/13%/6% 税率由进项税规则和 Rule Version 控制，不在页面硬编码。</p>
+            <div className="rounded-sn-md bg-sn-subtle p-4 text-[13px] text-sn-secondary">
+              <div className="font-semibold text-sn-primary">三个周期不要混用</div>
+              <p className="mt-2">年运营月数：一年实际运营几个月，当前方案为 {String(scheme.financeTaxPlan.operatingMonthsYear ?? 12)} 个月。</p>
+              <p>项目经营月数：整个项目持续多久，用于现金流。</p>
+              <p>测算年限：投资评价展示窗口，当前为 {scheme.calculationYears} 年。</p>
+            </div>
           </Card>
         </div>
       )}

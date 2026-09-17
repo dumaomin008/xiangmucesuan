@@ -1,8 +1,8 @@
 import { Decimal, EngineError, roundMoney, safeDiv } from "./decimal";
-import { calculateExcelV5, enabledSegments } from "./excel-v5";
+import { calculateExcelV5, enabledSegments, resolveOperatingMonthsYear } from "./excel-v5";
 import { firstPositiveMonth } from "./investment";
 import { calcProfitMargin } from "./profit";
-import { buildSegmentBaseMetrics } from "./revenue";
+import { buildSegmentBaseMetrics, summarizeFreightPricing } from "./revenue";
 import { buildTraces } from "./trace";
 import type {
   CostBreakdownItem,
@@ -92,6 +92,7 @@ export function calculateScheme(input: SchemeCalculationInput): SchemeCalculatio
         allocatedFinanceCost: excelRow.advanceCost.plus(excelRow.wcInterest),
         taxCost: excelRow.vatPayable,
         driverCost: excelRow.driverCost,
+        driverCostSource: excelRow.driverCostSource,
       };
       segs.push(metrics);
       allSegments.push(metrics);
@@ -182,9 +183,13 @@ export function calculateScheme(input: SchemeCalculationInput): SchemeCalculatio
       unit: "元",
       ruleCode: "R008",
       ruleVersion: input.ruleSet.ruleVersionId,
-      calculationExpression: "output_vat = revenue × 0.09 / 1.09",
-      explanation: "Excel V5 含税口径销项税。",
-      sourceParameterSnapshot: { output_vat_rate: input.finance.outputVatRate },
+      calculationExpression: `output_vat = revenue × ${input.ruleSet.vatRates.outputInclusiveRate} / (1+${input.ruleSet.vatRates.outputInclusiveRate})`,
+      explanation: "销项 VAT 由 Rule Engine 含税口径控制，不在计算器内硬编码税率。",
+      sourceParameterSnapshot: {
+        output_vat_rate: input.finance.outputVatRate,
+        rule_output_rate: input.ruleSet.vatRates.outputInclusiveRate,
+        vat_mode: input.ruleSet.vatMode,
+      },
       sortNo: 20,
     },
     {
@@ -194,9 +199,13 @@ export function calculateScheme(input: SchemeCalculationInput): SchemeCalculatio
       unit: "元",
       ruleCode: "R008",
       ruleVersion: input.ruleSet.ruleVersionId,
-      calculationExpression: "input_vat = (车辆+能源+轮胎)×13%/1.13 + 保险×6%/1.06",
-      explanation: "Excel V5 进项税口径，与可抵扣配置表解耦，由 RuleVersion EXCEL_INCLUSIVE 固定。",
-      sourceParameterSnapshot: {},
+      calculationExpression: `input_vat = (车辆+能源+轮胎)×${input.ruleSet.vatRates.inputStandardRate}/(1+${input.ruleSet.vatRates.inputStandardRate}) + 保险×${input.ruleSet.vatRates.inputInsuranceRate}/(1+${input.ruleSet.vatRates.inputInsuranceRate})`,
+      explanation: "进项税率由 Rule Version 的 vatRates 统一控制，可随规则版本调整。",
+      sourceParameterSnapshot: {
+        input_standard_rate: input.ruleSet.vatRates.inputStandardRate,
+        input_insurance_rate: input.ruleSet.vatRates.inputInsuranceRate,
+        vat_mode: input.ruleSet.vatMode,
+      },
       sortNo: 21,
     },
     {
@@ -288,6 +297,9 @@ export function calculateScheme(input: SchemeCalculationInput): SchemeCalculatio
     traces,
     warnings,
     ruleVersionId: input.ruleSet.ruleVersionId,
+    freightPricing: summarizeFreightPricing(input),
+    operatingMonthsYear: resolveOperatingMonthsYear(input).toNumber(),
+    projectOperatingMonths: input.finance.projectOperatingMonths ?? null,
   };
 }
 

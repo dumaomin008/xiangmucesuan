@@ -145,6 +145,7 @@ model FinanceTaxPlan {
   calculationYears          Int
   depreciationMonths        Int     @default(60)
   projectOperatingMonths    Int?
+  operatingMonthsYear       Int?
 }
 
 model ParameterOverride {

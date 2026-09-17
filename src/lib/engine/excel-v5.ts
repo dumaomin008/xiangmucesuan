@@ -5,8 +5,11 @@ import { calcExcelVehicleCost, excelAnnualizeMonthly } from "./fixed-cost";
 import { newtonRaphsonPeriodicIrr } from "./investment";
 import { calcExcelInputVat, calcExcelOutputVat, calcExcelVatPayable } from "./tax";
 import { getLeaseType, isExcelPureLease, resolveManagementFee } from "./rule-engine";
+import { calcSegmentRevenue, resolveRevenueFormula } from "./revenue";
+import { resolveSegmentDriverPerTrip } from "./variable-cost";
 import type {
   AnnualCashFlow,
+  DriverCostSource,
   MonthlyCashFlow,
   SchemeCalculationInput,
   SegmentInput,
@@ -45,6 +48,7 @@ export type ExcelSegmentPnl = ExcelPnl & {
   segmentName: string;
   weight: Decimal;
   loadState: "LOADED" | "EMPTY";
+  driverCostSource: DriverCostSource;
 };
 
 export type ExcelWorkingContext = {
@@ -65,6 +69,8 @@ export type ExcelWorkingContext = {
   discountRate: Decimal;
   wcRate: Decimal;
   outputVatRate: Decimal;
+  inputStandardRate: Decimal;
+  inputInsuranceRate: Decimal;
   tireLifeKm: Decimal;
   tireCount: Decimal;
   tireUnitPrice: Decimal;
@@ -78,6 +84,7 @@ export type ExcelWorkingContext = {
     trips: Decimal;
     weight: Decimal;
     driverPerTrip: Decimal;
+    driverCostSource: DriverCostSource;
     tollPerTrip: Decimal;
     loadingPerTrip: Decimal;
     infoPerTrip: Decimal;
@@ -117,13 +124,24 @@ export function enabledSegments(input: SchemeCalculationInput): { routeId: strin
     );
 }
 
+export function resolveOperatingMonthsYear(input: SchemeCalculationInput): Decimal {
+  if (input.finance.operatingMonthsYear != null && input.finance.operatingMonthsYear > 0) {
+    return new Decimal(input.finance.operatingMonthsYear);
+  }
+  const rows = enabledSegments(input);
+  if (rows.length === 0) {
+    throw new EngineError("CALC_PARAMETER_INVALID", "operating_months_year", "年运营月数必须大于 0");
+  }
+  return toDecimal(rows[0].segment.operatingMonthsYear);
+}
+
 export function buildExcelContext(input: SchemeCalculationInput): ExcelWorkingContext {
   const rows = enabledSegments(input);
   if (rows.length === 0) {
     throw new EngineError("CALC_PARAMETER_INVALID", "routes", "至少需要一个启用路段");
   }
   const first = rows[0].segment;
-  const operatingMonths = toDecimal(first.operatingMonthsYear);
+  const operatingMonths = resolveOperatingMonthsYear(input);
   if (operatingMonths.lte(0)) {
     throw new EngineError("CALC_PARAMETER_INVALID", "operating_months_year", "年运营月数必须大于 0");
   }
@@ -137,11 +155,7 @@ export function buildExcelContext(input: SchemeCalculationInput): ExcelWorkingCo
   const segments = rows.map(({ segment }) => {
     const distance = toDecimalOrZero(segment.distanceKm);
     const trips = toDecimalOrZero(segment.tripsPerVehicleMonth);
-    const driverPerTrip = segment.driverCostPerTrip != null && segment.driverCostPerTrip !== ""
-      ? toDecimalOrZero(segment.driverCostPerTrip)
-      : vehicle.driverCostType === "PER_TRIP"
-        ? toDecimalOrZero(vehicle.driverCost)
-        : new Decimal(0);
+    const driver = resolveSegmentDriverPerTrip(segment, vehicle);
     return {
       input: segment,
       distance,
@@ -149,7 +163,8 @@ export function buildExcelContext(input: SchemeCalculationInput): ExcelWorkingCo
       load: toDecimalOrZero(segment.loadTon),
       trips,
       weight: distance.mul(trips),
-      driverPerTrip,
+      driverPerTrip: driver.amount,
+      driverCostSource: driver.source,
       tollPerTrip: toDecimalOrZero(segment.tollPerTrip),
       loadingPerTrip: toDecimalOrZero(segment.loadingUnloadingFee),
       infoPerTrip: toDecimalOrZero(segment.informationFee),
@@ -181,7 +196,9 @@ export function buildExcelContext(input: SchemeCalculationInput): ExcelWorkingCo
     loanCycleMonths: new Decimal(input.finance.workingCapitalLoanCycle || 0),
     discountRate: toDecimalOrZero(input.finance.discountRate),
     wcRate: toDecimalOrZero(input.finance.workingCapitalInterestRate),
-    outputVatRate: toDecimal(input.finance.outputVatRate || "0.09"),
+    outputVatRate: toDecimal(input.finance.outputVatRate || input.ruleSet.vatRates.outputInclusiveRate),
+    inputStandardRate: toDecimal(input.ruleSet.vatRates.inputStandardRate),
+    inputInsuranceRate: toDecimal(input.ruleSet.vatRates.inputInsuranceRate),
     tireLifeKm: toDecimal(vehicle.tireLifeKm),
     tireCount: new Decimal(vehicle.tireCount),
     tireUnitPrice: toDecimalOrZero(vehicle.tireUnitPrice),
@@ -278,10 +295,10 @@ export function calculateExcelMonthlyPnl(input: SchemeCalculationInput): {
   const annualizedRent = excelAnnualizeMonthly(ctx.monthlyRent, ctx.fleetSize, ctx.operatingMonths);
 
   const total = emptyPnl();
-  total.revenue = ctx.segments.reduce(
-    (sum, seg) => sum.plus(ctx.fleet.mul(seg.price).mul(seg.load).mul(seg.trips)),
-    new Decimal(0),
-  );
+  total.revenue = ctx.segments.reduce((sum, seg) => {
+    const formula = resolveRevenueFormula(seg.input.freightPriceUnit, input.ruleSet.revenue.formulaByUnit);
+    return sum.plus(calcSegmentRevenue(seg.input, ctx.fleetSize, formula));
+  }, new Decimal(0));
   total.vehicleCost = calcExcelVehicleCost({
     isPureLease: ctx.isPureLease,
     fleetSize: ctx.fleetSize,
@@ -365,13 +382,16 @@ export function calculateExcelMonthlyPnl(input: SchemeCalculationInput): {
     energyCost: total.energyCost,
     tireCost: total.tireCost,
     insuranceCost: total.insuranceFee,
+    inputStandardRate: ctx.inputStandardRate,
+    inputInsuranceRate: ctx.inputInsuranceRate,
   });
   finishPnl(total);
 
   const segments: ExcelSegmentPnl[] = ctx.segments.map((seg) => {
     const row = emptyPnl();
     const share = seg.weight.div(ctx.totalWeight);
-    row.revenue = ctx.fleet.mul(seg.price).mul(seg.load).mul(seg.trips);
+    const formula = resolveRevenueFormula(seg.input.freightPriceUnit, input.ruleSet.revenue.formulaByUnit);
+    row.revenue = calcSegmentRevenue(seg.input, ctx.fleetSize, formula);
     row.driverCost = ctx.fleet.mul(seg.trips).mul(seg.driverPerTrip);
     row.tollCost = ctx.fleet.mul(seg.trips).mul(seg.tollPerTrip);
     row.loadingCost = ctx.fleet.mul(seg.trips).mul(seg.loadingPerTrip);
@@ -396,6 +416,7 @@ export function calculateExcelMonthlyPnl(input: SchemeCalculationInput): {
       segmentName: seg.input.segmentName,
       weight: seg.weight,
       loadState: seg.load.isZero() ? "EMPTY" : "LOADED",
+      driverCostSource: seg.driverCostSource,
     };
   });
 
@@ -470,7 +491,7 @@ export function calculateExcelAnnualCashFlows(
 ): AnnualCashFlow[] {
   const { total, ctx, actualMonthly } = pnl;
   const down = ctx.downPayment.mul(ctx.fleetSize);
-  const year0InputVat = down.mul("0.13").div("1.13");
+  const year0InputVat = down.mul(ctx.inputStandardRate).div(ctx.inputStandardRate.plus(1));
   const year0Vat = new Decimal(0).minus(year0InputVat);
   const year0Net = down.negated().plus(year0Vat);
 
@@ -529,6 +550,8 @@ export function calculateExcelAnnualCashFlows(
       energyCost,
       tireCost,
       insuranceCost: insuranceFee,
+      inputStandardRate: ctx.inputStandardRate,
+      inputInsuranceRate: ctx.inputInsuranceRate,
     });
     const vatPayable = calcExcelVatPayable(outputVat, inputVat);
     const current = revenue.minus(sum41to55).minus(advanceCost).minus(wcInterest).minus(vatPayable);
@@ -593,6 +616,8 @@ export function calculateExcelMonthlyCashFlows(
       energyCost,
       tireCost,
       insuranceCost: insuranceFee,
+      inputStandardRate: ctx.inputStandardRate,
+      inputInsuranceRate: ctx.inputInsuranceRate,
     });
     const vatCash = outputVat.minus(inputVat);
     const operatingCashOut = managementFee

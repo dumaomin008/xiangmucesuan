@@ -282,6 +282,7 @@ export function excelExampleInput(
       inputVatRule: "STANDARD_DEDUCT",
       calculationYears: 5,
       depreciationMonths: 60,
+      operatingMonthsYear: 10,
     },
     ...overrides,
   };

@@ -51,7 +51,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ id: stri
         emptyEnergyConsumption: String(body.emptyEnergyConsumption ?? "0"),
         electricityPrice: String(body.electricityPrice ?? "0"),
         driverCostPerTrip: String(body.driverCostPerTrip ?? "0"),
-        enabled: body.enabled,
+        enabled: body.enabled ?? true,
         sortNo: body.sortNo,
       },
     });

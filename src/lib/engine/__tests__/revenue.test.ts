@@ -20,6 +20,21 @@ describe("RevenueCalculator", () => {
     expect(revenue.toString()).toBe("475200000");
   });
 
+  it("空载 + 元/吨：收入为 0", () => {
+    const revenue = calcSegmentRevenue({ ...segment, loadTon: "0" }, 40, "PER_TON");
+    expect(revenue.toString()).toBe("0");
+  });
+
+  it("空载 + 元/趟：仍按趟计收", () => {
+    const revenue = calcSegmentRevenue({ ...segment, loadTon: "0" }, 40, "PER_TRIP");
+    expect(revenue.toString()).toBe("88000");
+  });
+
+  it("空载 + 元/吨公里：收入为 0", () => {
+    const revenue = calcSegmentRevenue({ ...segment, loadTon: "0" }, 40, "PER_TON_KM");
+    expect(revenue.toString()).toBe("0");
+  });
+
   it("趟数为 0 时收入为 0", () => {
     const revenue = calcSegmentRevenue({ ...segment, tripsPerVehicleMonth: "0" }, 40, "PER_TON");
     expect(revenue.toString()).toBe("0");
