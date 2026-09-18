@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Character } from "@/components/empty";
 import { StatusPill } from "@/components/ai/status-pill";
 import { Button, Card, Select, TextArea, TextInput } from "@/components/ui";
+import { PageCanvas } from "@/components/shell/app-shell";
 import { api } from "@/lib/client";
 import { FREIGHT_UNIT_LABEL } from "@/lib/ai/schema/field-dictionary";
 
@@ -137,7 +138,8 @@ export default function AiWorkspacePage() {
   }
 
   return (
-    <div className="pb-28">
+    <PageCanvas wide>
+      <div className="pb-28">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-[13px] font-medium tracking-[0.04em] text-sn-muted">AI PROJECT INTAKE</p>
@@ -521,7 +523,8 @@ export default function AiWorkspacePage() {
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </PageCanvas>
   );
 
   async function patchRoute(routeId: string, patch: Record<string, string>) {

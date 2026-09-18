@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Card, PageHeader } from "@/components/ui";
+import { PageCanvas } from "@/components/shell/app-shell";
 import { api } from "@/lib/client";
 import { formatDateTime } from "@/lib/format";
 
@@ -24,7 +25,7 @@ export default function OverviewPage() {
   }, [projectId]);
   if (!project) return null;
   return (
-    <div>
+    <PageCanvas>
       <PageHeader title={project.projectName} subtitle="项目主数据来自项目管理系统，测算模块只引用、不重复建设。" />
       <div className="grid gap-5 md:grid-cols-3">
         <Card>
@@ -52,6 +53,6 @@ export default function OverviewPage() {
           <div className="mt-2 text-[22px] font-semibold">{formatDateTime(project.endDate)}</div>
         </Card>
       </div>
-    </div>
+    </PageCanvas>
   );
 }

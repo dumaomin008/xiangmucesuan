@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { EmptyState } from "@/components/empty";
 import { Button, Card, PageHeader } from "@/components/ui";
+import { PageCanvas } from "@/components/shell/app-shell";
 import { StatusPill } from "@/components/ai/status-pill";
 import { api } from "@/lib/client";
 import { formatDateTime } from "@/lib/format";
@@ -38,7 +39,7 @@ export default function AiWorkspaceListPage() {
   }, [projectId]);
 
   return (
-    <div>
+    <PageCanvas>
       <PageHeader
         title="AI 智能测算"
         subtitle="把尽调资料变成可审阅的标准测算草稿。核心数字仍由测算引擎计算。"
@@ -97,6 +98,6 @@ export default function AiWorkspaceListPage() {
           ))}
         </div>
       )}
-    </div>
+    </PageCanvas>
   );
 }

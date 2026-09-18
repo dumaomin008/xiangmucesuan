@@ -13,7 +13,7 @@
 html,
 body {
   min-height: 100%;
-  background: linear-gradient(180deg, #ffffff 0%, #f5f5f7 220px);
+  background: #f5f5f7;
   color: var(--sn-text-primary);
   font-family: Inter, "SF Pro Display", -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
 }

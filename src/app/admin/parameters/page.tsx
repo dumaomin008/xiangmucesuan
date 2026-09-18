@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { AppHeader } from "@/components/app-header";
+import { PageCanvas } from "@/components/shell/app-shell";
 import { Button, Card, Field, PageHeader, Select, TextArea, TextInput } from "@/components/ui";
 import { api } from "@/lib/client";
 import { formatDateTime } from "@/lib/format";
@@ -39,10 +39,8 @@ export default function AdminParametersPage() {
   const filtered = rows.filter((r) => cat === "全部" || r.category === cat);
 
   return (
-    <div>
-      <AppHeader />
-      <main className="mx-auto max-w-[1200px] px-6 py-8">
-        <PageHeader
+    <PageCanvas wide>
+      <PageHeader
           title="参数标准库"
           subtitle="管理员维护公司统一测算口径。修改会升版本，不会静默改写历史测算结果。"
           actions={<Button onClick={() => setCreating(true)}>新增参数</Button>}
@@ -191,7 +189,6 @@ export default function AdminParametersPage() {
             </div>
           </div>
         )}
-      </main>
-    </div>
+    </PageCanvas>
   );
 }

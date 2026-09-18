@@ -2,10 +2,11 @@
 
 import { Card, PageHeader } from "@/components/ui";
 import { Character } from "@/components/empty";
+import { PageCanvas } from "@/components/shell/app-shell";
 
 export default function ProgressPage() {
   return (
-    <div>
+    <PageCanvas>
       <PageHeader title="项目进度" subtitle="V1 仅作嵌入占位，后续对接立项与执行。" />
       <Card className="flex items-center gap-8">
         <Character mood="idle" />
@@ -16,6 +17,6 @@ export default function ProgressPage() {
           </p>
         </div>
       </Card>
-    </div>
+    </PageCanvas>
   );
 }

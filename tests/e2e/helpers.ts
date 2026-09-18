@@ -35,42 +35,37 @@ export async function waitSaved(page: Page) {
 export async function fillFirstSegment(page: Page, values: Partial<Record<string, string>> = {}) {
   await page.getByRole("button", { name: "新增线路" }).click();
   await page.getByRole("button", { name: "新增路段" }).click();
-  const row = page.locator("table tbody tr").first();
-  await expect(row).toBeVisible();
-  const inputs = row.locator("input");
   const data = {
-    segmentName: "主干路段",
     originName: "起点仓",
     destinationName: "终点仓",
     distanceKm: "180",
-    freightPrice: "220",
     loadTon: "30",
-    trips: "10",
-    electricity: "0.82",
-    loaded: "1.35",
-    empty: "0.95",
     ...values,
   };
-  await inputs.nth(0).fill(data.segmentName);
-  await inputs.nth(1).fill(data.originName);
-  await inputs.nth(2).fill(data.destinationName);
-  await inputs.nth(3).fill(data.distanceKm);
-  await inputs.nth(4).fill(data.freightPrice);
-  await inputs.nth(5).fill(data.loadTon);
-  await inputs.nth(6).fill(data.trips);
-  await inputs.nth(7).fill(data.electricity);
-  await inputs.nth(8).fill(data.loaded);
-  await inputs.nth(9).fill(data.empty);
-  await inputs.nth(4).blur();
+  await page.getByLabel("装货地").first().fill(data.originName);
+  await page.getByLabel("卸货地").first().fill(data.destinationName);
+  await page.getByLabel("单程距离").first().fill(data.distanceKm);
+  await page.getByLabel("单趟载重").first().fill(data.loadTon);
+  if (data.originName) await page.getByLabel("装货地").first().blur();
+}
+
+export async function fillOperatingAndCost(page: Page, values: Partial<Record<string, string>> = {}) {
+  await page.getByRole("button", { name: "下一步" }).click();
+  await page.getByLabel("单车月趟数").first().fill(values.trips || "10");
+  await page.getByRole("button", { name: "下一步" }).click();
+  await page.getByLabel("运价").first().fill(values.freightPrice || "220");
+  await page.getByLabel("电价").first().fill(values.electricity || "0.82");
+  await page.getByLabel("满载能耗").first().fill(values.loaded || "1.35");
+  await page.getByLabel("空载能耗").first().fill(values.empty || "0.95");
+  await page.getByLabel("单车月租").fill(values.monthlyRent || "6500");
+  await page.getByLabel("运价").first().blur();
 }
 
 export async function completeMinimalWizard(page: Page, schemeName: string) {
   await createSchemeViaUi(page, schemeName);
   await page.getByRole("button", { name: "下一步" }).click();
   await fillFirstSegment(page);
-  await page.getByRole("button", { name: "下一步" }).click();
-  await page.getByLabel("单车月租").fill("6500");
-  await page.getByRole("button", { name: "下一步" }).click();
+  await fillOperatingAndCost(page);
   await page.getByRole("button", { name: "下一步" }).click();
 }
 

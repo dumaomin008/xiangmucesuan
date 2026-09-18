@@ -11,13 +11,13 @@ test.describe("E2E-08 方案复制和对比", () => {
     await page.getByRole("button", { name: "复制方案" }).first().click();
     await page.waitForURL(/\/calculation\/.+/);
     await expect(page.getByLabel("测算方案名称")).toBeVisible();
-    await page.getByRole("button", { name: "2. 线路运输" }).click();
-    const price = page.locator("table tbody tr").first().locator("input").nth(4);
+    await page.getByRole("button", { name: "4. 成本收益" }).click();
+    const price = page.getByLabel("运价").first();
     const saved = waitSaved(page);
     await price.fill("60");
     await price.blur();
     await saved;
-    await page.getByRole("button", { name: "5. 确认并测算" }).click();
+    await page.getByRole("button", { name: "5. 确认测算" }).click();
     await page.getByRole("button", { name: "开始测算" }).click();
     await page.waitForURL(/\/results/);
     const bProfit = parseUiMoney(await metricValue(page, "月利润").textContent());
@@ -26,7 +26,7 @@ test.describe("E2E-08 方案复制和对比", () => {
     await page.locator("button").filter({ hasText: "原方案" }).filter({ hasNotText: "副本" }).click();
     await page.locator("button").filter({ hasText: "副本" }).click();
     await page.getByRole("button", { name: "开始对比" }).click();
-    await expect(page.getByText("月利润")).toBeVisible();
+    await expect(page.getByRole("cell", { name: "月利润" })).toBeVisible();
     const profitRow = page.locator("tr").filter({ hasText: "月利润" });
     const cells = profitRow.locator("td");
     const left = parseUiMoney(await cells.nth(1).textContent());

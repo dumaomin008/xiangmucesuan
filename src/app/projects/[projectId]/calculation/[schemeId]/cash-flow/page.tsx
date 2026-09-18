@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { CalculationSubnav } from "@/components/nav";
 import { Card, MetricCard, PageHeader } from "@/components/ui";
+import { PageCanvas } from "@/components/shell/app-shell";
 import { api } from "@/lib/client";
 import { explainUnavailable, formatFirstPositiveMonth, formatMoney, formatMonthLabel, formatPercent } from "@/lib/format";
 
@@ -62,7 +63,7 @@ export default function CashFlowPage() {
   }));
 
   return (
-    <div>
+    <PageCanvas wide>
       <CalculationSubnav projectId={projectId} schemeId={schemeId} />
       <PageHeader
         title="现金流"
@@ -166,6 +167,6 @@ export default function CashFlowPage() {
           )}
         </Card>
       )}
-    </div>
+    </PageCanvas>
   );
 }

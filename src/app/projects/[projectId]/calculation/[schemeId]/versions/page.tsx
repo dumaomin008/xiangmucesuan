@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { CalculationSubnav } from "@/components/nav";
 import { Card, PageHeader, StatusBadge } from "@/components/ui";
+import { PageCanvas } from "@/components/shell/app-shell";
 import { api } from "@/lib/client";
 import { formatDateTime } from "@/lib/format";
 
@@ -38,7 +39,7 @@ export default function VersionsPage() {
   }, [schemeId]);
 
   return (
-    <div>
+    <PageCanvas>
       <CalculationSubnav projectId={projectId} schemeId={schemeId} />
       <PageHeader title="版本记录" subtitle="历史测算绑定当时的参数快照和规则版本，标准库更新不会改写历史结果。" />
       <Card className="mb-5">
@@ -93,6 +94,6 @@ export default function VersionsPage() {
           </tbody>
         </table>
       </Card>
-    </div>
+    </PageCanvas>
   );
 }

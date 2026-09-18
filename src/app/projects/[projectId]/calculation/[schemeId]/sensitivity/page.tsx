@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { CalculationSubnav } from "@/components/nav";
 import { Button, Card, Field, PageHeader, Select, TextInput } from "@/components/ui";
+import { PageCanvas } from "@/components/shell/app-shell";
 import { api } from "@/lib/client";
 import { formatMoney, formatPercent } from "@/lib/format";
 import { SENSITIVITY_VARIABLES } from "@/lib/engine/types";
@@ -38,7 +39,7 @@ export default function SensitivityPage() {
   }, [schemeId]);
 
   return (
-    <div>
+    <PageCanvas wide>
       <CalculationSubnav projectId={projectId} schemeId={schemeId} />
       <PageHeader title="敏感性分析" subtitle="每个情景都会重新调用完整计算引擎，禁止用简单比例推导利润。" />
       <Card className="mb-5 grid gap-4 md:grid-cols-5">
@@ -120,6 +121,6 @@ export default function SensitivityPage() {
           </table>
         </Card>
       )}
-    </div>
+    </PageCanvas>
   );
 }

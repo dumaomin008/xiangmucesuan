@@ -1,10 +1,11 @@
 "use client";
 
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Fragment, useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { CalculationSubnav } from "@/components/nav";
-import { Card, MetricCard, PageHeader } from "@/components/ui";
+import { Card, MetricCard, PageHeader, Button } from "@/components/ui";
+import { PageCanvas } from "@/components/shell/app-shell";
 import { api } from "@/lib/client";
 import { explainUnavailable, formatFirstPositiveMonth, formatMoney, formatPercent, formatQty } from "@/lib/format";
 import { Character } from "@/components/empty";
@@ -77,6 +78,7 @@ type Result = {
 
 export default function ResultsPage() {
   const { projectId, schemeId } = useParams<{ projectId: string; schemeId: string }>();
+  const router = useRouter();
   const snapshotId = useSearchParams().get("snapshotId");
   const [result, setResult] = useState<Result | null>(null);
   const [open, setOpen] = useState<Result["items"][number] | null>(null);
@@ -97,7 +99,7 @@ export default function ResultsPage() {
 
   if (error) {
     return (
-      <div>
+      <PageCanvas wide>
         <CalculationSubnav projectId={projectId} schemeId={schemeId} />
         <Card className="flex items-center gap-6">
           <Character mood="warn" />
@@ -106,7 +108,7 @@ export default function ResultsPage() {
             <p className="mt-2 text-sn-secondary">{error}。请先完成参数配置并点击开始测算。我们不会展示 #DIV/0! 或 NaN。</p>
           </div>
         </Card>
-      </div>
+      </PageCanvas>
     );
   }
   if (!result) return null;
@@ -134,18 +136,54 @@ export default function ResultsPage() {
     profit: Number(route.monthlyProfit),
   }));
 
+  const months = result.payload.operatingMonthsYear ?? 12;
+  const annualRevenue = (Number(result.monthlyRevenue) * months).toFixed(2);
+  const annualCost = (Number(result.monthlyTotalCost) * months).toFixed(2);
+  const annualProfit = (Number(result.monthlyProfit) * months).toFixed(2);
+  const annualVolume = (Number(result.monthlyVolume) * months).toFixed(2);
+  const summary = `本方案由计算引擎给出：月收入 ${formatMoney(result.monthlyRevenue)} 元，月成本 ${formatMoney(result.monthlyTotalCost)} 元，月利润 ${formatMoney(result.monthlyProfit)} 元，利润率 ${result.profitMargin ? formatPercent(result.profitMargin) : "无法计算"}。按年运营 ${months} 个月折年，年收入 ${formatMoney(annualRevenue)}，年利润 ${formatMoney(annualProfit)}。投资回收期：${formatFirstPositiveMonth(result.firstPositiveMonth)}。以上数字均来自引擎结果，AI 只做解释。`;
+
   return (
-    <div>
+    <PageCanvas wide>
       <CalculationSubnav projectId={projectId} schemeId={schemeId} />
       <PageHeader
         title="测算结果"
         subtitle={`点击任意核心指标可查看计算依据。正式结果绑定快照 ${result.payload.snapshotId || "—"}，不会被后续改参覆盖。`}
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => router.push(`/projects/${projectId}/calculation/${schemeId}`)}>
+              调整参数
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={async () => {
+                const created = await api<{ id: string }>(`/api/calculation-schemes/${schemeId}/copy`, {
+                  method: "POST",
+                  body: JSON.stringify({}),
+                });
+                router.push(`/projects/${projectId}/calculation/${created.id}`);
+              }}
+            >
+              创建对比方案
+            </Button>
+            <Button variant="ghost" onClick={() => router.push(`/projects/${projectId}/calculation/${schemeId}/cash-flow`)}>
+              查看完整测算明细
+            </Button>
+          </>
+        }
       />
       <div className="mb-4 flex flex-wrap gap-3 text-[13px] text-sn-secondary">
         <span>年运营月数 {result.payload.operatingMonthsYear ?? "—"} 个月</span>
         <span>项目经营月数 {result.payload.projectOperatingMonths ?? "按租赁规则"}</span>
         <span>运价 {result.payload.freightPricing?.label ?? "—"}</span>
       </div>
+      <Card className="mb-5">
+        <h3 className="text-[16px] font-semibold">AI 测算摘要</h3>
+        <p className="mt-2 text-[14px] leading-6 text-sn-secondary">{summary}</p>
+        <p className="mt-2 text-[12px] text-sn-muted">
+          年运输量 {formatQty(annualVolume)} 吨 · 年收入 {formatMoney(annualRevenue)} · 年成本 {formatMoney(annualCost)} · 年利润 {formatMoney(annualProfit)}
+        </p>
+      </Card>
       {result.payload.freightPricing?.mixed && (
         <Card className="mb-5">
           <h3 className="mb-2 text-[16px] font-semibold">多计价口径</h3>
@@ -364,6 +402,6 @@ export default function ResultsPage() {
           </div>
         </div>
       )}
-    </div>
+    </PageCanvas>
   );
 }

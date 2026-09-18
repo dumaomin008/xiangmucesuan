@@ -1,5 +1,5 @@
 import { clsx } from "clsx";
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+import { cloneElement, isValidElement, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactElement, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
 
 export function Card({
   children,
@@ -76,6 +76,7 @@ export function Field({
   required,
   source,
   overridden,
+  help,
   children,
 }: {
   label: string;
@@ -84,14 +85,16 @@ export function Field({
   required?: boolean;
   source?: string;
   overridden?: boolean;
+  help?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <label className="block">
+    <div className="block">
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-[13px] font-medium tracking-[0.02em] text-sn-secondary">
           {label}
           {required && <span className="ml-1 text-sn-error">*</span>}
+          {help}
         </span>
         <span className="flex items-center gap-2">
           {source && (
@@ -107,9 +110,11 @@ export function Field({
           {unit && <span className="text-[12px] text-sn-muted">{unit}</span>}
         </span>
       </div>
-      {children}
+      {isValidElement(children)
+        ? cloneElement(children as ReactElement<{ "aria-label"?: string }>, { "aria-label": label })
+        : children}
       {hint && <p className="mt-1.5 text-[12px] text-sn-muted">{hint}</p>}
-    </label>
+    </div>
   );
 }
 

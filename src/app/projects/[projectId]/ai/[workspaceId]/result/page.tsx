@@ -8,6 +8,7 @@ import { AssistantDrawer } from "@/components/ai/assistant-drawer";
 import { StatusPill } from "@/components/ai/status-pill";
 import { Character } from "@/components/empty";
 import { Button, Card, MetricCard, PageHeader } from "@/components/ui";
+import { PageCanvas } from "@/components/shell/app-shell";
 import { api } from "@/lib/client";
 import { formatFirstPositiveMonth, formatMoney, formatPercent, formatQty } from "@/lib/format";
 import type { CalculationResultV1 } from "@/lib/ai/schema/types";
@@ -104,7 +105,7 @@ export default function AiResultPage() {
   }>;
 
   return (
-    <div>
+    <PageCanvas wide>
       <PageHeader
         title="AI 测算结果"
         subtitle="核心指标、图表和敏感性全部来自测算引擎。风险等级来自规则引擎，AI 只做解释。"
@@ -335,6 +336,6 @@ export default function AiResultPage() {
         </div>
       )}
       <AssistantDrawer open={assistant} onClose={() => setAssistant(false)} workspaceId={workspaceId} onSaved={load} />
-    </div>
+    </PageCanvas>
   );
 }

@@ -32,10 +32,15 @@ test.describe("E2E-03 输入错误", () => {
     await createProjectViaUi(page);
     await createSchemeViaUi(page, `负运价 ${uid()}`);
     await page.getByRole("button", { name: "下一步" }).click();
-    await fillFirstSegment(page, { freightPrice: "-1" });
+    await fillFirstSegment(page);
+    await page.getByRole("button", { name: "下一步" }).click();
+    await page.getByLabel("单车月趟数").first().fill("10");
+    await page.getByRole("button", { name: "下一步" }).click();
+    await page.getByLabel("运价").first().fill("-1");
+    await page.getByLabel("运价").first().blur();
     await expect(page.getByText(/运价不得为负|不得为负/).first()).toBeVisible();
-    await page.getByRole("button", { name: "1. 基础信息" }).click();
-    await page.getByRole("button", { name: "5. 确认并测算" }).click();
+    await page.getByRole("button", { name: "1. 基本信息" }).click();
+    await page.getByRole("button", { name: "5. 确认测算" }).click();
     await page.getByRole("button", { name: "开始测算" }).click();
     const stillOnWizard = page.url().includes("/calculation/") && !page.url().includes("/results");
     const errorVisible = await page.getByText(/运价不得为负|无法测算|CALC_PARAMETER_INVALID|INVALID_FREIGHT_PRICE/).isVisible().catch(() => false);

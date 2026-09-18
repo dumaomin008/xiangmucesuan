@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { Character } from "@/components/empty";
+import { PageCanvas } from "@/components/shell/app-shell";
 import { Button, Card, PageHeader } from "@/components/ui";
 import { api } from "@/lib/client";
 
@@ -26,7 +27,7 @@ export default function NewCalculationPage() {
   };
 
   return (
-    <div>
+    <PageCanvas>
       <PageHeader
         title="新建测算"
         subtitle="AI 负责理解资料，测算引擎负责算数。推荐从尽调资料开始，降低填写门槛。"
@@ -95,6 +96,6 @@ export default function NewCalculationPage() {
           </Button>
         </Card>
       </div>
-    </div>
+    </PageCanvas>
   );
 }

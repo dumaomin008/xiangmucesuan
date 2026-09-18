@@ -17,7 +17,9 @@ export async function GET() {
   });
   const rows = projects.map((p) => {
     const baseline = p.schemes.find((s) => s.status === "baseline");
-    const latest = baseline?.results[0];
+    const latestScheme = [...p.schemes].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0];
+    const latest = (baseline ?? latestScheme)?.results[0];
+    const displayScheme = baseline ?? latestScheme;
     return {
       id: p.id,
       projectCode: p.projectCode,
@@ -27,10 +29,15 @@ export async function GET() {
       projectStatus: p.projectStatus,
       startDate: p.startDate,
       endDate: p.endDate,
+      updatedAt: p.updatedAt,
       schemeCount: p.schemes.length,
+      currentSchemeId: displayScheme?.id ?? null,
+      currentSchemeName: displayScheme ? `${displayScheme.schemeName} ${displayScheme.versionNo}` : null,
+      currentSchemeStatus: displayScheme?.status ?? null,
       baselineSchemeName: baseline ? `${baseline.schemeName} ${baseline.versionNo}` : null,
       baselineProfit: latest?.monthlyProfit ?? null,
       baselineMargin: latest?.profitMargin ?? null,
+      latestResultAt: latest?.calculatedAt ?? null,
     };
   });
   return ok(rows);

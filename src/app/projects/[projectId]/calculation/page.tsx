@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { CalculationSubnav } from "@/components/nav";
 import { EmptyState } from "@/components/empty";
+import { PageCanvas } from "@/components/shell/app-shell";
 import { Button, Card, PageHeader, StatusBadge } from "@/components/ui";
 import { api } from "@/lib/client";
 import { formatDateTime, formatMoney, formatPercent } from "@/lib/format";
@@ -70,7 +71,7 @@ export default function SchemeListPage() {
   };
 
   return (
-    <div>
+    <PageCanvas wide>
       <CalculationSubnav projectId={projectId} />
       <PageHeader
         title="测算方案"
@@ -236,6 +237,6 @@ export default function SchemeListPage() {
           </table>
         </Card>
       )}
-    </div>
+    </PageCanvas>
   );
 }

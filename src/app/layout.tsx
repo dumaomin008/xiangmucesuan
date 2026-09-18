@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { AppShell } from "@/components/shell/app-shell";
 import "./globals.css";
 
 const inter = Inter({
@@ -16,7 +17,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="zh-CN">
-      <body className={`${inter.variable} font-sn antialiased text-[#1A1A1E]`}>{children}</body>
+      <body className={`${inter.variable} font-sn antialiased text-[#1A1A1E]`}>
+        <AppShell>{children}</AppShell>
+      </body>
     </html>
   );
 }
