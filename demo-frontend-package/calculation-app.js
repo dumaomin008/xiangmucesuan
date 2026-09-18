@@ -219,7 +219,30 @@
     return { label: "待完善", cls: "warning" };
   }
 
+  function viewToggle(active) {
+    return `<div class="ai-view-toggle" role="tablist" aria-label="测算中心视图"><button type="button" class="btn small ${active === "ai" ? "primary" : ""}" data-calc-view="ai">AI对话测算</button><button type="button" class="btn small ${active === "list" ? "primary" : ""}" data-calc-view="list">传统列表视图</button></div>`;
+  }
+
   function calcCenterPage() {
+    const view = global.AiCenter?.getView?.() || "ai";
+    if (view === "list" || !global.AiCenter?.render) return calcCenterListPage();
+    return calcCenterAiPage();
+  }
+
+  function calcCenterAiPage() {
+    const blocked = requireCalc();
+    if (blocked) return shell(blocked);
+    global.PmCalc.ensureRepos();
+    const tools = `<details class="calc-demo-tools"><summary>演示状态 / Demo Tools</summary><div class="calc-demo-tools-body">${typeof stateControl === "function" ? stateControl() : ""}${resetDemoButton()}<label class="ai-mode-label">AI 模式<select id="ai-mode-select" class="select" aria-label="AI 模式"><option value="mock">mock</option><option value="deepseek">deepseek</option></select></label><button type="button" class="btn small" id="ai-force-fail">模拟 AI 超时</button><p class="help">引擎 ${esc(global.PmCalc.engineVersion)} · 密钥只在服务端 · 数字来自 Calculation Engine</p></div></details>`;
+    return shell(
+      global.AiCenter.render({
+        breadcrumbHtml: breadcrumb([{ label: "业务管理" }, { label: "项目测算中心" }]),
+        demoToolsHtml: tools,
+      }),
+    );
+  }
+
+  function calcCenterListPage() {
     const blocked = requireCalc();
     if (blocked) return shell(blocked);
     global.PmCalc.ensureRepos();
@@ -305,7 +328,7 @@
     ${pageHead(
       "项目测算中心",
       "跨项目管理测算方案、经营结果与方案决策",
-      `${canEdit() ? `<button class="btn primary" id="calc-center-new">${icons.plus}<span>新建测算</span></button><button class="btn" id="calc-center-ai-import" data-go="/calculation/import">AI辅助测算</button>` : ""}
+      `${viewToggle("list")}${canEdit() ? `<button class="btn primary" id="calc-center-new">${icons.plus}<span>新建测算</span></button><button class="btn" id="calc-center-ai-import" data-go="/calculation/import">AI辅助测算</button>` : ""}
        <details class="calc-demo-tools"><summary>演示状态 / Demo Tools</summary>
          <div class="calc-demo-tools-body">${stateControl()}${resetDemoButton()}
          <p class="help">引擎 ${esc(global.PmCalc.engineVersion)} · LocalStorage · 不作为业务 KPI</p></div>
@@ -1217,6 +1240,15 @@
 
   function bindCalculationActions() {
     bindResetSeed();
+    $$("[data-calc-view]").forEach((btn) => {
+      btn.onclick = () => {
+        global.AiCenter?.setView?.(btn.dataset.calcView);
+        render();
+      };
+    });
+    if (currentRoute() === "/calculation" && (global.AiCenter?.getView?.() || "ai") !== "list") {
+      global.AiCenter?.bind?.();
+    }
     global.ImportApp?.bindImportActions?.();
     $("#calc-center-new")?.addEventListener("click", () => global.ImportApp?.openCreateCalcModal?.());
     $$("#calc-center-ai-import").forEach((btn) => {
