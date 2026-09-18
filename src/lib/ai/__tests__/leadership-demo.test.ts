@@ -168,6 +168,9 @@ describe("AI-07 no silent zero", () => {
     });
     expect(mapped.routes[0].segment.tollPerTrip).toBe("0");
     expect(mapped.assumptions.some((item) => item.field_code === "cost.toll_per_trip")).toBe(true);
+    expect(mapped.assumptions.find((item) => item.field_code === "cost.toll_per_trip")?.source_label).toBe("待确认按0测算");
+    expect(mapped.assumptions.find((item) => item.field_code === "ops.operating_months_year")?.source_label).toBe("系统默认");
+    expect(mapped.assumptions.find((item) => item.field_code === "vehicle.down_payment")?.value).toBe("80000");
     expect(mapped.routes[0].segment.electricityPrice).toBe("");
     expect(mapped.monthlyRentPerVehicle).toBeNull();
     expect(() => assertNoSilentZero(mapped)).not.toThrow();

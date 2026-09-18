@@ -6,10 +6,10 @@ export type ScenarioAction = {
 };
 
 export type ScenarioIntent = {
-  kind: "explain" | "scenario" | "due_diligence";
+  kind: "explain" | "scenario" | "due_diligence" | "unmatched";
   title: string;
   actions: ScenarioAction[];
-  parser: "rule" | "llm";
+  parser: "rule" | "llm" | "fallback" | "none";
 };
 
 function pct(question: string, keyword: string) {
@@ -82,5 +82,5 @@ export function parseIntentRuleBased(question: string): ScenarioIntent {
       actions: [{ field_code: "ops.trips_per_vehicle_month", scope: "all_routes", operation: "add", value: -n }],
     };
   }
-  return { kind: "explain", title: "解释测算结果", actions: [], parser: "rule" };
+  return { kind: "unmatched", title: "未识别场景", actions: [], parser: "none" };
 }

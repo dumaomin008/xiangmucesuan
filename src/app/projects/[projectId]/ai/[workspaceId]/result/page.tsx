@@ -26,7 +26,17 @@ type ResultResponse = {
     sensitivity: string | null;
     suggested_method: string | null;
   }>;
-  assumptions: Array<{ field_code: string; value: string; label: string; status: string }>;
+  assumptions: Array<{
+    field_code: string;
+    field_name?: string;
+    value: string;
+    unit?: string | null;
+    label: string;
+    status: string;
+    source_label?: string;
+    impact_metrics?: string[];
+    allowed_zero?: boolean;
+  }>;
   cashFlows: Array<{ monthIndex: number; currentNetCashFlow: string; cumulativeCashFlow: string }>;
   sensitivity: Array<{ variable: string; rows: Array<{ parameterChange: string; monthlyProfit: string }> }>;
   scenarios: Array<{
@@ -54,6 +64,14 @@ const SENS_LABEL: Record<string, string> = {
   monthly_rent_per_vehicle: "车辆月租",
   loaded_energy_consumption: "满载电耗",
 };
+
+const HIGHLIGHT_ASSUMPTIONS = new Set([
+  "ops.operating_months_year",
+  "vehicle.down_payment",
+  "cost.toll_per_trip",
+  "cost.loading_unloading_fee",
+  "cost.information_fee",
+]);
 
 export default function AiResultPage() {
   const { projectId, workspaceId } = useParams<{ projectId: string; workspaceId: string }>();
@@ -121,19 +139,53 @@ export default function AiResultPage() {
             <MetricCard label="IRR" value={result.kpis.irr ? formatPercent(result.kpis.irr) : "无法计算"} hint={result.kpis.irr_reason || ""} />
           </div>
 
-          {(data?.assumptions || []).length > 0 && (
-            <Card>
-              <h2 className="text-[20px] font-semibold">假设条件</h2>
-              <div className="mt-3 space-y-2">
-                {data?.assumptions.map((item) => (
-                  <div key={`${item.field_code}-${item.value}`} className="flex items-start justify-between gap-3 rounded-sn-md bg-sn-subtle px-3 py-2">
-                    <p className="text-[13px] text-sn-secondary">{item.label}</p>
-                    <StatusPill value={item.status} />
-                  </div>
-                ))}
+          <Card>
+            <h2 className="text-[20px] font-semibold">测算假设</h2>
+            <p className="mt-1 text-[13px] text-sn-secondary">
+              系统默认、演示参考值和待确认但允许按 0 测算的字段会集中展示来源与影响。这些不是合同确认值，最终数字仍由测算引擎按下列假设重算。
+            </p>
+            {(data?.assumptions || []).length === 0 ? (
+              <div className="mt-6 flex flex-col items-center px-4 py-8 text-center">
+                <Character mood="idle" />
+                <p className="mt-3 text-[13px] text-sn-secondary">当前测算没有额外假设记录。</p>
               </div>
-            </Card>
-          )}
+            ) : (
+              <div className="mt-4 overflow-x-auto">
+                <table className="min-w-full text-left text-[13px]">
+                  <thead className="text-[12px] text-sn-muted">
+                    <tr>
+                      {["字段", "测算取值", "单位", "来源", "影响指标", "说明"].map((h) => (
+                        <th key={h} className="px-3 py-2 font-medium">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(data?.assumptions || []).map((item) => {
+                      const highlight = HIGHLIGHT_ASSUMPTIONS.has(item.field_code);
+                      return (
+                        <tr
+                          key={`${item.field_code}-${item.value}-${item.source_label || item.status}`}
+                          className={`border-t border-black/[0.04] ${highlight ? "bg-[#FFF8EE]" : ""}`}
+                        >
+                          <td className="px-3 py-3 font-medium text-sn-primary">
+                            {item.field_name || item.field_code}
+                            {highlight && <span className="mt-1 block text-[11px] font-normal text-[#C47B12]">重点核对</span>}
+                          </td>
+                          <td className="px-3 py-3 font-semibold">{item.value === "" ? "未写入引擎" : item.value}</td>
+                          <td className="px-3 py-3 text-sn-secondary">{item.unit || "—"}</td>
+                          <td className="px-3 py-3">
+                            <StatusPill value={item.source_label || item.status} />
+                          </td>
+                          <td className="px-3 py-3 text-sn-secondary">{(item.impact_metrics || []).join("、") || "—"}</td>
+                          <td className="px-3 py-3 text-sn-secondary">{item.label}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
 
           <div className="grid gap-5 lg:grid-cols-2">
             <Card>

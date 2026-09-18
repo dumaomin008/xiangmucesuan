@@ -132,10 +132,18 @@ export type DueDiligenceItem = {
   completion_status: "未获取" | "已获取待确认" | "已确认";
 };
 
+export type P0BlockingItem = {
+  field_code: string;
+  name: string;
+  reason: string;
+  route_id?: string | null;
+};
+
 export type CalculationRequest = {
   schema_version: typeof CALCULATION_REQUEST_SCHEMA_VERSION;
   ready: boolean;
   blocking_p0: string[];
+  blocking?: P0BlockingItem[];
   routes_confirmed: boolean;
   engine_mapped_fields_only: true;
 };

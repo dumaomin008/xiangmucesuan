@@ -1,9 +1,9 @@
 import { calculateScheme } from "@/lib/engine/calculate";
 import { validateSchemeInput } from "@/lib/engine/validate";
 import type { SchemeCalculationInput } from "@/lib/engine/types";
-import { parseIntentRuleBased } from "../copilot/intent";
 import { runScenario } from "../copilot/scenario";
 import { explainFromEngine } from "../copilot/explain";
+import { resolveIntent } from "../copilot/parse-intent";
 import { toCalculationResultV1 } from "../map/from-engine";
 import { assertEngineSourced } from "../map/guard";
 import type { DueDiligenceItem } from "../schema/types";
@@ -35,15 +35,16 @@ function resultFrom(input: SchemeCalculationInput) {
   return result;
 }
 
-export function runCopilotTurn(input: {
+export async function runCopilotTurn(input: {
   question: string;
   baselineInput: SchemeCalculationInput;
   lastPatchedInput?: SchemeCalculationInput | null;
   dueDiligence?: DueDiligenceItem[];
   risks?: RiskItem[];
   base?: "baseline" | "last_scenario";
+  llmComplete?: () => Promise<unknown>;
 }) {
-  const intent = parseIntentRuleBased(input.question);
+  const intent = await resolveIntent(input.question, input.llmComplete);
   const sourceInput =
     input.base === "last_scenario" && input.lastPatchedInput ? input.lastPatchedInput : input.baselineInput;
   const frozenBaseline = cloneInput(input.baselineInput);
@@ -71,7 +72,7 @@ export function runCopilotTurn(input: {
   if (errors.length) {
     return {
       intent,
-      steps: ["识别场景意图", "参数校验失败"],
+      steps: [intent.parser === "llm" ? "大模型识别场景意图" : "识别场景意图", "参数校验失败"],
       explanation: `场景参数未通过测算引擎校验：${errors.map((e) => e.message).join("；")}`,
       scenario: null,
       engineErrors: errors.map((e) => e.message),
@@ -83,7 +84,12 @@ export function runCopilotTurn(input: {
   const delta = preview.difference;
   return {
     intent,
-    steps: ["识别场景意图", "创建模拟方案", "测算引擎重算", "对比基准方案"],
+    steps: [
+      intent.parser === "llm" ? "规则未命中，已用大模型生成 ScenarioPatch" : "识别场景意图",
+      "创建模拟方案",
+      "测算引擎重算",
+      "对比基准方案",
+    ],
     explanation: `已按「${intent.title}」创建临时方案并由测算引擎重算。月利润变化 ${delta.monthly_profit} 元，月收入变化 ${delta.monthly_revenue} 元，月成本变化 ${delta.monthly_total_cost} 元。这些数字来自 Calculation Engine，不是模型估算。`,
     scenario: preview,
     engineErrors: [],

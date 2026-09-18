@@ -11,6 +11,7 @@ import type {
   SourceType,
 } from "../schema/types";
 import { AI_PROJECT_EXTRACT_SCHEMA_VERSION, CALCULATION_REQUEST_SCHEMA_VERSION } from "../schema/versions";
+import { evaluateP0Gate } from "../p0-gate";
 
 function hasValue(value: string | null | undefined) {
   return value != null && String(value).trim() !== "";
@@ -173,16 +174,13 @@ export function buildMissingAndQuestions(input: {
   return { missing, questions, dueDiligence };
 }
 
-export function buildCalculationRequest(routes: AiRouteDraft[], questions: QuestionRecord[]) {
-  const blocking = questions.filter((item) => item.priority === "P0" && item.status === "open");
-  const routesConfirmed = routes.length > 0 && routes.every((route) => route.status === "confirmed");
-  return {
-    schema_version: CALCULATION_REQUEST_SCHEMA_VERSION,
-    ready: blocking.length === 0 && routesConfirmed,
-    blocking_p0: blocking.map((item) => item.field_code),
-    routes_confirmed: routesConfirmed,
-    engine_mapped_fields_only: true as const,
-  };
+export function buildCalculationRequest(
+  routes: AiRouteDraft[],
+  questions: QuestionRecord[],
+  parameters: ParameterRecord[] = [],
+  projectFleetSize: string | null = null,
+) {
+  return evaluateP0Gate({ routes, questions, parameters, projectFleetSize });
 }
 
 export function completeness(parameters: ParameterRecord[], questions: QuestionRecord[]) {
@@ -214,6 +212,7 @@ export function emptyExtract(project: { name: string | null; customer: string | 
       schema_version: CALCULATION_REQUEST_SCHEMA_VERSION,
       ready: false,
       blocking_p0: [],
+      blocking: [],
       routes_confirmed: false,
       engine_mapped_fields_only: true,
     },

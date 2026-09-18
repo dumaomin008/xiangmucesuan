@@ -16,6 +16,7 @@ import { buildDueDiligence } from "@/lib/ai/due-diligence";
 import { FIELD_BY_CODE } from "@/lib/ai/schema/field-dictionary";
 import { AI_PROJECT_EXTRACT_SCHEMA_VERSION, CALCULATION_RESULT_SCHEMA_VERSION } from "@/lib/ai/schema/versions";
 import type { AiExtractResult, AiRouteDraft, CreateMode, ParameterRecord, SourceType } from "@/lib/ai/schema/types";
+import { evaluateP0Gate, p0GateMessage } from "@/lib/ai/p0-gate";
 
 const workspaceInclude = {
   documents: { orderBy: { uploadedAt: "desc" as const } },
@@ -138,7 +139,12 @@ export function serializeWorkspace(workspace: Awaited<ReturnType<typeof requireW
     answer_value: q.answerValue,
     status: q.status as "open" | "answered" | "skipped",
   }));
-  const request = buildCalculationRequest(routes, questions);
+  const request = buildCalculationRequest(
+    routes,
+    questions,
+    parameters,
+    parameters.find((item) => item.field_code === "vehicle.fleet_size")?.value ?? null,
+  );
   return {
     id: workspace.id,
     projectId: workspace.projectId,
@@ -814,11 +820,14 @@ export async function confirmAndCalculate(workspaceId: string, actor: string, mo
   const workspace = await requireWorkspace(workspaceId);
   const serialized = serializeWorkspace(workspace);
   if (mode === "calculate") {
-    if (!serialized.calculation_request.routes_confirmed) {
-      throw new EngineError("CALC_PARAMETER_INVALID", "routes", "线路未确认前，不能生成正式测算版本");
-    }
-    if (serialized.calculation_request.blocking_p0.length) {
-      throw new EngineError("CALC_PARAMETER_INVALID", "p0", `P0 未解决：${serialized.calculation_request.blocking_p0.join("、")}`);
+    const gate = evaluateP0Gate({
+      routes: serialized.routes,
+      questions: serialized.questions,
+      parameters: serialized.parameters,
+      projectFleetSize: serialized.parameters.find((item) => item.field_code === "vehicle.fleet_size")?.value ?? null,
+    });
+    if (!gate.ready) {
+      throw new EngineError("P0_GATE_BLOCKED", gate.blocking_p0[0] || "p0", p0GateMessage(gate));
     }
     if (serialized.conflicts.some((item) => item.status === "open")) {
       throw new EngineError("CALC_PARAMETER_INVALID", "conflicts", "存在未解决的字段冲突，不能静默覆盖");
@@ -1069,6 +1078,14 @@ export async function getWorkspaceResult(workspaceId: string) {
       assumptions = [];
     }
   }
+  if (!assumptions.length && workspace.analysisResults[0]?.analysisJson) {
+    try {
+      const parsed = JSON.parse(workspace.analysisResults[0].analysisJson) as { assumptions?: unknown[] };
+      assumptions = parsed.assumptions || [];
+    } catch {
+      assumptions = [];
+    }
+  }
   const scenarios = workspace.scenarios
     .filter((item) => item.kind === "baseline" || item.kind === "scenario")
     .map((item) => {
@@ -1143,7 +1160,7 @@ export async function runWorkspaceCopilot(
   } catch {
     risks = [];
   }
-  const turn = runCopilotTurn({
+  const turn = await runCopilotTurn({
     question: body.question,
     baselineInput,
     lastPatchedInput: stored.last,

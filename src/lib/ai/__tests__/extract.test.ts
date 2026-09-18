@@ -101,6 +101,87 @@ describe("P0 gate", () => {
     expect(request.blocking_p0).toContain("revenue.freight_price");
     expect(request.ready).toBe(false);
   });
+
+  it("仅关闭问题但运价仍为空时，仍禁止正式测算", () => {
+    const routes = [
+      {
+        id: "r1",
+        sort_no: 1,
+        route_name: "昆钢-北城",
+        origin_name: "昆钢",
+        destination_name: "北城",
+        distance_km: "65",
+        volume_value: "3000",
+        volume_unit: "吨/日",
+        trips_per_day: null,
+        trips_per_vehicle_month: null,
+        vehicle_count: "20",
+        cargo_name: null,
+        freight_price: null,
+        freight_price_unit: "PER_TON",
+        load_ton: null,
+        toll_per_trip: null,
+        loading_unloading_fee: null,
+        information_fee: null,
+        driver_cost_per_trip: null,
+        status: "confirmed" as const,
+        enabled: true,
+      },
+    ];
+    const request = buildCalculationRequest(
+      routes,
+      [
+        {
+          priority: "P0",
+          field_code: "revenue.freight_price",
+          route_id: "r1",
+          question: "请确认运价",
+          reason: "运价缺失",
+          impact_metrics: ["收入"],
+          has_reference: false,
+          answer_action: "fill",
+          answer_value: "",
+          status: "answered",
+        },
+      ],
+      [],
+      "20",
+    );
+    expect(request.ready).toBe(false);
+    expect(request.blocking_p0).toContain("revenue.freight_price");
+    expect(request.blocking?.some((item) => item.field_code === "revenue.freight_price")).toBe(true);
+  });
+
+  it("缺计价单位时 calculation_request.ready 为 false", () => {
+    const routes = [
+      {
+        id: "r1",
+        sort_no: 1,
+        route_name: "昆钢-北城",
+        origin_name: "昆钢",
+        destination_name: "北城",
+        distance_km: "65",
+        volume_value: "3000",
+        volume_unit: "吨/日",
+        trips_per_day: null,
+        trips_per_vehicle_month: null,
+        vehicle_count: "20",
+        cargo_name: null,
+        freight_price: "32",
+        freight_price_unit: null,
+        load_ton: null,
+        toll_per_trip: null,
+        loading_unloading_fee: null,
+        information_fee: null,
+        driver_cost_per_trip: null,
+        status: "confirmed" as const,
+        enabled: true,
+      },
+    ];
+    const request = buildCalculationRequest(routes, [], [], "20");
+    expect(request.ready).toBe(false);
+    expect(request.blocking_p0).toContain("revenue.freight_price_unit");
+  });
 });
 
 describe("schema validator", () => {

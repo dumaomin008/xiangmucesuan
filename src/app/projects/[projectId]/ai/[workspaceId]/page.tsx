@@ -14,7 +14,7 @@ type Workspace = {
   status: string;
   schemeId: string | null;
   completeness: { p0Open: number; p1Open: number; p2Open: number; extracted: number; conflict: number };
-  calculation_request: { ready: boolean; blocking_p0: string[]; routes_confirmed: boolean };
+  calculation_request: { ready: boolean; blocking_p0: string[]; routes_confirmed: boolean; blocking?: Array<{ field_code: string; name: string; reason: string }> };
   fallbackNotice: string | null;
   parseSummary: { routes: number; parameters: number; p0: number; conflicts: number; references: number } | null;
   extractorKind: string | null;
@@ -319,7 +319,8 @@ export default function AiWorkspacePage() {
                           <div className="mt-1"><StatusPill value={paramStatus("revenue.freight_price", route.id)} /></div>
                         </td>
                         <td className="px-2 py-2">
-                          <Select defaultValue={route.freight_price_unit || "PER_TON"} onChange={(e) => patchRoute(route.id, { freight_price_unit: e.target.value })}>
+                          <Select defaultValue={route.freight_price_unit || ""} onChange={(e) => patchRoute(route.id, { freight_price_unit: e.target.value })}>
+                            <option value="">请选择</option>
                             {Object.entries(FREIGHT_UNIT_LABEL).map(([code, label]) => (
                               <option key={code} value={code}>{label}</option>
                             ))}
@@ -471,7 +472,14 @@ export default function AiWorkspacePage() {
       <div className="fixed bottom-0 left-0 right-0 border-t border-white/50 bg-white/72 px-6 py-4 backdrop-blur-[20px]">
         <div className="mx-auto flex max-w-[1280px] flex-wrap items-center justify-between gap-3">
           <div className="text-[13px] text-sn-secondary">
-            {canCalculate ? "P0 已齐、线路已确认，可以提交测算引擎。" : `正式测算未就绪：P0 ${data.completeness.p0Open} 项，线路${data.calculation_request.routes_confirmed ? "已确认" : "未确认"}。`}
+            {canCalculate
+              ? "P0 已齐、线路已确认，可以提交测算引擎。"
+              : `还缺 ${data.calculation_request.blocking?.length || data.completeness.p0Open} 项关键参数。线路${data.calculation_request.routes_confirmed ? "已确认" : "未确认"}。补齐前不会调用测算引擎。`}
+            {!canCalculate && (data.calculation_request.blocking || []).length > 0 && (
+              <span className="mt-1 block text-[12px] text-[#C44747]">
+                {(data.calculation_request.blocking || []).slice(0, 6).map((item) => item.name).join("、")}
+              </span>
+            )}
           </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="ghost" disabled={busy !== ""} onClick={() => run("draft", async () => {
@@ -494,6 +502,7 @@ export default function AiWorkspacePage() {
             </Button>
             <Button
               disabled={busy !== "" || !canCalculate}
+              title={!canCalculate ? "还缺关键参数，禁止正式测算" : undefined}
               onClick={() =>
                 run("calc", async () => {
                   const res = await api<{ workspace: Workspace; calculated: boolean; schemeId: string; engineErrors: string[] }>(

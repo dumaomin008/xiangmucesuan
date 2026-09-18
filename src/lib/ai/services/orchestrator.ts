@@ -78,7 +78,7 @@ function hydrate(extract: Partial<AiExtractResult>, project: { projectName: stri
     missing_items: missing,
     questions,
     reference_candidates: references,
-    calculation_request: buildCalculationRequest(routes, questions),
+    calculation_request: buildCalculationRequest(routes, questions, parameters, fleet),
     analysis: null,
     risks: [],
     due_diligence_next: dueDiligence,

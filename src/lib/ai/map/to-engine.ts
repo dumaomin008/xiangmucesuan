@@ -22,9 +22,14 @@ export type EngineSegmentDraft = {
 
 export type MappingAssumption = {
   field_code: string;
+  field_name: string;
   value: string;
+  unit: string | null;
   status: Extract<FieldStatus, "default" | "reference">;
+  source_label: "系统默认" | "演示参考值" | "待确认按0测算";
+  impact_metrics: string[];
   label: string;
+  allowed_zero: boolean;
 };
 
 export type EngineSchemeDraft = {
@@ -83,6 +88,31 @@ function routeValue(route: AiRouteDraft, fieldCode: string) {
 
 type Resolved = { value: string; status: FieldStatus | "missing"; visibleDefault: boolean };
 
+function assume(input: {
+  field_code: string;
+  field_name?: string;
+  value: string;
+  status: Extract<FieldStatus, "default" | "reference">;
+  source_label: MappingAssumption["source_label"];
+  label: string;
+  allowed_zero?: boolean;
+  unit?: string | null;
+  impact_metrics?: string[];
+}): MappingAssumption {
+  const def = getField(input.field_code);
+  return {
+    field_code: input.field_code,
+    field_name: input.field_name || def?.name || input.field_code,
+    value: input.value,
+    unit: input.unit ?? def?.unit ?? null,
+    status: input.status,
+    source_label: input.source_label,
+    impact_metrics: input.impact_metrics || (def?.impactMetrics?.length ? def.impactMetrics : ["利润", "成本"]),
+    label: input.label,
+    allowed_zero: Boolean(input.allowed_zero),
+  };
+}
+
 function resolveField(
   route: AiRouteDraft | null,
   parameters: ParameterRecord[],
@@ -135,7 +165,16 @@ export function mapWorkspaceToEngineInput(input: {
 
       const maybeAssume = (resolved: Resolved, fieldCode: string, label: string) => {
         if (resolved.visibleDefault) {
-          assumptions.push({ field_code: fieldCode, value: resolved.value, status: "default", label });
+          assumptions.push(
+            assume({
+              field_code: fieldCode,
+              value: resolved.value,
+              status: "default",
+              source_label: resolved.value === "0" ? "待确认按0测算" : "系统默认",
+              label,
+              allowed_zero: resolved.value === "0",
+            }),
+          );
         }
       };
       maybeAssume(toll, "cost.toll_per_trip", "过路费未从资料提取，按可见假设 0 元/趟进入引擎");
@@ -149,10 +188,37 @@ export function mapWorkspaceToEngineInput(input: {
         silentZeroViolations.push("energy.electricity_price");
       }
       if (energyLoaded.status === "reference") {
-        assumptions.push({ field_code: "energy.loaded_consumption", value: energyLoaded.value, status: "reference", label: "满载能耗采用参考值" });
+        assumptions.push(
+          assume({
+            field_code: "energy.loaded_consumption",
+            value: energyLoaded.value,
+            status: "reference",
+            source_label: "演示参考值",
+            label: "满载能耗采用参考值，不是实测台账",
+          }),
+        );
+      }
+      if (energyEmpty.status === "reference") {
+        assumptions.push(
+          assume({
+            field_code: "energy.empty_consumption",
+            value: energyEmpty.value,
+            status: "reference",
+            source_label: "演示参考值",
+            label: "空载能耗采用参考值，不是实测台账",
+          }),
+        );
       }
       if (electricity.status === "reference") {
-        assumptions.push({ field_code: "energy.electricity_price", value: electricity.value, status: "reference", label: "电价采用参考值" });
+        assumptions.push(
+          assume({
+            field_code: "energy.electricity_price",
+            value: electricity.value,
+            status: "reference",
+            source_label: "演示参考值",
+            label: "电价采用参考值，不是已锁定合同电价",
+          }),
+        );
       }
 
       return {
@@ -181,33 +247,51 @@ export function mapWorkspaceToEngineInput(input: {
       };
     });
 
-  assumptions.push({
-    field_code: "ops.operating_months_year",
-    value: "12",
-    status: "default",
-    label: "运营月数按系统默认 12 个月，不是本合同约定",
-  });
-  if (rent.status === "missing") {
-    assumptions.push({
-      field_code: "vehicle.monthly_rent",
-      value: "",
+  assumptions.push(
+    assume({
+      field_code: "ops.operating_months_year",
+      field_name: "运营月数",
+      value: "12",
       status: "default",
-      label: "单车月租尚未确认，禁止静默按 0 测算车辆成本",
-    });
+      source_label: "系统默认",
+      label: "运营月数按系统默认 12 个月，不是本合同约定",
+      unit: "月",
+      impact_metrics: ["收入", "成本", "利润", "现金流"],
+    }),
+  );
+  if (rent.status === "missing") {
+    assumptions.push(
+      assume({
+        field_code: "vehicle.monthly_rent",
+        value: "",
+        status: "default",
+        source_label: "系统默认",
+        label: "单车月租尚未确认，禁止静默按 0 测算车辆成本",
+      }),
+    );
   } else if (rent.status === "reference") {
-    assumptions.push({
-      field_code: "vehicle.monthly_rent",
-      value: rent.value,
-      status: "reference",
-      label: "单车月租采用演示参考值，不是已签合同",
-    });
+    assumptions.push(
+      assume({
+        field_code: "vehicle.monthly_rent",
+        value: rent.value,
+        status: "reference",
+        source_label: "演示参考值",
+        label: "单车月租采用演示参考值，不是已签合同",
+      }),
+    );
   }
-  assumptions.push({
-    field_code: "vehicle.down_payment",
-    value: "80000",
-    status: "default",
-    label: "单车首付使用演示默认 80000 元，需合同核验",
-  });
+  assumptions.push(
+    assume({
+      field_code: "vehicle.down_payment",
+      field_name: "单车首付",
+      value: "80000",
+      status: "default",
+      source_label: "系统默认",
+      label: "单车首付使用系统默认 80000 元，需合同核验",
+      unit: "元/车",
+      impact_metrics: ["现金流", "IRR", "车辆成本"],
+    }),
+  );
 
   return {
     schemeName: input.title,

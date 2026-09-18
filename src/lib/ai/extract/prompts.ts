@@ -40,10 +40,11 @@ ${input.fieldCodes.join(", ")}
 ${docs}`;
 }
 
-export const INTENT_SYSTEM_PROMPT = `你是测算场景意图解析器。只输出 JSON ScenarioPatch，不要解释，不要计算利润。
+export const INTENT_SYSTEM_PROMPT = `你是测算场景意图解析器。只输出 JSON ScenarioPatch，不要解释，不要计算利润、收入、成本、IRR 或现金流。
 field_code 只能是：revenue.freight_price, energy.electricity_price, ops.trips_per_vehicle_month, vehicle.fleet_size, energy.loaded_consumption, vehicle.monthly_rent。
 operation 只能是 multiply | set | add。
-scope 只能是 all_routes | project。`;
+scope 只能是 all_routes | project。车辆数必须用 project。
+禁止输出任何 KPI 数字。`;
 
 export function buildIntentUserPrompt(question: string) {
   return `用户问题：${question}

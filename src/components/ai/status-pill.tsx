@@ -29,6 +29,9 @@ const MAP: Record<string, { label: string; className: string }> = {
   free_text: { label: "自由文本", className: "bg-sn-hover text-sn-secondary" },
   system: { label: "系统数据", className: "bg-sn-hover text-sn-secondary" },
   system_default: { label: "系统默认值", className: "bg-sn-warning/15 text-[#C47B12]" },
+  系统默认: { label: "系统默认", className: "bg-black/5 text-sn-secondary" },
+  演示参考值: { label: "演示参考值", className: "bg-sn-warning/15 text-[#C47B12]" },
+  待确认按0测算: { label: "待确认按0测算", className: "bg-sn-warning/15 text-[#C47B12]" },
 };
 
 export function StatusPill({ value, className }: { value: string; className?: string }) {
