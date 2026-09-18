@@ -1,0 +1,15 @@
+{
+  "name": "new-energy-truck-demo-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "仅用于 DEMO 演示和前端功能扩展的静态前端包",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs",
+    "start": "node server.mjs",
+    "check": "node --check app.js && node --check project-data.js && node --check calculation-app.js && node --check server.mjs && test -f lib/pm-calc.bundle.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

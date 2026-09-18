@@ -1,0 +1,211 @@
+/**
+ * 浏览器桥接入口：打包后挂到 window.PmCalc，供静态 Demo 调用。
+ * 不含 Prisma / 业务 API / Secret。
+ */
+import {
+  calculateProject,
+  CALCULATION_ENGINE_VERSION,
+  runSensitivity,
+  serializeCalculationResult,
+  snapshotKeyMetrics,
+  validateSchemeInput,
+  createBrowserAdapter,
+} from "../calculation";
+import {
+  createDemoRepositories,
+  createLocalStorageAdapter,
+  DEMO_STORAGE_KEYS,
+  DEMO_SCHEMA_VERSION,
+  type DemoCalcScenario,
+  type DemoProjectContext,
+  type DemoProjectRecord,
+  type DemoRepositories,
+} from "./index";
+import { analyzeScenarioLocal, buildAiPayload, type DemoAiInsight } from "./ai/analyze";
+import { excelExampleInput } from "../lib/engine/__tests__/fixture";
+
+export type PmCalcBridge = {
+  engineVersion: string;
+  schemaVersion: number;
+  storageKeys: typeof DEMO_STORAGE_KEYS;
+  calculateProject: typeof calculateProject;
+  validateSchemeInput: typeof validateSchemeInput;
+  runSensitivity: typeof runSensitivity;
+  serializeCalculationResult: typeof serializeCalculationResult;
+  snapshotKeyMetrics: typeof snapshotKeyMetrics;
+  createDefaultInput: () => ReturnType<typeof excelExampleInput>;
+  ensureRepos: () => DemoRepositories;
+  buildProjectContext: (p: {
+    id: string;
+    name: string;
+    customer: string;
+    region: string;
+    owner: string;
+    type?: string;
+    place?: string;
+    tractor?: number;
+    trailer?: number;
+    stage?: string;
+    status?: string;
+  }) => DemoProjectContext;
+  syncProjectFromShell: (p: Parameters<PmCalcBridge["buildProjectContext"]>[0]) => DemoProjectRecord;
+  listScenarios: (projectId?: string) => DemoCalcScenario[];
+  getScenario: (id: string) => DemoCalcScenario | null;
+  saveScenario: DemoRepositories["scenarios"]["saveScenario"];
+  duplicateScenario: DemoRepositories["scenarios"]["duplicateScenario"];
+  deleteScenario: DemoRepositories["scenarios"]["deleteScenario"];
+  setBaseline: DemoRepositories["scenarios"]["setBaseline"];
+  listAllProjects: () => DemoProjectRecord[];
+  getProjectContext: (projectId: string) => DemoProjectContext | null;
+  formatMoney: (value: string | number | null | undefined) => string;
+  formatPercent: (value: string | number | null | undefined) => string;
+  scenarioStatusLabel: (status: string) => string;
+  resetDemoData: () => void;
+  analyzeScenario: (params: {
+    scenarioId: string;
+    project?: DemoProjectContext | null;
+    question?: string;
+  }) => DemoAiInsight;
+  buildAiPayload: typeof buildAiPayload;
+};
+
+let repos: DemoRepositories | null = null;
+
+function ensureRepos(): DemoRepositories {
+  if (!repos) {
+    repos = createDemoRepositories({
+      storage: createLocalStorageAdapter(),
+      seedIfEmpty: true,
+    });
+  }
+  return repos;
+}
+
+function buildProjectContext(p: Parameters<PmCalcBridge["buildProjectContext"]>[0]): DemoProjectContext {
+  return {
+    projectId: p.id,
+    projectName: p.name,
+    customer: p.customer,
+    region: p.region,
+    owner: p.owner,
+    projectType: p.type || "",
+    place: p.place || "",
+    tractorDemand: typeof p.tractor === "number" ? p.tractor : null,
+    trailerDemand: typeof p.trailer === "number" ? p.trailer : null,
+    stage: p.stage,
+    status: p.status,
+  };
+}
+
+function syncProjectFromShell(p: Parameters<PmCalcBridge["buildProjectContext"]>[0]): DemoProjectRecord {
+  const demo = ensureRepos();
+  const ctx = buildProjectContext(p);
+  const existing = demo.projects.getProject(ctx.projectId);
+  const now = new Date().toISOString();
+  const record: DemoProjectRecord = {
+    ...ctx,
+    members: existing?.members ?? [],
+    eco: existing?.eco,
+    source: existing?.source,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  };
+  return demo.projects.saveProject(record);
+}
+
+function formatMoney(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  return n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatPercent(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  return `${(n * 100).toFixed(2)}%`;
+}
+
+function scenarioStatusLabel(status: string): string {
+  const map: Record<string, string> = {
+    draft: "草稿",
+    calculated: "已测算",
+    baseline: "基准方案",
+    archived: "已归档",
+  };
+  return map[status] || status;
+}
+
+export const PmCalc: PmCalcBridge = {
+  engineVersion: CALCULATION_ENGINE_VERSION,
+  schemaVersion: DEMO_SCHEMA_VERSION,
+  storageKeys: DEMO_STORAGE_KEYS,
+  calculateProject,
+  validateSchemeInput,
+  runSensitivity,
+  serializeCalculationResult,
+  snapshotKeyMetrics,
+  createDefaultInput: () => excelExampleInput(),
+  ensureRepos,
+  buildProjectContext,
+  syncProjectFromShell,
+  listScenarios: (projectId) => ensureRepos().scenarios.listScenarios(projectId),
+  getScenario: (id) => ensureRepos().scenarios.getScenario(id),
+  saveScenario: (...args) => ensureRepos().scenarios.saveScenario(...args),
+  duplicateScenario: (...args) => ensureRepos().scenarios.duplicateScenario(...args),
+  deleteScenario: (id) => ensureRepos().scenarios.deleteScenario(id),
+  setBaseline: (...args) => ensureRepos().scenarios.setBaseline(...args),
+  listAllProjects: () => ensureRepos().projects.listProjects(),
+  getProjectContext: (projectId) => ensureRepos().projects.getProjectContext(projectId),
+  formatMoney,
+  formatPercent,
+  scenarioStatusLabel,
+  resetDemoData: () => {
+    const demo = ensureRepos();
+    demo.projects.clear();
+    demo.scenarios.clear();
+    demo.parameters.clear();
+    repos = createDemoRepositories({
+      storage: demo.storage,
+      seedIfEmpty: true,
+      forceReseed: true,
+    });
+  },
+  analyzeScenario: ({ scenarioId, project, question }) => {
+    const scenario = ensureRepos().scenarios.getScenario(scenarioId);
+    if (!scenario) {
+      return analyzeScenarioLocal({
+        scenario: {
+          id: scenarioId,
+          projectId: project?.projectId || "",
+          name: "未知方案",
+          version: "V1",
+          status: "draft",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          inputs: excelExampleInput(),
+          results: null,
+          calculationVersion: CALCULATION_ENGINE_VERSION,
+        },
+        project,
+        question,
+      });
+    }
+    return analyzeScenarioLocal({ scenario, project, question });
+  },
+  buildAiPayload,
+};
+
+declare global {
+  interface Window {
+    PmCalc: PmCalcBridge;
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.PmCalc = PmCalc;
+  createBrowserAdapter("browser");
+}
+
+export default PmCalc;

@@ -1,0 +1,149 @@
+import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import vm from "node:vm";
+
+const root = path.resolve(__dirname, "../../..");
+const demoRoot = path.join(root, "demo-frontend-package");
+
+describe("Phase 3：Demo 融合冒烟", () => {
+  it("静态资源与脚本语法存在", () => {
+    expect(fs.existsSync(path.join(demoRoot, "lib/pm-calc.bundle.js"))).toBe(true);
+    expect(fs.existsSync(path.join(demoRoot, "calculation-app.js"))).toBe(true);
+    const html = fs.readFileSync(path.join(demoRoot, "index.html"), "utf8");
+    expect(html).toContain("pm-calc.bundle.js");
+    expect(html).toContain("calculation-app.js");
+    const app = fs.readFileSync(path.join(demoRoot, "app.js"), "utf8");
+    expect(app).toContain("/projects/${id}/calculation");
+    expect(app).toContain("项目测算中心");
+    expect(app).toContain("CalculationApp");
+  });
+
+  it("PmCalc bundle 可在假浏览器环境计算并读写仓库", () => {
+    const code = fs.readFileSync(path.join(demoRoot, "lib/pm-calc.bundle.js"), "utf8");
+    const store = new Map<string, string>();
+    const localStorage = {
+      getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+      setItem: (k: string, v: string) => {
+        store.set(k, v);
+      },
+      removeItem: (k: string) => {
+        store.delete(k);
+      },
+    };
+    const sandbox: Record<string, unknown> = {
+      window: {},
+      localStorage,
+      console,
+      setTimeout,
+      clearTimeout,
+    };
+    sandbox.window = sandbox;
+    sandbox.globalThis = sandbox;
+    vm.createContext(sandbox);
+    vm.runInContext(code, sandbox, { filename: "pm-calc.bundle.js" });
+    const PmCalc = (sandbox as { PmCalc?: typeof import("../../src/demo/browser-bridge").PmCalc }).PmCalc
+      || (sandbox as { window: { PmCalc?: unknown } }).window.PmCalc;
+    expect(PmCalc).toBeTruthy();
+    const api = PmCalc as {
+      ensureRepos: () => unknown;
+      listScenarios: (id?: string) => { id: string; results: { metrics: { monthlyProfit: string } } | null }[];
+      calculateProject: (input: unknown) => { monthlyProfit: { toString: () => string } };
+      createDefaultInput: () => unknown;
+      syncProjectFromShell: (p: Record<string, unknown>) => unknown;
+      engineVersion: string;
+    };
+    api.ensureRepos();
+    const scenarios = api.listScenarios("PRJ-DEMO-001");
+    expect(scenarios.length).toBeGreaterThanOrEqual(2);
+    expect(Number(scenarios[0].results!.metrics.monthlyProfit)).not.toBeNaN();
+    api.syncProjectFromShell({
+      id: "PRJ-DEMO-001",
+      name: "临港港区短倒电动化项目",
+      customer: "东澜绿色物流",
+      region: "华东大区",
+      owner: "林晨",
+      type: "港口短倒",
+      place: "上海",
+      tractor: 20,
+      trailer: 20,
+    });
+    const live = api.calculateProject(api.createDefaultInput());
+    expect(live.monthlyProfit.toString()).toMatch(/^-?\d/);
+    expect(api.engineVersion).toBeTruthy();
+  });
+
+  it("Phase 4 UI：面包屑 / 扁平指标 / 方案对比 / 无嵌套边框指标", () => {
+    const calcApp = fs.readFileSync(path.join(demoRoot, "calculation-app.js"), "utf8");
+    const css = fs.readFileSync(path.join(demoRoot, "styles.css"), "utf8");
+    expect(calcApp).toContain("calc-breadcrumb");
+    expect(calcApp).toContain("object-header project-object-header");
+    expect(calcApp).toContain("calc-compare-panel");
+    expect(calcApp).toContain("vehicle-metrics calc-result-metrics");
+    expect(css).toContain("Phase 4：项目测算模块");
+    expect(css).toContain(".calc-breadcrumb");
+    expect(css).not.toContain(".calc-metric { border:1px solid");
+  });
+
+  it("Phase 5：AI 面板与代理路由存在，且前端无 API Key", () => {
+    const calcApp = fs.readFileSync(path.join(demoRoot, "calculation-app.js"), "utf8");
+    const server = fs.readFileSync(path.join(demoRoot, "server.mjs"), "utf8");
+    const html = fs.readFileSync(path.join(demoRoot, "index.html"), "utf8");
+    expect(calcApp).toContain("calc-ai-panel");
+    expect(calcApp).toContain("/api/demo-ai/explain");
+    expect(calcApp).toContain("AI 暂不可用");
+    expect(server).toContain("DEMO_AI_API_KEY");
+    expect(server).toContain("/api/demo-ai/explain");
+    expect(html).not.toMatch(/sk-[a-zA-Z0-9]/);
+    expect(calcApp).not.toMatch(/DEMO_AI_API_KEY\s*=\s*['\"][^'\"]+/);
+  });
+
+  it("Phase 5：bundle 暴露 analyzeScenario / buildAiPayload，无 Key 时本地解读可用", () => {
+    const code = fs.readFileSync(path.join(demoRoot, "lib/pm-calc.bundle.js"), "utf8");
+    const store = new Map<string, string>();
+    const localStorage = {
+      getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+      setItem: (k: string, v: string) => {
+        store.set(k, v);
+      },
+      removeItem: (k: string) => {
+        store.delete(k);
+      },
+    };
+    const sandbox: Record<string, unknown> = {
+      window: {},
+      localStorage,
+      console,
+      setTimeout,
+      clearTimeout,
+    };
+    sandbox.window = sandbox;
+    sandbox.globalThis = sandbox;
+    vm.createContext(sandbox);
+    vm.runInContext(code, sandbox, { filename: "pm-calc.bundle.js" });
+    const PmCalc = (sandbox as { PmCalc?: Record<string, unknown> }).PmCalc
+      || (sandbox as { window: { PmCalc?: Record<string, unknown> } }).window.PmCalc;
+    expect(PmCalc).toBeTruthy();
+    const api = PmCalc as {
+      ensureRepos: () => void;
+      analyzeScenario: (p: { scenarioId: string }) => { status: string; source: string; risks: unknown[] };
+      buildAiPayload: (p: { scenarioId?: string; scenario?: unknown; localInsight: unknown }) => {
+        engineMetrics: { monthlyProfit: string } | null;
+        rules: string[];
+      };
+      listScenarios: (id?: string) => { id: string; results: { metrics: { monthlyProfit: string } } | null }[];
+    };
+    api.ensureRepos();
+    const insight = api.analyzeScenario({ scenarioId: "SCN-001-BASE" });
+    expect(insight.source).toBe("local_engine");
+    expect(insight.status).toBe("ready");
+    expect(insight.risks.length).toBeGreaterThan(0);
+    const scenarios = api.listScenarios("PRJ-DEMO-001");
+    const payload = api.buildAiPayload({
+      scenario: scenarios[0],
+      localInsight: insight,
+    });
+    expect(payload.engineMetrics?.monthlyProfit).toBeTruthy();
+    expect(payload.rules.some((r) => r.includes("禁止重新计算"))).toBe(true);
+  });
+});
