@@ -85,9 +85,14 @@ var AiCenterCoreModule = (() => {
   function detectIntent(question) {
     const text = question.replace(/\s+/g, "");
     if (/上传|导入资料|导入测算|识别参数|识别项目参数/.test(text)) return "IMPORT_CALCULATION";
-    if (/(电价|运价|货量|趟次|运量|能耗|电耗|租金|月租|空驶|利用率)/.test(text) && /(上涨|上升|提高|增加|下降|下跌|降低|减少|敏感|怎么样|会怎样|变化|%|％)/.test(text)) {
+    if (/(电价|运价|货量|趟次|运量|能耗|电耗|租金|月租|空驶|利用率)/.test(text) && /(上涨|上升|提高|增加|下降|下跌|降低|减少|涨了|降了|敏感|怎么样|会怎样|变化|%|％)/.test(text)) {
       return "SENSITIVITY_ANALYSIS";
     }
+    if (/哪个参数|对利润影响最大|影响最大|最敏感/.test(text)) return "SENSITIVITY_ANALYSIS";
+    if (/帮我分析|分析一下/.test(text) && !/对比|比较/.test(text)) return "PROJECT_ANALYSIS";
+    if (/能赚多少|赚多少钱/.test(text)) return "CALCULATION_EXPLAIN";
+    if (/成本主要|花在哪里/.test(text)) return "CALCULATION_EXPLAIN";
+    if (/哪些数据|需要确认|需要核实/.test(text)) return "CALCULATION_EXPLAIN";
     if (/报告/.test(text)) return "GENERATE_REPORT";
     if (/风险/.test(text)) return "RISK_ANALYSIS";
     if (/方案/.test(text) && /(对比|比较|区别|差异|基准)/.test(text)) return "SCHEME_COMPARE";
@@ -354,7 +359,7 @@ var AiCenterCoreModule = (() => {
       blocks: [],
       actions: [
         { id: "create", label: "\u65B0\u5EFA\u6D4B\u7B97", kind: "ask", ask: "\u5E2E\u6211\u6D4B\u7B97\u4E00\u4E2A\u65B0\u7684\u8FD0\u8F93\u9879\u76EE" },
-        { id: "manual", label: "\u624B\u52A8\u8F93\u5165", kind: "navigate", href: "/calculation/manual" },
+        { id: "manual", label: "\u624B\u52A8\u586B\u5199\u5173\u952E\u53C2\u6570", kind: "navigate", href: "/calculation/manual" },
         { id: "list", label: "\u8FDB\u5165\u4F20\u7EDF\u6D4B\u7B97", kind: "navigate", href: "view:list" }
       ]
     };
@@ -563,13 +568,21 @@ var AiCenterCoreModule = (() => {
     }
     const spec = VARIABLE_SPECS.find((item) => item.test.test(question));
     const matched = question.match(/([+-]?\d+(?:\.\d+)?)\s*[%％]/);
-    let change = matched ? Number(matched[1]) : 10;
-    if (!Number.isFinite(change)) change = 10;
-    const down = /下降|下跌|降低|减少/.test(question);
-    const up = /上涨|上升|提高|增加/.test(question);
+    if (spec && !matched) {
+      return {
+        variable: spec.code,
+        variableName: spec.name,
+        unsupported: null,
+        change: 0,
+        needsMagnitude: true
+      };
+    }
+    let change = matched ? Number(matched[1]) : 0;
+    if (!Number.isFinite(change)) change = 0;
+    const down = /下降|下跌|降低|减少|降了/.test(question);
+    const up = /上涨|上升|提高|增加|涨了/.test(question);
     if (down && change > 0) change = -change;
     if (up && change < 0) change = Math.abs(change);
-    if (!down && !up && !matched) change = 10;
     return {
       variable: spec?.code || null,
       variableName: spec?.name || "",
@@ -582,12 +595,73 @@ var AiCenterCoreModule = (() => {
       (a, b) => Math.abs(Number(a.parameterChange) - change) - Math.abs(Number(b.parameterChange) - change)
     )[0];
   }
+  function buildDriverRank(question, projects, runSensitivity, focusProjectId) {
+    const matched = matchProjects(question, projects);
+    const project = matched[0] || projects.find((item) => item.projectId === focusProjectId) || projects.find((item) => latestScenario(item)?.inputs);
+    const scenario = project ? latestScenario(project) : null;
+    if (!project || !scenario?.metrics || !scenario.inputs) {
+      return {
+        intent: "SENSITIVITY_ANALYSIS",
+        message: "\u6CA1\u6709\u627E\u5230\u5E26\u6D4B\u7B97\u8F93\u5165\u7684\u9879\u76EE\uFF0C\u65E0\u6CD5\u6BD4\u8F83\u53C2\u6570\u5F71\u54CD\u3002",
+        blocks: [],
+        actions: [{ id: "list", label: "\u8FDB\u5165\u4F20\u7EDF\u6D4B\u7B97", kind: "navigate", href: "view:list" }]
+      };
+    }
+    if (!runSensitivity) {
+      return {
+        intent: "SENSITIVITY_ANALYSIS",
+        message: "\u6D4B\u7B97\u5F15\u64CE\u7684\u654F\u611F\u6027\u63A5\u53E3\u4E0D\u53EF\u7528\uFF0C\u5DF2\u505C\u6B62\u6BD4\u8F83\uFF0C\u907F\u514D\u7528\u4E0D\u5B9E\u6570\u5B57\u56DE\u7B54\u3002",
+        blocks: [],
+        actions: openActions(project, scenario),
+        context: { projectId: project.projectId, schemeId: scenario.id }
+      };
+    }
+    const ranked = VARIABLE_SPECS.map((spec) => {
+      const points = runSensitivity({
+        input: scenario.inputs,
+        variable: spec.code,
+        changeMode: "PERCENT",
+        minChange: "0",
+        maxChange: "10",
+        step: "10"
+      });
+      const base = points.find((point) => Number(point.parameterChange) === 0) || points[0];
+      const shocked = [...points].sort((a, b) => Math.abs(Number(a.parameterChange) - 10) - Math.abs(Number(b.parameterChange) - 10))[0];
+      const delta = Math.abs((num(shocked?.monthlyProfit) || 0) - (num(base?.monthlyProfit) || 0));
+      return { name: spec.name, delta };
+    }).sort((a, b) => b.delta - a.delta);
+    const top = ranked[0];
+    return {
+      intent: "SENSITIVITY_ANALYSIS",
+      message: top ? `\u6309\u6D4B\u7B97\u5F15\u64CE\u5BF9\u300C${project.projectName}\u300D\u505A +10% \u51B2\u51FB\uFF0C\u5BF9\u6708\u5229\u6DA6\u5F71\u54CD\u6700\u5927\u7684\u662F${top.name}\u3002\u539F\u65B9\u6848\u6CA1\u6709\u88AB\u66FF\u6362\u3002` : "\u6D4B\u7B97\u5F15\u64CE\u6CA1\u6709\u8FD4\u56DE\u53EF\u6BD4\u8F83\u7684\u654F\u611F\u6027\u7ED3\u679C\u3002",
+      blocks: [
+        {
+          type: "chart",
+          chartType: "horizontalBar",
+          title: "\u5404\u53C2\u6570 +10% \u5BF9\u6708\u5229\u6DA6\u7684\u5F71\u54CD",
+          categories: ranked.map((row) => row.name),
+          series: [{ name: "\u6708\u5229\u6DA6\u53D8\u52A8\u7EDD\u5BF9\u503C", values: ranked.map((row) => row.delta) }],
+          note: "\u6BCF\u4E2A\u67F1\u90FD\u662F Calculation Engine \u7684\u654F\u611F\u6027\u7ED3\u679C\uFF0C\u5355\u4F4D\uFF1A\u5143\u3002"
+        },
+        {
+          type: "conclusion",
+          title: "AI \u7ED3\u8BBA\u4E0E\u5EFA\u8BAE",
+          items: top ? [`\u5F71\u54CD\u6700\u5927\u7684\u662F${top.name}\uFF0C+10% \u65F6\u6708\u5229\u6DA6\u53D8\u52A8\u7EA6 ${formatEngineMoney(top.delta)} \u5143\u3002`, "\u82E5\u8981\u770B\u4E0B\u964D\u6216\u522B\u7684\u5E45\u5EA6\uFF0C\u8BF7\u76F4\u63A5\u8BF4\uFF0C\u4F8B\u5982\u300C\u8FD0\u4EF7\u4E0B\u964D5%\u300D\u3002"] : ["\u6CA1\u6709\u53EF\u6392\u5E8F\u7684\u53C2\u6570\u3002"]
+        }
+      ],
+      actions: openActions(project, scenario),
+      context: { projectId: project.projectId, schemeId: scenario.id }
+    };
+  }
   function buildSensitivity(question, projects, runSensitivity, focusProjectId) {
+    if (/哪个参数|对利润影响最大|影响最大|最敏感/.test(question)) {
+      return buildDriverRank(question, projects, runSensitivity, focusProjectId);
+    }
     const parsed = parseChange(question);
     if (parsed.unsupported) {
       return {
         intent: "SENSITIVITY_ANALYSIS",
-        message: `\u5F53\u524D\u6D4B\u7B97\u5F15\u64CE\u6CA1\u6709\u300C${parsed.unsupported}\u300D\u8FD9\u4E2A\u654F\u611F\u6027\u53D8\u91CF\uFF0C\u6240\u4EE5\u6211\u4E0D\u4F1A\u7F16\u9020\u5229\u6DA6\u53D8\u5316\u3002`,
+        message: `\u6682\u4E0D\u652F\u6301\u300C${parsed.unsupported}\u300D\u3002\u5F53\u524D\u6D4B\u7B97\u5F15\u64CE\u6CA1\u6709\u8FD9\u4E2A\u654F\u611F\u6027\u53D8\u91CF\uFF0C\u6240\u4EE5\u6211\u4E0D\u4F1A\u7F16\u9020\u8C03\u6574\u540E\u5229\u6DA6\u3001\u5229\u6DA6\u7387\u6216\u6210\u672C\u3002`,
         blocks: [
           {
             type: "text",
@@ -603,6 +677,19 @@ var AiCenterCoreModule = (() => {
         message: `\u8BF7\u8BF4\u660E\u8981\u53D8\u52A8\u7684\u53C2\u6570\u3002\u5F53\u524D\u652F\u6301\uFF1A${SUPPORTED_VARIABLES}\u3002`,
         blocks: [],
         actions: []
+      };
+    }
+    if (parsed.needsMagnitude) {
+      const name = parsed.variableName || "\u8BE5\u53C2\u6570";
+      return {
+        intent: "SENSITIVITY_ANALYSIS",
+        message: `\u8BF7\u5148\u786E\u8BA4${name}\u7684\u53D8\u5316\u5E45\u5EA6\u3002\u6CA1\u6709\u5E45\u5EA6\u65F6\u4E0D\u4F1A\u9ED8\u8BA4\u6309 10% \u91CD\u7B97\u3002`,
+        blocks: [],
+        actions: [
+          { id: "up5", label: "+5%", kind: "ask", ask: `${name}\u4E0A\u6DA85%` },
+          { id: "up10", label: "+10%", kind: "ask", ask: `${name}\u4E0A\u6DA810%` },
+          { id: "up20", label: "+20%", kind: "ask", ask: `${name}\u4E0A\u6DA820%` }
+        ]
       };
     }
     const matched = matchProjects(question, projects);
@@ -736,6 +823,24 @@ var AiCenterCoreModule = (() => {
       };
     }
     const metrics = scenario.metrics;
+    if (/哪些数据|需要确认|需要核实|待确认/.test(question)) {
+      return {
+        intent: "CALCULATION_EXPLAIN",
+        message: `\u300C${project.projectName}\u300D\u5F53\u524D\u65B9\u6848\u7684\u6838\u5FC3\u53C2\u6570\u5DF2\u7ECF\u8FDB\u5165\u6D4B\u7B97\u3002\u6CA1\u6709\u6807\u6210\u7F3A\u5931\u7684\u5FC5\u586B\u9879\uFF1B\u82E5\u8981\u590D\u6838\uFF0C\u4F18\u5148\u786E\u8BA4\u7535\u4EF7\u3001\u8FD0\u4EF7\u548C\u6708\u8D9F\u6B21\u3002\u7CFB\u7EDF\u4E0D\u4F1A\u7528\u4F30\u7B97\u503C\u8865\u6570\u3002`,
+        blocks: [
+          {
+            type: "conclusion",
+            title: "\u5EFA\u8BAE\u590D\u6838",
+            items: [
+              "\u7535\u4EF7\u3001\u8FD0\u4EF7\u3001\u5355\u8F66\u6708\u8D9F\u6B21\u5EFA\u8BAE\u518D\u5BF9\u4E00\u6B21\u5408\u540C\u6216\u62A5\u4EF7\u3002",
+              `\u5DF2\u4FDD\u5B58\u6708\u5229\u6DA6 ${formatEngineMoney(metrics.monthlyProfit)} \u5143\uFF0C\u4ECD\u4EE5 Calculation Engine \u4E3A\u51C6\u3002`
+            ]
+          }
+        ],
+        actions: openActions(project, scenario),
+        context: { projectId: project.projectId, schemeId: scenario.id }
+      };
+    }
     const parts = [
       { name: "\u56FA\u5B9A\u6210\u672C", value: num(metrics.monthlyFixedCost) || 0 },
       { name: "\u53D8\u52A8\u6210\u672C", value: num(metrics.monthlyVariableCost) || 0 },
@@ -824,7 +929,7 @@ var AiCenterCoreModule = (() => {
       ],
       actions: [
         { id: "upload", label: "\u4E0A\u4F20\u8D44\u6599", kind: "import" },
-        { id: "manual", label: "\u624B\u52A8\u8F93\u5165", kind: "navigate", href: "/calculation/manual" },
+        { id: "manual", label: "\u624B\u52A8\u586B\u5199\u5173\u952E\u53C2\u6570", kind: "navigate", href: "/calculation/manual" },
         { id: "copy", label: "\u590D\u5236\u5DF2\u6709\u9879\u76EE", kind: "picker", picker: "copy" }
       ]
     };
@@ -832,8 +937,10 @@ var AiCenterCoreModule = (() => {
   function buildCenterResponse(params) {
     const intent = params.intent || detectIntentFromQuestion(params.question);
     switch (intent) {
-      case "PROJECT_ANALYSIS":
-        return buildAnalysis(params.projects);
+      case "PROJECT_ANALYSIS": {
+        const focused = params.focusProjectId && /这个项目|该项目/.test(params.question) ? params.projects.filter((item) => item.projectId === params.focusProjectId) : [];
+        return buildAnalysis(focused.length ? focused : params.projects);
+      }
       case "PROJECT_COMPARE":
         return buildCompare(params.question, params.projects);
       case "SCHEME_COMPARE":
@@ -930,7 +1037,4 @@ var AiCenterCoreModule = (() => {
   }
   return __toCommonJS(browser_entry_exports);
 })();
-
 if (typeof window !== 'undefined') { window.AiCenterCore = window.AiCenterCoreModule; }
-
-//# sourceMappingURL=ai-center.bundle.js.map

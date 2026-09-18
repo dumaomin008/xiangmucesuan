@@ -70,6 +70,7 @@ describe("AI 高可用", () => {
       model: "deepseek-flash",
       reachable: false,
       status: "not_configured",
+      userMessage: "AI 深度分析暂不可用，测算功能不受影响",
     });
 
     const down = await probeAiHealth({
@@ -94,6 +95,9 @@ describe("AI 高可用", () => {
     });
     expect(denied.status).toBe("auth_failed");
     expect(denied.reachable).toBe(true);
+    expect(denied.userMessage).toBe("AI 深度分析暂不可用，测算功能不受影响");
+    expect(denied.userMessage).not.toMatch(/401|429/);
+    expect(JSON.stringify(denied)).not.toContain("error");
 
     const ok = await probeAiHealth({
       apiKey: secret,
@@ -102,9 +106,20 @@ describe("AI 高可用", () => {
       provider: "deepseek",
       fetchImpl: async () => jsonResponse(200, { data: [{ id: "deepseek-flash" }] }),
     });
-    expect(ok).toMatchObject({ configured: true, provider: "deepseek", model: "deepseek-flash", reachable: true, status: "healthy" });
+    expect(ok).toMatchObject({ configured: true, provider: "deepseek", model: "deepseek-flash", reachable: true, status: "healthy", userMessage: "AI 服务正常" });
     expect(JSON.stringify({ missing, down, denied, ok })).not.toContain(secret);
-    expect(Object.keys(ok).sort()).toEqual(["configured", "model", "provider", "reachable", "status"]);
+    expect(Object.keys(ok).sort()).toEqual(["configured", "model", "provider", "reachable", "status", "userMessage"]);
+
+    const wrongModel = await probeAiHealth({
+      apiKey: secret,
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-flash",
+      provider: "deepseek",
+      fetchImpl: async () => jsonResponse(200, { data: [{ id: "other-model" }], error: secret }),
+    });
+    expect(wrongModel.status).toBe("model_unavailable");
+    expect(wrongModel.userMessage).toBe("AI 深度分析暂不可用，测算功能不受影响");
+    expect(JSON.stringify(wrongModel)).not.toContain(secret);
   });
 
   it("对话超时立即 fallback，且日志不出现 Key", async () => {

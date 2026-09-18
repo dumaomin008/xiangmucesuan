@@ -1221,6 +1221,10 @@ body.calc-ai-drawer-open { overflow:hidden; }
 .calc-demo-tools { display:inline-block; margin-left:8px; }
 .calc-demo-tools summary { cursor:pointer; color:var(--text-2); font-size:12px; padding:6px 10px; border-radius:var(--r-control); background:var(--subtle); list-style:none; }
 .calc-demo-tools-body { margin-top:8px; padding:10px; background:var(--subtle); border-radius:var(--r-control); display:grid; gap:8px; }
+.ai-service-ready { display:inline-flex; align-items:center; margin-left:8px; color:var(--text-2); font-size:12px; padding:6px 10px; border-radius:var(--r-control); background:var(--subtle); }
+.calc-demo-readiness { display:inline-block; margin-left:8px; }
+.calc-demo-readiness summary { cursor:pointer; color:var(--text-2); font-size:12px; }
+.calc-demo-readiness pre { margin:8px 0 0; white-space:pre-wrap; font:12px/1.5 inherit; color:var(--text-2); }
 .calc-empty-state { text-align:center; padding:48px 24px; }
 .calc-empty-state h2 { margin:0 0 8px; }
 .calc-empty-state p { color:var(--text-2); margin:0 0 20px; }

@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "node server.mjs",
     "start": "node server.mjs",
-    "check": "node --check app.js && node --check project-data.js && node --check calculation-app.js && node --check server.mjs && test -f lib/pm-calc.bundle.js"
+    "check": "node --check app.js && node --check project-data.js && node --check calculation-app.js && node --check import-app.js && node --check ai-center-ui.js && node --check api-client.js && node --check demo-config.js && node --check server.mjs && test -f lib/pm-calc.bundle.js && test -f lib/ai-center.bundle.js"
   },
   "engines": {
     "node": ">=18"

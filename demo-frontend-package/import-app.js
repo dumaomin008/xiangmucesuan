@@ -22,6 +22,17 @@
     if (typeof global.render === "function") global.render();
   };
 
+  function demoApiFetch(path, init, timeoutMs) {
+    const controller = new AbortController();
+    const timer = timeoutMs ? setTimeout(() => controller.abort(), timeoutMs) : 0;
+    const run = global.DemoApi?.fetch
+      ? (target, options) => global.DemoApi.fetch(target, options)
+      : (target, options) => fetch(target, options);
+    const task = run(path, timeoutMs ? { ...(init || {}), signal: controller.signal } : init);
+    if (!timeoutMs) return task;
+    return task.finally(() => clearTimeout(timer));
+  }
+
   function esc(v) {
     return String(v ?? "")
       .replace(/&/g, "&amp;")
@@ -259,9 +270,15 @@
         </div>`
       : `<div class="calc-project-link-hint panel"><label><input type="radio" name="import-project-mode" value="temp" checked> 创建临时测算</label></div>`;
 
+    const simulated = !(session.files || []).some((file) => file.parserMode === "real");
+    const reviewTitle = simulated ? "演示解析结果（模拟识别）" : "真实文件解析结果";
+    const reviewSubtitle = simulated
+      ? "以下参数来自演示/模拟解析，不是真实 AI 读取上传文件后的结论。确认后由 Calculation Engine 测算，失败不会改动已有项目。"
+      : "请处理缺失 / 冲突 / 推断后再测算。数字最终由 Calculation Engine 计算。解析失败不会改动已有项目。";
+
     return `${typeof breadcrumb === "function" ? breadcrumb([{ label: "项目测算中心", href: "/calculation" }, { label: "参数确认" }]) : ""}
     <div class="calc-import-page" data-import-review="${esc(sessionId)}">
-      ${typeof pageHead === "function" ? pageHead("AI 已完成资料解析", "请处理缺失 / 冲突 / 推断后再测算。数字最终由 Calculation Engine 计算。", `<button class="btn" data-go="/calculation/import">重新上传</button>`) : ""}
+      ${typeof pageHead === "function" ? pageHead(reviewTitle, reviewSubtitle, `<button class="btn" data-go="/calculation/import">重新上传</button>`) : ""}
       <ol class="calc-import-steps">
         <li>① 上传资料</li>
         <li>② AI解析</li>
@@ -342,16 +359,37 @@
       const setMode = (mode) => {
         parserMode = mode === "real" ? "real" : mode === "demo" ? "demo" : "";
         const badge = $("#calc-import-mode");
-        if (badge) badge.textContent = parserMode ? `服务端解析模式：${parserMode}` : "未能取得服务端解析模式";
+        const parseBtn = $("#calc-import-parse");
+        if (badge) {
+          badge.textContent = parserMode === "real"
+            ? "服务端解析模式：real。真实文件解析已启用，失败时不会改动已有项目和测算数据。"
+            : parserMode === "demo"
+              ? "服务端解析模式：demo。当前使用演示资料识别，不是对上传文件的真实解析。"
+              : "真实文件解析暂不可用，已切换为演示资料识别。项目测算不受影响。";
+        }
+        if (parseBtn && parserMode === "demo") parseBtn.textContent = "开始演示解析";
+        if (parseBtn && parserMode === "real") parseBtn.textContent = "开始真实解析";
         const demoBtn = $("#calc-import-demo");
         if (demoBtn) demoBtn.disabled = parserMode === "real";
         refresh();
       };
 
-      fetch("/api/demo-import/config")
+      demoApiFetch("/api/demo-import/config")
         .then((r) => r.json())
-        .then((cfg) => setMode(cfg.mode))
-        .catch(() => setMode(""));
+        .then((cfg) => {
+          if (cfg?.mode === "real" && cfg.bundleReady === false) {
+            setMode("demo");
+            const badge = $("#calc-import-mode");
+            if (badge) badge.textContent = "真实文件解析暂不可用，已切换为演示资料识别。这不是真实 AI 解析。项目测算不受影响。";
+            return;
+          }
+          setMode(cfg.mode);
+        })
+        .catch(() => {
+          setMode("demo");
+          const badge = $("#calc-import-mode");
+          if (badge) badge.textContent = "真实文件解析暂不可用，已切换为演示资料识别。这不是真实 AI 解析。项目测算不受影响。";
+        });
 
       const addFiles = async (fileList) => {
         if (!parserMode) {
@@ -361,7 +399,7 @@
         if (parserMode === "real") {
           const body = new FormData();
           for (const file of fileList) body.append("files", file, file.name);
-          const res = await fetch("/api/demo-import/upload", { method: "POST", body });
+          const res = await demoApiFetch("/api/demo-import/upload", { method: "POST", body });
           const data = await res.json().catch(() => ({}));
           if (!data.files?.length) {
             notify(data.message || data.errors?.[0] || "上传失败", "error");
@@ -409,7 +447,7 @@
         }
         api.loadDemoSamples(sessionId);
         refresh();
-        notify("已加载演示资料（解析仍走 Demo Adapter）");
+        notify("已加载演示资料。后续解析是模拟识别，不会读取真实文件内容。");
       });
       parseBtn?.addEventListener("click", async () => {
         parseBtn.disabled = true;
@@ -426,17 +464,17 @@
           const controller = new AbortController();
           const timer = setTimeout(() => controller.abort(), 60000);
           try {
-            const res = await fetch("/api/demo-import/parse", {
+            const res = await demoApiFetch("/api/demo-import/parse", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ fileIds: (session?.files || []).map((f) => f.id), projects }),
               signal: controller.signal,
-            });
+            }, 60000);
             const data = await res.json().catch(() => null);
             if (!data?.parameters) {
               console.error("[import] parse", res.status);
-              if (stages) stages.textContent = "";
-              notify("资料暂未能自动识别，可手动确认参数后继续测算");
+              if (stages) stages.textContent = "真实文件解析暂不可用，可改用演示资料或手动确认参数。项目测算不受影响。";
+              notify("真实文件解析暂不可用，可改用演示资料或手动确认参数后继续测算。项目测算不受影响。");
               parseBtn.disabled = false;
               return;
             }
@@ -445,8 +483,8 @@
             goTo(`/calculation/import/${sessionId}`);
           } catch (err) {
             console.error("[import] parse", err?.name || "error");
-            if (stages) stages.textContent = "";
-            notify("资料暂未能自动识别，可手动确认参数后继续测算");
+            if (stages) stages.textContent = "真实文件解析暂不可用，可改用演示资料或手动确认参数。项目测算不受影响。";
+            notify("真实文件解析暂不可用，可改用演示资料或手动确认参数后继续测算。项目测算不受影响。");
             parseBtn.disabled = false;
           } finally {
             clearTimeout(timer);
@@ -459,7 +497,7 @@
           parseBtn.disabled = false;
           return;
         }
-        if (stages) stages.textContent = "Demo Adapter 解析完成";
+        if (stages) stages.textContent = "演示解析完成。这是模拟识别，未调用真实 AI，也不代表文件内容已被读取。";
         goTo(`/calculation/import/${sessionId}`);
       });
       list?.addEventListener("click", (e) => {

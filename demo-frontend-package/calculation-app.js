@@ -204,7 +204,28 @@
   }
 
   function resetDemoButton() {
-    return `<button type="button" class="btn" id="calc-reset-seed" title="清除本机测算 LocalStorage 并恢复演示种子">一键恢复演示数据</button>`;
+    return `<button type="button" class="btn small" id="calc-reset-seed" title="一键恢复演示数据">重置演示</button>`;
+  }
+
+  function demoToolsEnabled() {
+    try {
+      if (localStorage.getItem("pm-demo-tools") === "1") return true;
+      if (String(location.hash || "").includes("tools=1")) return true;
+    } catch {
+      /* ignore */
+    }
+    return false;
+  }
+
+  function demoStatusChrome(withAiControls) {
+    const status = `<span class="ai-service-ready" data-ai-service="ready">AI服务：就绪</span>`;
+    const reset = resetDemoButton();
+    if (!demoToolsEnabled()) return `${status}${reset}`;
+    const readiness = `<details class="calc-demo-readiness"><summary>演示自检</summary><pre id="demo-readiness">正在检查…</pre></details>`;
+    const ai = withAiControls
+      ? `<label class="ai-mode-label">AI 模式<select id="ai-mode-select" class="select" aria-label="AI 模式"><option value="mock">mock</option><option value="deepseek">deepseek</option></select></label><button type="button" class="btn small" id="ai-force-fail">模拟 AI 超时</button>`
+      : "";
+    return `${status}${readiness}<details class="calc-demo-tools"><summary>演示工具</summary><div class="calc-demo-tools-body">${typeof stateControl === "function" ? stateControl() : ""}${reset}${ai}<p class="help">引擎 ${esc(global.PmCalc.engineVersion)} · 密钥只在服务端 · 数字来自 Calculation Engine</p></div></details>`;
   }
 
   function calcBizStatus(scenarios) {
@@ -233,7 +254,7 @@
     const blocked = requireCalc();
     if (blocked) return shell(blocked);
     global.PmCalc.ensureRepos();
-    const tools = `<details class="calc-demo-tools"><summary>演示状态 / Demo Tools</summary><div class="calc-demo-tools-body">${typeof stateControl === "function" ? stateControl() : ""}${resetDemoButton()}<label class="ai-mode-label">AI 模式<select id="ai-mode-select" class="select" aria-label="AI 模式"><option value="mock">mock</option><option value="deepseek">deepseek</option></select></label><button type="button" class="btn small" id="ai-force-fail">模拟 AI 超时</button><p class="help">引擎 ${esc(global.PmCalc.engineVersion)} · 密钥只在服务端 · 数字来自 Calculation Engine</p></div></details>`;
+    const tools = demoStatusChrome(true);
     return shell(
       global.AiCenter.render({
         breadcrumbHtml: breadcrumb([{ label: "业务管理" }, { label: "项目测算中心" }]),
@@ -329,10 +350,7 @@
       "项目测算中心",
       "跨项目管理测算方案、经营结果与方案决策",
       `${viewToggle("list")}${canEdit() ? `<button class="btn primary" id="calc-center-new">${icons.plus}<span>新建测算</span></button><button class="btn" id="calc-center-ai-import" data-go="/calculation/import">AI辅助测算</button>` : ""}
-       <details class="calc-demo-tools"><summary>演示状态 / Demo Tools</summary>
-         <div class="calc-demo-tools-body">${stateControl()}${resetDemoButton()}
-         <p class="help">引擎 ${esc(global.PmCalc.engineVersion)} · LocalStorage · 不作为业务 KPI</p></div>
-       </details>`,
+       ${demoStatusChrome(false)}`,
     )}
     <section class="metric-section calc-center-metrics" aria-label="测算中心经营摘要">
       <div class="vehicle-metrics compact-inventory-metrics calc-center-metric-row">
@@ -591,6 +609,25 @@
   }
 
   const AI_CHAT_TIMEOUT_MS = 9000;
+  const AI_USER_READY = "AI 服务正常";
+  const AI_USER_FALLBACK = "AI 深度分析暂不可用，测算功能不受影响";
+
+  async function demoApiFetch(path, init, timeoutMs) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs || AI_CHAT_TIMEOUT_MS);
+    try {
+      const run = global.DemoApi?.fetch
+        ? (target, options) => global.DemoApi.fetch(target, options)
+        : (target, options) => fetch(target, options);
+      return await run(path, { ...(init || {}), signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  function safeAiUserMessage(data) {
+    return data?.userMessage === AI_USER_READY ? AI_USER_READY : AI_USER_FALLBACK;
+  }
 
   function aiMoney(value) {
     if (value === null || value === undefined || !Number.isFinite(Number(value))) return "待确认";
@@ -831,15 +868,11 @@
 
   async function tryRemoteIntent(projectId, scenarioId, message) {
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), AI_CHAT_TIMEOUT_MS);
-      const res = await fetch("/api/demo-ai/intent", {
+      const res = await demoApiFetch("/api/demo-ai/intent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: message, projectId, scenarioId }),
-        signal: controller.signal,
       });
-      clearTimeout(timer);
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok || !data.intent || data.fallback === true) return null;
       if (!global.PmCalc?.validateLlmIntent) return null;
@@ -928,15 +961,11 @@
         question,
         localInsight: { ...localInsight, summary: localReply },
       });
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), AI_CHAT_TIMEOUT_MS);
-      const res = await fetch("/api/demo-ai/explain", {
+      const res = await demoApiFetch("/api/demo-ai/explain", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
-        signal: controller.signal,
       });
-      clearTimeout(timer);
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.ok && data.text && data.fallback !== true) {
         const last = assistantHistory[assistantHistory.length - 1];
@@ -981,15 +1010,11 @@
         question: "请解释当前测算结果、主要风险与下一步建议",
         localInsight: insight,
       });
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), AI_CHAT_TIMEOUT_MS);
-      const res = await fetch("/api/demo-ai/explain", {
+      const res = await demoApiFetch("/api/demo-ai/explain", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
-        signal: controller.signal,
       });
-      clearTimeout(timer);
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.ok && data.text && data.fallback !== true) {
         remoteText = data.text;
@@ -1222,13 +1247,14 @@
   function bindResetSeed() {
     $("#calc-reset-seed")?.addEventListener("click", () => {
       modal(
-        "一键恢复演示数据",
-        "将清除本机测算相关 LocalStorage，并重新写入演示种子方案（含基准与对比方案）。项目管理列表中的会话修改不受影响。",
+        "重置演示",
+        "将清除本次 AI 对话和临时测算方案，恢复标准演示项目与测算结果，AI 模式回到 mock，并清除模拟的 DeepSeek 故障。确认后回到项目测算中心。",
         "确认恢复",
         () => {
           try {
-            global.PmCalc.resetDemoData();
-            toast("演示测算数据已恢复");
+            if (global.AiCenter?.resetLeadershipDemo) global.AiCenter.resetLeadershipDemo();
+            else global.PmCalc.resetDemoData();
+            toast("演示状态已恢复");
             render();
           } catch (err) {
             toast(err?.message || "恢复失败", "error");
@@ -1238,11 +1264,61 @@
     });
   }
 
+  function localDemoReadiness() {
+    const api = global.PmCalc;
+    if (!api?.ensureRepos || !api.calculateProject || !api.getScenario) return { engine: "FAIL", data: "FAIL" };
+    try {
+      api.ensureRepos();
+      const profit = Number(api.getScenario("SCN-001-BASE")?.results?.metrics?.monthlyProfit);
+      const sensitive = Number(api.getScenario("SCN-008-BASE")?.results?.metrics?.monthlyProfit);
+      return {
+        engine: api.engineVersion && Number.isFinite(profit) ? "READY" : "FAIL",
+        data: Number.isFinite(profit) && profit > 0 && Number.isFinite(sensitive) ? "READY" : "FAIL",
+      };
+    } catch {
+      return { engine: "FAIL", data: "FAIL" };
+    }
+  }
+
+  async function paintDemoReadiness() {
+    const slot = $("#demo-readiness");
+    if (!slot) return;
+    const local = localDemoReadiness();
+    let aiConfiguration = "FALLBACK";
+    let aiHealth = "FALLBACK";
+    let documentImport = "FAIL";
+    let userMessage = AI_USER_FALLBACK;
+    try {
+      const res = await demoApiFetch("/api/demo/readiness", { method: "GET" }, 6000);
+      const body = await res.json().catch(() => ({}));
+      if (body?.aiConfiguration === "READY" || body?.aiConfiguration === "FALLBACK") aiConfiguration = body.aiConfiguration;
+      if (body?.aiHealth === "READY" || body?.aiHealth === "FALLBACK") aiHealth = body.aiHealth;
+      if (body?.documentImport === "REAL" || body?.documentImport === "DEMO" || body?.documentImport === "FAIL") {
+        documentImport = body.documentImport;
+      }
+      userMessage = safeAiUserMessage(body);
+    } catch {
+      userMessage = AI_USER_FALLBACK;
+    }
+    if (!slot) return;
+    const blocked = local.engine === "FAIL" || local.data === "FAIL";
+    slot.textContent = [
+      `Calculation Engine       ${local.engine}`,
+      `AI Configuration         ${aiConfiguration}`,
+      `AI Health                ${aiHealth}`,
+      `Document Import          ${documentImport}`,
+      `Demo Project Data        ${local.data}`,
+      blocked ? "核心演示：不可进行（测算或演示数据未就绪）" : "核心演示：可进行（AI 失败不影响测算）",
+    ].join("\n");
+  }
+
   function bindCalculationActions() {
     bindResetSeed();
-    $$("[data-calc-view]").forEach((btn) => {
+    void paintDemoReadiness();
+    $$("[data-calc-view], [data-ai-view]").forEach((btn) => {
+      if (btn.closest("#ai-center")) return;
       btn.onclick = () => {
-        global.AiCenter?.setView?.(btn.dataset.calcView);
+        global.AiCenter?.setView?.(btn.dataset.calcView || btn.dataset.aiView);
         render();
       };
     });

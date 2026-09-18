@@ -21,16 +21,13 @@ export function resolveDocumentAiConfig(env: NodeJS.ProcessEnv = process.env): D
   const provider =
     explicitProvider ||
     (baseUrl.includes("deepseek") ? "deepseek" : "openai-compatible");
-  const model =
-    env.AI_MODEL ||
-    env.DEMO_AI_MODEL ||
-    (provider === "deepseek" ? "deepseek-flash" : "gpt-4o-mini");
+  const model = String(env.AI_MODEL || env.DEMO_AI_MODEL || "").trim();
   return {
     provider,
     apiKey,
     baseUrl,
     model,
-    configured: Boolean(apiKey),
+    configured: Boolean(apiKey && model),
   };
 }
 

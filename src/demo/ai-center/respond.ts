@@ -283,7 +283,7 @@ function emptyProjects(intent: AIResponse["intent"]): AIResponse {
     blocks: [],
     actions: [
       { id: "create", label: "新建测算", kind: "ask", ask: "帮我测算一个新的运输项目" },
-      { id: "manual", label: "手动输入", kind: "navigate", href: "/calculation/manual" },
+      { id: "manual", label: "手动填写关键参数", kind: "navigate", href: "/calculation/manual" },
       { id: "list", label: "进入传统测算", kind: "navigate", href: "view:list" },
     ],
   };
@@ -500,7 +500,13 @@ function buildSchemeCompare(question: string, projects: CenterProject[], focusPr
   };
 }
 
-function parseChange(question: string): { variable: string | null; variableName: string; unsupported: string | null; change: number } {
+function parseChange(question: string): {
+  variable: string | null;
+  variableName: string;
+  unsupported: string | null;
+  change: number;
+  needsMagnitude?: boolean;
+} {
   if (/空驶/.test(question)) {
     return { variable: null, variableName: "空驶率", unsupported: "空驶率", change: 0 };
   }
@@ -509,13 +515,21 @@ function parseChange(question: string): { variable: string | null; variableName:
   }
   const spec = VARIABLE_SPECS.find((item) => item.test.test(question));
   const matched = question.match(/([+-]?\d+(?:\.\d+)?)\s*[%％]/);
-  let change = matched ? Number(matched[1]) : 10;
-  if (!Number.isFinite(change)) change = 10;
-  const down = /下降|下跌|降低|减少/.test(question);
-  const up = /上涨|上升|提高|增加/.test(question);
+  if (spec && !matched) {
+    return {
+      variable: spec.code,
+      variableName: spec.name,
+      unsupported: null,
+      change: 0,
+      needsMagnitude: true,
+    };
+  }
+  let change = matched ? Number(matched[1]) : 0;
+  if (!Number.isFinite(change)) change = 0;
+  const down = /下降|下跌|降低|减少|降了/.test(question);
+  const up = /上涨|上升|提高|增加|涨了/.test(question);
   if (down && change > 0) change = -change;
   if (up && change < 0) change = Math.abs(change);
-  if (!down && !up && !matched) change = 10;
   return {
     variable: spec?.code || null,
     variableName: spec?.name || "",
@@ -530,17 +544,88 @@ function closestPoint(points: SensitivityPoint[], change: number): SensitivityPo
   )[0];
 }
 
+function buildDriverRank(
+  question: string,
+  projects: CenterProject[],
+  runSensitivity: SensitivityRunner | undefined,
+  focusProjectId?: string,
+): AIResponse {
+  const matched = matchProjects(question, projects);
+  const project = matched[0] || projects.find((item) => item.projectId === focusProjectId) || projects.find((item) => latestScenario(item)?.inputs);
+  const scenario = project ? latestScenario(project) : null;
+  if (!project || !scenario?.metrics || !scenario.inputs) {
+    return {
+      intent: "SENSITIVITY_ANALYSIS",
+      message: "没有找到带测算输入的项目，无法比较参数影响。",
+      blocks: [],
+      actions: [{ id: "list", label: "进入传统测算", kind: "navigate", href: "view:list" }],
+    };
+  }
+  if (!runSensitivity) {
+    return {
+      intent: "SENSITIVITY_ANALYSIS",
+      message: "测算引擎的敏感性接口不可用，已停止比较，避免用不实数字回答。",
+      blocks: [],
+      actions: openActions(project, scenario),
+      context: { projectId: project.projectId, schemeId: scenario.id },
+    };
+  }
+  const ranked = VARIABLE_SPECS.map((spec) => {
+    const points = runSensitivity({
+      input: scenario.inputs,
+      variable: spec.code,
+      changeMode: "PERCENT",
+      minChange: "0",
+      maxChange: "10",
+      step: "10",
+    });
+    const base = points.find((point) => Number(point.parameterChange) === 0) || points[0];
+    const shocked = [...points].sort((a, b) => Math.abs(Number(a.parameterChange) - 10) - Math.abs(Number(b.parameterChange) - 10))[0];
+    const delta = Math.abs((num(shocked?.monthlyProfit) || 0) - (num(base?.monthlyProfit) || 0));
+    return { name: spec.name, delta };
+  }).sort((a, b) => b.delta - a.delta);
+  const top = ranked[0];
+  return {
+    intent: "SENSITIVITY_ANALYSIS",
+    message: top
+      ? `按测算引擎对「${project.projectName}」做 +10% 冲击，对月利润影响最大的是${top.name}。原方案没有被替换。`
+      : "测算引擎没有返回可比较的敏感性结果。",
+    blocks: [
+      {
+        type: "chart",
+        chartType: "horizontalBar",
+        title: "各参数 +10% 对月利润的影响",
+        categories: ranked.map((row) => row.name),
+        series: [{ name: "月利润变动绝对值", values: ranked.map((row) => row.delta) }],
+        note: "每个柱都是 Calculation Engine 的敏感性结果，单位：元。",
+      },
+      {
+        type: "conclusion",
+        title: "AI 结论与建议",
+        items: top
+          ? [`影响最大的是${top.name}，+10% 时月利润变动约 ${formatEngineMoney(top.delta)} 元。`, "若要看下降或别的幅度，请直接说，例如「运价下降5%」。"]
+          : ["没有可排序的参数。"],
+      },
+    ],
+    actions: openActions(project, scenario),
+    context: { projectId: project.projectId, schemeId: scenario.id },
+  };
+}
+
 function buildSensitivity(
   question: string,
   projects: CenterProject[],
   runSensitivity: SensitivityRunner | undefined,
   focusProjectId?: string,
 ): AIResponse {
+  if (/哪个参数|对利润影响最大|影响最大|最敏感/.test(question)) {
+    return buildDriverRank(question, projects, runSensitivity, focusProjectId);
+  }
   const parsed = parseChange(question);
   if (parsed.unsupported) {
     return {
       intent: "SENSITIVITY_ANALYSIS",
-      message: `当前测算引擎没有「${parsed.unsupported}」这个敏感性变量，所以我不会编造利润变化。`,
+      message: `暂不支持「${parsed.unsupported}」。当前测算引擎没有这个敏感性变量，所以我不会编造调整后利润、利润率或成本。`,
       blocks: [
         {
           type: "text",
@@ -556,6 +641,19 @@ function buildSensitivity(
       message: `请说明要变动的参数。当前支持：${SUPPORTED_VARIABLES}。`,
       blocks: [],
       actions: [],
+    };
+  }
+  if (parsed.needsMagnitude) {
+    const name = parsed.variableName || "该参数";
+    return {
+      intent: "SENSITIVITY_ANALYSIS",
+      message: `请先确认${name}的变化幅度。没有幅度时不会默认按 10% 重算。`,
+      blocks: [],
+      actions: [
+        { id: "up5", label: "+5%", kind: "ask", ask: `${name}上涨5%` },
+        { id: "up10", label: "+10%", kind: "ask", ask: `${name}上涨10%` },
+        { id: "up20", label: "+20%", kind: "ask", ask: `${name}上涨20%` },
+      ],
     };
   }
   const matched = matchProjects(question, projects);
@@ -695,6 +793,24 @@ function buildExplain(question: string, projects: CenterProject[], focusProjectI
     };
   }
   const metrics = scenario.metrics;
+  if (/哪些数据|需要确认|需要核实|待确认/.test(question)) {
+    return {
+      intent: "CALCULATION_EXPLAIN",
+      message: `「${project.projectName}」当前方案的核心参数已经进入测算。没有标成缺失的必填项；若要复核，优先确认电价、运价和月趟次。系统不会用估算值补数。`,
+      blocks: [
+        {
+          type: "conclusion",
+          title: "建议复核",
+          items: [
+            "电价、运价、单车月趟次建议再对一次合同或报价。",
+            `已保存月利润 ${formatEngineMoney(metrics.monthlyProfit)} 元，仍以 Calculation Engine 为准。`,
+          ],
+        },
+      ],
+      actions: openActions(project, scenario),
+      context: { projectId: project.projectId, schemeId: scenario.id },
+    };
+  }
   const parts = [
     { name: "固定成本", value: num(metrics.monthlyFixedCost) || 0 },
     { name: "变动成本", value: num(metrics.monthlyVariableCost) || 0 },
@@ -791,7 +907,7 @@ function buildCreate(): AIResponse {
     ],
     actions: [
       { id: "upload", label: "上传资料", kind: "import" },
-      { id: "manual", label: "手动输入", kind: "navigate", href: "/calculation/manual" },
+      { id: "manual", label: "手动填写关键参数", kind: "navigate", href: "/calculation/manual" },
       { id: "copy", label: "复制已有项目", kind: "picker", picker: "copy" },
     ],
   };
@@ -806,8 +922,12 @@ export function buildCenterResponse(params: {
 }): AIResponse {
   const intent = params.intent || detectIntentFromQuestion(params.question);
   switch (intent) {
-    case "PROJECT_ANALYSIS":
-      return buildAnalysis(params.projects);
+    case "PROJECT_ANALYSIS": {
+      const focused = params.focusProjectId && /这个项目|该项目/.test(params.question)
+        ? params.projects.filter((item) => item.projectId === params.focusProjectId)
+        : [];
+      return buildAnalysis(focused.length ? focused : params.projects);
+    }
     case "PROJECT_COMPARE":
       return buildCompare(params.question, params.projects);
     case "SCHEME_COMPARE":

@@ -34,6 +34,18 @@ describe("AI Key 安全", () => {
     expect(lines).not.toContain("Authorization");
   });
 
+  it("未设置 AI_MODEL 时不算已配置，且不猜测模型名", () => {
+    const config = resolveDocumentAiConfig({
+      AI_PROVIDER: "deepseek",
+      AI_API_KEY: "sk-should-not-print",
+      AI_BASE_URL: "https://api.deepseek.com",
+    } as NodeJS.ProcessEnv);
+    expect(config.model).toBe("");
+    expect(config.configured).toBe(false);
+    expect(JSON.stringify(config)).not.toContain("deepseek-flash");
+    expect(JSON.stringify(config)).not.toContain("gpt-4o-mini");
+  });
+
   it("仓库与前端包不包含真实 Key，浏览器不直连 DeepSeek", () => {
     const gitignore = readFileSync(path.join(root, ".gitignore"), "utf8");
     expect(gitignore).toMatch(/^\.env$/m);

@@ -7,6 +7,7 @@
   const VIEW_KEY = "pm-calc-center-view";
   const ACTIVE_KEY = "pm-ai-active-id";
   const FAIL_KEY = "pm-ai-force-fail";
+  const FALLBACK_COPY = "AI 在线解读暂时不可用，已使用本地分析结果，项目测算不受影响。";
 
   let generation = 0;
   let loading = false;
@@ -447,13 +448,17 @@
       return `<section class="ai-risks"><h3>风险提示</h3><div class="ai-risk-grid">${cards || '<p class="help">暂无需要标出的风险</p>'}</div></section>`;
     }
     if (block.type === "calculation") {
+      const profit = (block.items || []).find((item) => item.label === "月利润");
+      const summary = profit
+        ? `<p class="ai-sensitivity-summary" data-ai-sensitivity>原月利润 ${esc(profit.before)}，调整后月利润 ${esc(profit.after)}，利润变化 ${esc(profit.delta)}。</p>`
+        : "";
       const rows = (block.items || [])
         .map((item) => {
           const neg = typeof item.deltaRaw === "number" && item.deltaRaw < 0 ? "is-negative" : "is-positive";
-          return `<tr><td>${esc(item.label)}</td><td class="num">${esc(item.before)}</td><td class="num">${esc(item.after)}</td><td class="num ${neg}">${esc(item.delta)}</td></tr>`;
+          return `<tr data-ai-metric="${esc(item.label)}"><td>${esc(item.label)}</td><td class="num" data-ai-before>${esc(item.before)}</td><td class="num" data-ai-after>${esc(item.after)}</td><td class="num ${neg}" data-ai-delta>${esc(item.delta)}</td></tr>`;
         })
         .join("");
-      return `<section class="ai-calc"><h3>${esc(block.title)}</h3><div class="table-wrap"><table><thead><tr><th>指标</th><th class="num">${esc(block.beforeLabel)}</th><th class="num">${esc(block.afterLabel)}</th><th class="num">变化</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
+      return `<section class="ai-calc"><h3>${esc(block.title)}</h3>${summary}<div class="table-wrap"><table><thead><tr><th>指标</th><th class="num">${esc(block.beforeLabel)}</th><th class="num">${esc(block.afterLabel)}</th><th class="num">变化</th></tr></thead><tbody>${rows}</tbody></table></div></section>`;
     }
     return "";
   }
@@ -483,7 +488,7 @@
     }
     const response = message.response || { message: message.text || "", blocks: [], actions: [] };
     const error = message.error
-      ? `<div class="ai-error" role="alert"><p>AI 服务暂时没有响应，但项目测算功能仍可正常使用。</p><div><button type="button" class="btn small" data-ai-retry>重新生成</button><button type="button" class="btn small" data-ai-view="list">进入传统测算</button></div></div>`
+      ? `<div class="ai-error" role="status" data-ai-fallback="1"><p>${esc(FALLBACK_COPY)}</p><div><button type="button" class="btn small" data-ai-retry>重新生成</button><button type="button" class="btn small" data-ai-view="list">进入传统测算</button></div></div>`
       : "";
     const stopped = message.stopped ? `<p class="help">已停止生成。</p>` : "";
     return `<article class="ai-msg"><div class="ai-avatar" aria-hidden="true">AI</div><div class="ai-answer">${error}${stopped}<p class="ai-lead">${esc(response.message || "")}</p>${(response.blocks || []).map(blockHtml).join("")}${actionsHtml(response.actions)}</div></article>`;
@@ -566,7 +571,10 @@
     const onAbort = () => controller.abort();
     signal?.addEventListener("abort", onAbort);
     try {
-      const res = await fetch("/api/demo-ai/explain", {
+      const run = global.DemoApi?.fetch
+        ? (path, init) => global.DemoApi.fetch(path, init)
+        : (path, init) => fetch(path, init);
+      const res = await run("/api/demo-ai/explain", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -582,9 +590,8 @@
       const allowed = JSON.stringify(response);
       const numbers = String(data.text).match(/\d[\d,]*(?:\.\d+)?/g) || [];
       const safe = numbers.every((raw) => allowed.includes(raw) || allowed.includes(raw.replace(/,/g, "")));
-      if (safe) {
-        response.blocks = response.blocks.concat([{ type: "text", text: `补充说明（不改变测算数字）：${data.text}` }]);
-      }
+      if (!safe) throw new Error("ai-unavailable");
+      response.blocks = response.blocks.concat([{ type: "text", text: `补充说明（不改变测算数字）：${data.text}` }]);
       return false;
     } finally {
       clearTimeout(timer);
@@ -723,9 +730,13 @@
     } catch (err) {
       pending.pending = false;
       pending.error = true;
+      const raw = String(err?.message || "");
+      const friendly = raw.length > 80 || /stack|TypeError|at\s+\w+/.test(raw)
+        ? "资料识别暂时不可用，可改用演示资料或手动填写。项目测算不受影响。"
+        : raw || "资料识别暂时不可用，可改用演示资料或手动填写。项目测算不受影响。";
       pending.response = {
         intent: "IMPORT_CALCULATION",
-        message: err?.message || "资料识别失败，测算功能仍可使用。",
+        message: friendly,
         blocks: [],
         actions: [
           { id: "retry", label: "重新生成", kind: "import" },
@@ -1016,5 +1027,30 @@
     if (thread) thread.scrollTop = thread.scrollHeight;
   }
 
-  global.AiCenter = { render, bind, getView, setView };
+  function resetLeadershipDemo() {
+    try {
+      localStorage.removeItem(storageKey());
+      localStorage.setItem(core()?.AI_MODE_STORAGE_KEY || "pm-ai-mode", "mock");
+      localStorage.removeItem(FAIL_KEY);
+      sessionStorage.removeItem(ACTIVE_KEY);
+      sessionStorage.setItem(VIEW_KEY, "ai");
+    } catch {
+      /* ignore */
+    }
+    if (typeof projects !== "undefined" && Array.isArray(projects)) {
+      for (let i = projects.length - 1; i >= 0; i -= 1) {
+        if (projects[i]?.source === "AI导入" || projects[i]?.type === "临时测算") projects.splice(i, 1);
+      }
+    }
+    generation += 1;
+    loading = false;
+    global.PmCalc?.resetDemoData?.();
+    const route = String(location.hash || "").replace(/^#/, "");
+    if (route !== "/calculation") {
+      if (typeof go === "function") go("/calculation");
+      else location.hash = "/calculation";
+    }
+  }
+
+  global.AiCenter = { render, bind, getView, setView, resetLeadershipDemo };
 })(window);

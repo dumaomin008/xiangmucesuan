@@ -67,7 +67,7 @@ test.describe("终审 Demo 主链路", () => {
     await page.getByRole("button", { name: "开始测算" }).click();
     await expect(page.locator(".calc-result-metrics")).toBeVisible();
     await expect(page.getByText("月收入")).toBeVisible();
-    await expect(page.getByText("单车月利润")).toBeVisible();
+    await expect(page.getByText("单车月利润").first()).toBeVisible();
     await expect(page.getByText("最后测算时间")).toBeVisible();
     await expect(page.getByText("已测算").first()).toBeVisible();
 
@@ -119,7 +119,7 @@ test.describe("终审 Demo 主链路", () => {
         !/Failed to load resource.*favicon/i.test(e),
     );
     // AI 未配置时的 503 属于预期降级，不算阻断
-    const realBlocking = blocking.filter((e) => !/503|AI_NOT_CONFIGURED|demo-ai/i.test(e));
+    const realBlocking = blocking.filter((e) => !/503|AI_NOT_CONFIGURED|demo-ai|explain fallback/i.test(e));
     expect(realBlocking).toEqual([]);
   });
 
@@ -199,7 +199,7 @@ test.describe("终审 Demo 主链路", () => {
         !e.includes("favicon") &&
         !e.includes("404") &&
         !/Failed to load resource.*favicon/i.test(e) &&
-        !/503|AI_NOT_CONFIGURED|demo-ai/i.test(e),
+        !/503|AI_NOT_CONFIGURED|demo-ai|explain fallback/i.test(e),
     );
     expect(realBlocking).toEqual([]);
   });
@@ -230,7 +230,8 @@ test.describe("终审 Demo 主链路", () => {
     await loginAsSales(page);
     await page.goto("/#/calculation");
     await expect(page.locator("h1", { hasText: "项目测算中心" })).toBeVisible();
-    await expect(page.getByRole("button", { name: /新建测算/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: "传统列表视图" })).toBeVisible();
+    await page.getByRole("button", { name: "传统列表视图" }).click();
     await expect(page.locator(".calc-center-metrics")).toContainText("测算项目");
     await expect(page.locator(".calc-center-metrics")).not.toContainText("存储方式");
 

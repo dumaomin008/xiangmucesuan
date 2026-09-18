@@ -5315,6 +5315,51 @@ var PmCalcModule = (() => {
     return matches.every((raw) => numberIsAllowed(Number(raw), allowed));
   }
 
+  // src/lib/ai/analysis/answer-plan.ts
+  var ANSWER_INTENTS = [
+    "summary",
+    "scenario",
+    "risk",
+    "cost",
+    "profit",
+    "sensitivity",
+    "comparison",
+    "due_diligence",
+    "clarify"
+  ];
+  var VISUALIZATION_WHITELIST = [
+    "kpi",
+    "cost_structure",
+    "scenario_comparison",
+    "scenario_delta",
+    "profit_delta",
+    "cost_delta",
+    "profit_trend",
+    "cashflow",
+    "sensitivity",
+    "risk",
+    "comparison",
+    "due_diligence",
+    "parameter_change"
+  ];
+  var SECTION_IDS = [
+    "summary",
+    "metrics",
+    "risk",
+    "sensitivity",
+    "costStructure",
+    "scenarioComparison",
+    "recommendations",
+    "trend",
+    "assumptions",
+    "parameterChange",
+    "delta",
+    "dueDiligence"
+  ];
+  var VISUALIZATION_SET = new Set(VISUALIZATION_WHITELIST);
+  var SECTION_SET = new Set(SECTION_IDS);
+  var INTENT_SET = new Set(ANSWER_INTENTS);
+
   // src/demo/ai/analyze.ts
   function money3(n) {
     return n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });

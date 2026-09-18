@@ -32,10 +32,16 @@ export function detectIntent(question: string): AIIntent {
 
   if (
     /(电价|运价|货量|趟次|运量|能耗|电耗|租金|月租|空驶|利用率)/.test(text) &&
-    /(上涨|上升|提高|增加|下降|下跌|降低|减少|敏感|怎么样|会怎样|变化|%|％)/.test(text)
+    /(上涨|上升|提高|增加|下降|下跌|降低|减少|涨了|降了|敏感|怎么样|会怎样|变化|%|％)/.test(text)
   ) {
     return "SENSITIVITY_ANALYSIS";
   }
+
+  if (/哪个参数|对利润影响最大|影响最大|最敏感/.test(text)) return "SENSITIVITY_ANALYSIS";
+  if (/帮我分析|分析一下/.test(text) && !/对比|比较/.test(text)) return "PROJECT_ANALYSIS";
+  if (/能赚多少|赚多少钱/.test(text)) return "CALCULATION_EXPLAIN";
+  if (/成本主要|花在哪里/.test(text)) return "CALCULATION_EXPLAIN";
+  if (/哪些数据|需要确认|需要核实/.test(text)) return "CALCULATION_EXPLAIN";
 
   if (/报告/.test(text)) return "GENERATE_REPORT";
   if (/风险/.test(text)) return "RISK_ANALYSIS";

@@ -116,6 +116,12 @@ describe("Phase 3：Demo 融合冒烟", () => {
     expect(server).toContain("/api/demo-ai/explain");
     expect(server).toContain("/api/demo-ai/intent");
     expect(server).toContain("/api/ai/health");
+    expect(server).toContain("DEMO_CORS_ORIGINS");
+    expect(server).toContain("/api/demo/readiness");
+    expect(server).not.toContain("Access-Control-Allow-Origin': '*'");
+    expect(calcApp).toContain("DemoApi");
+    expect(calcApp).toContain("AI 服务正常");
+    expect(calcApp).toContain("AI 深度分析暂不可用，测算功能不受影响");
     expect(html).not.toMatch(/sk-[a-zA-Z0-9]/);
     expect(calcApp).not.toMatch(/DEMO_AI_API_KEY\s*=\s*['\"][^'\"]+/);
   });

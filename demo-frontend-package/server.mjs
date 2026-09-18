@@ -100,8 +100,49 @@ function documentAiConfig() {
   const apiKey = process.env.AI_API_KEY || process.env.DEMO_AI_API_KEY || '';
   const provider = (process.env.AI_PROVIDER || 'deepseek').toLowerCase();
   const baseUrl = (process.env.AI_BASE_URL || process.env.DEMO_AI_BASE_URL || 'https://api.deepseek.com').replace(/\/$/, '');
-  const model = process.env.AI_MODEL || process.env.DEMO_AI_MODEL || (provider === 'deepseek' ? 'deepseek-flash' : 'gpt-4o-mini');
-  return { provider, apiKey, baseUrl, model, configured: Boolean(apiKey) };
+  const model = String(process.env.AI_MODEL || process.env.DEMO_AI_MODEL || '').trim();
+  return { provider, apiKey, baseUrl, model, configured: Boolean(apiKey && model) };
+}
+
+function publicApiBase() {
+  const raw = String(process.env.DEMO_API_BASE_URL || '').trim();
+  if (!raw) return '';
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return '';
+    if (url.username || url.password || url.search || url.hash) return '';
+    return url.origin;
+  } catch {
+    return '';
+  }
+}
+
+function corsDecision(request) {
+  const origin = request.headers.origin;
+  if (!origin) return { ok: true, headers: {} };
+  const allow = new Set(
+    String(process.env.DEMO_CORS_ORIGINS || '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+  );
+  let sameHost = false;
+  try {
+    sameHost = new URL(origin).host === (request.headers.host || '');
+  } catch {
+    sameHost = false;
+  }
+  if (!sameHost && !allow.has(origin)) return { ok: false, headers: {} };
+  return {
+    ok: true,
+    headers: {
+      'Access-Control-Allow-Origin': origin,
+      Vary: 'Origin',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Max-Age': '600'
+    }
+  };
 }
 
 async function handleImportConfig(_request, response) {
@@ -240,7 +281,8 @@ function sendJson(response, status, body) {
   const payload = JSON.stringify(body);
   response.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
-    'Cache-Control': 'no-store'
+    'Cache-Control': 'no-store',
+    ...(response.corsHeaders || {})
   });
   response.end(payload);
 }
@@ -366,6 +408,18 @@ async function handleAiIntent(request, response) {
 
 const server = createServer(async (request, response) => {
   const url = new URL(request.url || '/', `http://${request.headers.host}`);
+  const cors = corsDecision(request);
+  response.corsHeaders = cors.headers;
+  if (url.pathname.startsWith('/api/')) {
+    if (!cors.ok) {
+      return sendJson(response, 403, { ok: false, message: 'origin not allowed' });
+    }
+    if (request.method === 'OPTIONS') {
+      response.writeHead(204, cors.headers);
+      response.end();
+      return;
+    }
+  }
   if (request.method === 'POST' && url.pathname === '/api/demo-ai/explain') {
     return handleAiExplain(request, response);
   }
@@ -384,12 +438,34 @@ const server = createServer(async (request, response) => {
     });
     return sendJson(response, 200, health);
   }
-  if (request.method === 'GET' && url.pathname === '/api/demo-ai/status') {
+  if (request.method === 'GET' && url.pathname === '/api/demo/readiness') {
+    const ai = documentAiConfig();
+    const health = await probeAiHealth({
+      apiKey: ai.apiKey,
+      baseUrl: ai.baseUrl,
+      model: ai.model,
+      provider: ai.provider,
+      fetchImpl: fetch,
+      log: aiLog
+    });
+    const bundleReady = Boolean(documentImport);
+    const mode = bundleReady ? documentImport.getDocumentParserMode() : 'demo';
     return sendJson(response, 200, {
       ok: true,
-      configured: documentAiConfig().configured,
-      model: documentAiConfig().model,
-      provider: documentAiConfig().provider
+      aiConfiguration: ai.configured ? 'READY' : 'FALLBACK',
+      aiHealth: health.status === 'healthy' ? 'READY' : 'FALLBACK',
+      documentImport: !bundleReady ? 'FAIL' : mode === 'real' ? 'REAL' : 'DEMO',
+      userMessage: health.userMessage,
+      blocksCoreDemo: false
+    });
+  }
+  if (request.method === 'GET' && url.pathname === '/api/demo-ai/status') {
+    const ai = documentAiConfig();
+    return sendJson(response, 200, {
+      ok: true,
+      configured: ai.configured,
+      model: ai.model || null,
+      provider: ai.provider
     });
   }
   if (request.method === 'GET' && url.pathname === '/api/demo-import/config') {
@@ -405,6 +481,15 @@ const server = createServer(async (request, response) => {
   const pathname = decodeURIComponent(url.pathname);
   const requested = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
   const safePath = normalize(requested).replace(/^(\.\.(\/|\\|$))+/, '');
+  if (safePath === 'demo-config.js') {
+    const body = `window.DEMO_API_BASE_URL=${JSON.stringify(publicApiBase())};\n`;
+    response.writeHead(200, {
+      'Content-Type': 'text/javascript; charset=utf-8',
+      'Cache-Control': 'no-store'
+    });
+    response.end(body);
+    return;
+  }
   let filePath = join(root, safePath);
 
   if (!existsSync(filePath) || !statSync(filePath).isFile()) filePath = join(root, 'index.html');
@@ -420,6 +505,6 @@ server.listen(port, host, () => {
   console.log(`Demo Frontend: http://${host}:${port}/#/login`);
   const ai = documentAiConfig();
   console.log(`AI Provider: ${ai.provider}`);
-  console.log(`AI Model: ${ai.model}`);
+  console.log(`AI Model: ${ai.model || '(unset)'}`);
   console.log(`AI Configured: ${ai.configured}`);
 });

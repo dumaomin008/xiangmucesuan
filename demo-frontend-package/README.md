@@ -82,6 +82,58 @@ demo-frontend-package/
   - **数字只来自 Calculation Engine**；AI 故障只降级助手文案，不阻塞测算
 - 重建引擎包（在仓库根目录）：`npm run build:demo-calc`
 
+## 部署模式
+
+领导演示默认是 **mock**。第一次打开不请求 DeepSeek；只有用户在演示工具里主动切到 deepseek 后，才会走服务端润色。清除演示数据 / 重置演示后回到 mock。DeepSeek 失败不会改写 CalculationResult。
+
+开发时如需看到模式切换和「模拟 AI 超时」，在浏览器执行 `localStorage.setItem("pm-demo-tools","1")` 后刷新，或打开带 `tools=1` 的地址。正式演示页只显示「AI服务：就绪」和「重置演示」。
+
+### 纯静态部署支持
+
+只发布静态文件、不另起 API 时，以下能力可用：
+
+- 项目测算
+- Calculation Engine
+- Mock AI
+- 本地经营分析
+- 项目对比
+- 敏感性分析
+- LocalStorage
+- 可视化
+- 演示资料流程（Demo Parser，内置演示资料与本地模拟解析）
+
+### 纯静态部署不支持
+
+如果没有额外 API 服务，以下能力不可用，页面会降级而不是白屏：
+
+- 真实 DeepSeek 调用
+- `/api/demo-ai/explain`
+- 服务端真实文件解析（PDF / Word / Excel / 图片，依赖 `server.mjs` 与 `document-import.server.mjs`）
+
+Real Parser 不可用时，导入页提示改用演示资料或手动确认，不把上传失败当成测算失败。
+
+### 联网 AI 部署
+
+需要同时具备：
+
+```text
+静态前端
++
+Node API / Serverless Function（demo-frontend-package/server.mjs）
++
+DeepSeek Key（仅服务端环境变量 AI_API_KEY 或 DEMO_AI_API_KEY）
+```
+
+调用路径：
+
+```text
+Browser → /api/demo-ai/explain → server.mjs → DeepSeek
+```
+
+DeepSeek 只润色解释，不计算利润。超时约 9 秒；401 / 403 / 429 / 5xx / 网络异常 / 非 JSON / 空内容 / 无法核对的数字，都保留 Calculation Engine 结果并使用本地解读。
+
+禁止把 DeepSeek Key 放进 `index.html`、JS bundle、LocalStorage 或 `VITE_*` 等浏览器可读取位置。
+
 ## 开发要求
 
 - 必须复用现有组件。

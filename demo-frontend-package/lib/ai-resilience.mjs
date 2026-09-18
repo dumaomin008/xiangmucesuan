@@ -6,6 +6,13 @@
 export const AI_CHAT_TIMEOUT_MS = 9000;
 export const AI_DOCUMENT_TIMEOUT_MS = 25000;
 export const AI_HEALTH_TIMEOUT_MS = 5000;
+export const AI_USER_READY = "AI 服务正常";
+export const AI_USER_FALLBACK = "AI 深度分析暂不可用，测算功能不受影响";
+
+function withUserMessage(body) {
+  const ready = body.status === "healthy" && body.configured === true && body.reachable === true;
+  return { ...body, userMessage: ready ? AI_USER_READY : AI_USER_FALLBACK };
+}
 
 export function redactAiText(value) {
   return String(value ?? "")
@@ -186,15 +193,15 @@ export async function runAiProxy(options) {
 
 export async function probeAiHealth(options) {
   const provider = options.provider || "deepseek";
-  const model = options.model || "";
+  const model = String(options.model || "").trim();
   const base = {
-    configured: Boolean(options.apiKey),
+    configured: Boolean(options.apiKey && model),
     provider,
     model,
     reachable: false,
     status: "not_configured",
   };
-  if (!options.apiKey) return base;
+  if (!options.apiKey || !model) return withUserMessage(base);
 
   const controller = new AbortController();
   const fetchImpl = options.fetchImpl || globalThis.fetch;
@@ -225,17 +232,31 @@ export async function probeAiHealth(options) {
     if (winner.error) throw winner.error;
     const upstream = winner.value;
     if (upstream.status === 401 || upstream.status === 403) {
+      await upstream.text?.().catch(() => "");
       log("[ai:health] auth_failed");
-      return { ...base, configured: true, reachable: true, status: "auth_failed" };
+      return withUserMessage({ ...base, configured: true, reachable: true, status: "auth_failed" });
     }
     if (!upstream.ok) {
+      await upstream.text?.().catch(() => "");
       log(`[ai:health] degraded http_${upstream.status}`);
-      return { ...base, configured: true, reachable: true, status: "degraded" };
+      return withUserMessage({ ...base, configured: true, reachable: true, status: "degraded" });
     }
-    return { ...base, configured: true, reachable: true, status: "healthy" };
+    let data;
+    try {
+      data = await upstream.json();
+    } catch {
+      log("[ai:health] invalid_json");
+      return withUserMessage({ ...base, configured: true, reachable: true, status: "degraded" });
+    }
+    const ids = Array.isArray(data?.data) ? data.data.map((item) => item && item.id).filter(Boolean) : [];
+    if (!ids.includes(model)) {
+      log("[ai:health] model_unavailable");
+      return withUserMessage({ ...base, configured: true, reachable: true, status: "model_unavailable" });
+    }
+    return withUserMessage({ ...base, configured: true, reachable: true, status: "healthy" });
   } catch {
     log("[ai:health] unreachable");
-    return { ...base, configured: true, reachable: false, status: "unreachable" };
+    return withUserMessage({ ...base, configured: true, reachable: false, status: "unreachable" });
   } finally {
     clearTimeout(timer);
   }

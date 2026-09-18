@@ -33,7 +33,7 @@ loadLocalEnv();
 
 const config = resolveDocumentAiConfig();
 if (!config.configured) {
-  console.log("SKIPPED: AI_API_KEY not configured");
+  console.log("SKIPPED: AI_API_KEY or AI_MODEL not configured");
   process.exit(0);
 }
 
