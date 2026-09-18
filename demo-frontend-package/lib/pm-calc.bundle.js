@@ -4059,12 +4059,38 @@ var PmCalcModule = (() => {
   };
 
   // src/demo/repository/scenarioRepository.ts
+  function fingerprintSchemeInputs(inputs) {
+    const seg = inputs.routes?.[0]?.segments?.[0];
+    const fleet = inputs.fleetSize ?? inputs.vehicle?.fleetSize ?? 0;
+    const payload = {
+      fleet,
+      rent: inputs.vehicle?.monthlyRentPerVehicle ?? "",
+      distanceKm: seg?.distanceKm ?? "",
+      loadTon: seg?.loadTon ?? "",
+      freightPrice: seg?.freightPrice ?? "",
+      trips: seg?.tripsPerVehicleMonth ?? "",
+      electricityPrice: seg?.electricityPrice ?? "",
+      energy: seg?.loadedEnergyConsumption ?? "",
+      driver: seg?.driverCostPerTrip ?? ""
+    };
+    return JSON.stringify(payload);
+  }
   function buildResults(inputs) {
     const output = calculateProject(inputs);
+    const base = snapshotKeyMetrics(output);
+    const fleetSize = Number(inputs.fleetSize ?? inputs.vehicle?.fleetSize ?? 0);
+    const fleetOk = Number.isFinite(fleetSize) && fleetSize > 0;
+    const profitPerVehicle = fleetOk ? output.monthlyProfit.div(fleetSize).toString() : null;
     return {
-      metrics: snapshotKeyMetrics(output),
+      metrics: {
+        ...base,
+        fleetSize: fleetOk ? fleetSize : 0,
+        profitPerVehicle,
+        profitPerVehicleReason: fleetOk ? null : "\u8F66\u8F86\u6570\u65E0\u6548\uFF0C\u65E0\u6CD5\u8BA1\u7B97\u5355\u8F66\u7ECF\u6D4E\u6027"
+      },
       full: serializeCalculationResult(output),
-      calculatedAt: nowIso()
+      calculatedAt: nowIso(),
+      inputFingerprint: fingerprintSchemeInputs(inputs)
     };
   }
   var ScenarioRepository = class {
@@ -4092,7 +4118,14 @@ var PmCalcModule = (() => {
       const inputs = cloneJson(payload.inputs);
       inputs.schemeId = id;
       inputs.schemeName = payload.name;
-      const results = recalculate ? buildResults(inputs) : payload.results !== void 0 ? cloneJson(payload.results) : existing?.results ?? null;
+      let results;
+      if (recalculate) {
+        results = buildResults(inputs);
+      } else if (payload.results !== void 0) {
+        results = cloneJson(payload.results);
+      } else {
+        results = existing?.results ?? null;
+      }
       const record = {
         id,
         projectId: payload.projectId,
@@ -4104,7 +4137,8 @@ var PmCalcModule = (() => {
         inputs,
         results,
         calculationVersion: CALCULATION_ENGINE_VERSION,
-        notes: payload.notes ?? existing?.notes
+        notes: payload.notes ?? existing?.notes,
+        inputsSource: payload.inputsSource ?? existing?.inputsSource
       };
       const idx = list.findIndex((s) => s.id === id);
       if (idx >= 0) list[idx] = record;
@@ -4556,10 +4590,19 @@ var PmCalcModule = (() => {
   }
   function computeScenarioResults(inputs) {
     const output = calculateProject(inputs);
+    const base = snapshotKeyMetrics(output);
+    const fleetSize = Number(inputs.fleetSize ?? inputs.vehicle?.fleetSize ?? 0);
+    const fleetOk = Number.isFinite(fleetSize) && fleetSize > 0;
     return {
-      metrics: snapshotKeyMetrics(output),
+      metrics: {
+        ...base,
+        fleetSize: fleetOk ? fleetSize : 0,
+        profitPerVehicle: fleetOk ? output.monthlyProfit.div(fleetSize).toString() : null,
+        profitPerVehicleReason: fleetOk ? null : "\u8F66\u8F86\u6570\u65E0\u6548\uFF0C\u65E0\u6CD5\u8BA1\u7B97\u5355\u8F66\u7ECF\u6D4E\u6027"
+      },
       full: serializeCalculationResult(output),
-      calculatedAt: nowIso()
+      calculatedAt: nowIso(),
+      inputFingerprint: fingerprintSchemeInputs(inputs)
     };
   }
   function scenario(params) {
@@ -4923,18 +4966,18 @@ var PmCalcModule = (() => {
   function formatMoney(value) {
     if (value === null || value === void 0 || value === "") return "\u2014";
     const n = Number(value);
-    if (!Number.isFinite(n)) return String(value);
+    if (!Number.isFinite(n)) return "\u2014";
     return n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
   function formatPercent(value) {
     if (value === null || value === void 0 || value === "") return "\u2014";
     const n = Number(value);
-    if (!Number.isFinite(n)) return String(value);
+    if (!Number.isFinite(n)) return "\u2014";
     return `${(n * 100).toFixed(2)}%`;
   }
   function scenarioStatusLabel(status) {
     const map = {
-      draft: "\u8349\u7A3F",
+      draft: "\u5F85\u786E\u8BA4",
       calculated: "\u5DF2\u6D4B\u7B97",
       baseline: "\u57FA\u51C6\u65B9\u6848",
       archived: "\u5DF2\u5F52\u6863"
@@ -4965,6 +5008,7 @@ var PmCalcModule = (() => {
     formatMoney,
     formatPercent,
     scenarioStatusLabel,
+    fingerprintInputs: fingerprintSchemeInputs,
     resetDemoData: () => {
       const demo = ensureRepos();
       demo.projects.clear();

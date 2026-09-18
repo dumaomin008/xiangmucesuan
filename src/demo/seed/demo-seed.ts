@@ -5,6 +5,7 @@ import {
   snapshotKeyMetrics,
   type SchemeCalculationInput,
 } from "@/calculation";
+import { fingerprintSchemeInputs } from "../repository/scenarioRepository";
 import type { DemoCalcScenario, DemoProjectRecord, DemoScenarioResults } from "../types";
 import { cloneJson, nowIso } from "../utils";
 import {
@@ -86,10 +87,19 @@ function withSchemeMeta(input: SchemeCalculationInput, schemeId: string, schemeN
 
 export function computeScenarioResults(inputs: SchemeCalculationInput): DemoScenarioResults {
   const output = calculateProject(inputs);
+  const base = snapshotKeyMetrics(output);
+  const fleetSize = Number(inputs.fleetSize ?? inputs.vehicle?.fleetSize ?? 0);
+  const fleetOk = Number.isFinite(fleetSize) && fleetSize > 0;
   return {
-    metrics: snapshotKeyMetrics(output),
+    metrics: {
+      ...base,
+      fleetSize: fleetOk ? fleetSize : 0,
+      profitPerVehicle: fleetOk ? output.monthlyProfit.div(fleetSize).toString() : null,
+      profitPerVehicleReason: fleetOk ? null : "车辆数无效，无法计算单车经济性",
+    },
     full: serializeCalculationResult(output),
     calculatedAt: nowIso(),
+    inputFingerprint: fingerprintSchemeInputs(inputs),
   };
 }
 

@@ -160,6 +160,66 @@ describe("Phase 2：Demo Repository / LocalStorage 数据层", () => {
     expect(demo.projects.listProjects().length).toBe(3);
   });
 
+  it("新建方案可保存为待确认草稿且不立即测算", () => {
+    const demo = createMemoryDemoRepositories();
+    const base = demo.scenarios.getScenario("SCN-001-BASE")!;
+    const draft = demo.scenarios.saveScenario(
+      {
+        projectId: "PRJ-DEMO-001",
+        name: "待确认方案",
+        status: "draft",
+        inputs: base.inputs,
+        results: null,
+        inputsSource: "demo_baseline",
+        notes: "演示基准参数",
+      },
+      { recalculate: false },
+    );
+    expect(draft.status).toBe("draft");
+    expect(draft.results).toBeNull();
+    expect(draft.inputsSource).toBe("demo_baseline");
+    const only003 = demo.scenarios.listScenarios("PRJ-DEMO-003");
+    expect(only003.every((s) => s.projectId === "PRJ-DEMO-003")).toBe(true);
+    expect(only003.some((s) => s.id === draft.id)).toBe(false);
+    expect(demo.scenarios.listScenarios("PRJ-DEMO-001").some((s) => s.id === draft.id)).toBe(true);
+  });
+
+  it("关键参数修改后引擎结果全量联动，并写入指纹", () => {
+    const demo = createMemoryDemoRepositories();
+    const base = demo.scenarios.getScenario("SCN-001-BASE")!;
+    const before = { ...base.results!.metrics };
+    const inputs = structuredClone(base.inputs);
+    const seg = inputs.routes[0].segments[0];
+    seg.freightPrice = String(Number(seg.freightPrice) * 1.1);
+    seg.electricityPrice = String(Number(seg.electricityPrice) * 1.2);
+    seg.loadedEnergyConsumption = String(Number(seg.loadedEnergyConsumption) * 1.05);
+    seg.distanceKm = String(Number(seg.distanceKm) + 5);
+    seg.tripsPerVehicleMonth = String(Number(seg.tripsPerVehicleMonth) + 1);
+    seg.loadTon = String(Number(seg.loadTon) + 1);
+    seg.driverCostPerTrip = "50";
+    inputs.fleetSize = inputs.fleetSize + 1;
+    inputs.vehicle.fleetSize = inputs.fleetSize;
+    inputs.vehicle.monthlyRentPerVehicle = String(Number(inputs.vehicle.monthlyRentPerVehicle) + 100);
+
+    const saved = demo.scenarios.saveScenario({
+      id: base.id,
+      projectId: base.projectId,
+      name: base.name,
+      status: "baseline",
+      inputs,
+    });
+    const live = calculateProject(inputs);
+    expect(saved.results!.metrics.monthlyRevenue).toBe(live.monthlyRevenue.toString());
+    expect(saved.results!.metrics.monthlyTotalCost).toBe(live.monthlyTotalCost.toString());
+    expect(saved.results!.metrics.monthlyProfit).toBe(live.monthlyProfit.toString());
+    expect(saved.results!.metrics.monthlyFixedCost).toBe(live.monthlyFixedCost.toString());
+    expect(saved.results!.metrics.monthlyVariableCost).toBe(live.monthlyVariableCost.toString());
+    expect(saved.results!.metrics.cumulativeCashFlow).toBe(live.cumulativeCashFlow.toString());
+    expect(saved.results!.metrics.fleetSize).toBe(inputs.fleetSize);
+    expect(saved.results!.inputFingerprint).toBeTruthy();
+    expect(saved.results!.metrics.monthlyRevenue).not.toBe(before.monthlyRevenue);
+  });
+
   it("页面不应直接依赖 storage key 字符串以外的副作用：仓库接口完备", () => {
     const demo: DemoRepositories = createMemoryDemoRepositories();
     expect(typeof demo.projects.getProject).toBe("function");

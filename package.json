@@ -15,6 +15,7 @@
     "test:phase12": "vitest run src/lib/engine/__tests__ tests/golden src/calculation/__tests__ src/demo/__tests__",
     "test:phase3": "vitest run src/demo/__tests__/phase3-fusion.test.ts",
     "build:demo-calc": "node scripts/build-demo-calc-bundle.mjs",
+    "test:demo-e2e": "playwright test -c playwright.demo.config.ts",
     "test:integration": "playwright test --project=api",
     "test:e2e": "playwright test --project=e2e",
     "test:acceptance": "npx tsx scripts/run-acceptance.ts",

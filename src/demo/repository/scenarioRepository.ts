@@ -8,15 +8,43 @@ import {
 import { DEMO_STORAGE_KEYS } from "../keys";
 import type { KeyValueStorage } from "../storage/kv";
 import { VersionedStore } from "../storage/versioned";
-import type { DemoCalcScenario, DemoScenarioResults, ScenarioStatus } from "../types";
+import type { DemoCalcScenario, DemoInputsSource, DemoScenarioResults, ScenarioStatus } from "../types";
 import { cloneJson, createId, nowIso } from "../utils";
+
+/** 可编辑经营参数指纹：用于脏检查（参数变更但尚未重算） */
+export function fingerprintSchemeInputs(inputs: SchemeCalculationInput): string {
+  const seg = inputs.routes?.[0]?.segments?.[0];
+  const fleet = inputs.fleetSize ?? inputs.vehicle?.fleetSize ?? 0;
+  const payload = {
+    fleet,
+    rent: inputs.vehicle?.monthlyRentPerVehicle ?? "",
+    distanceKm: seg?.distanceKm ?? "",
+    loadTon: seg?.loadTon ?? "",
+    freightPrice: seg?.freightPrice ?? "",
+    trips: seg?.tripsPerVehicleMonth ?? "",
+    electricityPrice: seg?.electricityPrice ?? "",
+    energy: seg?.loadedEnergyConsumption ?? "",
+    driver: seg?.driverCostPerTrip ?? "",
+  };
+  return JSON.stringify(payload);
+}
 
 function buildResults(inputs: SchemeCalculationInput): DemoScenarioResults {
   const output = calculateProject(inputs);
+  const base = snapshotKeyMetrics(output);
+  const fleetSize = Number(inputs.fleetSize ?? inputs.vehicle?.fleetSize ?? 0);
+  const fleetOk = Number.isFinite(fleetSize) && fleetSize > 0;
+  const profitPerVehicle = fleetOk ? output.monthlyProfit.div(fleetSize).toString() : null;
   return {
-    metrics: snapshotKeyMetrics(output),
+    metrics: {
+      ...base,
+      fleetSize: fleetOk ? fleetSize : 0,
+      profitPerVehicle,
+      profitPerVehicleReason: fleetOk ? null : "车辆数无效，无法计算单车经济性",
+    },
     full: serializeCalculationResult(output),
     calculatedAt: nowIso(),
+    inputFingerprint: fingerprintSchemeInputs(inputs),
   };
 }
 
@@ -51,6 +79,7 @@ export class ScenarioRepository {
       inputs: SchemeCalculationInput;
       results?: DemoScenarioResults | null;
       notes?: string;
+      inputsSource?: DemoInputsSource;
     },
     options?: { recalculate?: boolean },
   ): DemoCalcScenario {
@@ -62,11 +91,14 @@ export class ScenarioRepository {
     inputs.schemeId = id;
     inputs.schemeName = payload.name;
 
-    const results = recalculate
-      ? buildResults(inputs)
-      : payload.results !== undefined
-        ? cloneJson(payload.results)
-        : existing?.results ?? null;
+    let results: DemoScenarioResults | null;
+    if (recalculate) {
+      results = buildResults(inputs);
+    } else if (payload.results !== undefined) {
+      results = cloneJson(payload.results);
+    } else {
+      results = existing?.results ?? null;
+    }
 
     const record: DemoCalcScenario = {
       id,
@@ -80,6 +112,7 @@ export class ScenarioRepository {
       results,
       calculationVersion: CALCULATION_ENGINE_VERSION,
       notes: payload.notes ?? existing?.notes,
+      inputsSource: payload.inputsSource ?? existing?.inputsSource,
     };
 
     const idx = list.findIndex((s) => s.id === id);

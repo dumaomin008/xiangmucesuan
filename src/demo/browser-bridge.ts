@@ -16,6 +16,7 @@ import {
   createLocalStorageAdapter,
   DEMO_STORAGE_KEYS,
   DEMO_SCHEMA_VERSION,
+  fingerprintSchemeInputs,
   type DemoCalcScenario,
   type DemoProjectContext,
   type DemoProjectRecord,
@@ -60,6 +61,7 @@ export type PmCalcBridge = {
   formatMoney: (value: string | number | null | undefined) => string;
   formatPercent: (value: string | number | null | undefined) => string;
   scenarioStatusLabel: (status: string) => string;
+  fingerprintInputs: typeof fingerprintSchemeInputs;
   resetDemoData: () => void;
   analyzeScenario: (params: {
     scenarioId: string;
@@ -116,20 +118,20 @@ function syncProjectFromShell(p: Parameters<PmCalcBridge["buildProjectContext"]>
 function formatMoney(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === "") return "—";
   const n = Number(value);
-  if (!Number.isFinite(n)) return String(value);
+  if (!Number.isFinite(n)) return "—";
   return n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function formatPercent(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === "") return "—";
   const n = Number(value);
-  if (!Number.isFinite(n)) return String(value);
+  if (!Number.isFinite(n)) return "—";
   return `${(n * 100).toFixed(2)}%`;
 }
 
 function scenarioStatusLabel(status: string): string {
   const map: Record<string, string> = {
-    draft: "草稿",
+    draft: "待确认",
     calculated: "已测算",
     baseline: "基准方案",
     archived: "已归档",
@@ -161,6 +163,7 @@ export const PmCalc: PmCalcBridge = {
   formatMoney,
   formatPercent,
   scenarioStatusLabel,
+  fingerprintInputs: fingerprintSchemeInputs,
   resetDemoData: () => {
     const demo = ensureRepos();
     demo.projects.clear();

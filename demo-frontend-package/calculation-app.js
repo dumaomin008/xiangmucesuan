@@ -1,11 +1,23 @@
 /**
  * 项目测算模块 UI（Demo 壳层内，Phase 4 视觉对齐 Design Spec）
- * 依赖 window.PmCalc；不改业务公式。
+ * 依赖 window.PmCalc；不改业务公式。终审：草稿待确认 → 开始测算 → 引擎重算。
  */
 (function (global) {
-  const money = (v) => (global.PmCalc ? global.PmCalc.formatMoney(v) : String(v ?? "—"));
-  const pct = (v) => (global.PmCalc ? global.PmCalc.formatPercent(v) : String(v ?? "—"));
+  const money = (v) => (global.PmCalc ? global.PmCalc.formatMoney(v) : "—");
+  const pct = (v) => (global.PmCalc ? global.PmCalc.formatPercent(v) : "—");
   const statusLabel = (s) => (global.PmCalc ? global.PmCalc.scenarioStatusLabel(s) : s);
+
+  const EDIT_FIELDS = [
+    { id: "calc-fleet", label: "车辆数", allowZero: false, integer: true, min: 1, max: 5000 },
+    { id: "calc-rent", label: "单车月租", allowZero: false, min: 0, max: 1e7 },
+    { id: "calc-distance", label: "里程", allowZero: false, min: 0, max: 1e6 },
+    { id: "calc-load", label: "载重", allowZero: true, min: 0, max: 200 },
+    { id: "calc-price", label: "运价", allowZero: true, min: 0, max: 1e6 },
+    { id: "calc-trips", label: "趟次", allowZero: false, min: 0, max: 1e4 },
+    { id: "calc-elec", label: "电价", allowZero: true, min: 0, max: 100 },
+    { id: "calc-energy", label: "能耗", allowZero: false, min: 0, max: 100 },
+    { id: "calc-driver", label: "司机成本", allowZero: true, min: 0, max: 1e6 },
+  ];
 
   function requireCalc() {
     if (!global.PmCalc) {
@@ -18,7 +30,6 @@
     return '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 7h8M8 11h5M8 15h3M14 14l2 2 3-3"/></svg>';
   }
 
-  /** 面包屑：Header / Sidebar 外的路径上下文，不使用独立 Card */
   function breadcrumb(items) {
     return `<nav class="calc-breadcrumb" aria-label="面包屑">${items
       .map((item, index) => {
@@ -30,82 +41,136 @@
   }
 
   function statusTag(status) {
-    const tone = status === "baseline" ? "success" : status === "calculated" ? "info" : status === "archived" ? "warning" : "";
+    const tone =
+      status === "baseline" ? "success" : status === "calculated" ? "info" : status === "draft" ? "warning" : status === "archived" ? "warning" : "";
     return `<span class="tag ${tone} calc-status">${esc(statusLabel(status))}</span>`;
   }
 
-  /** 复用项目详情车辆统计的扁平指标样式，避免指标再套边框 Card */
-  function metricStrip(metrics) {
+  function formatCalcTime(iso) {
+    if (!iso) return "—";
+    return esc(String(iso).replace("T", " ").slice(0, 19));
+  }
+
+  /** 核心结果第一屏：收入/成本/利润/利润率/车辆数/单车利润/现金流/IRR */
+  function metricStrip(metrics, options = {}) {
     if (!metrics) {
-      return `<div class="help" style="padding:12px 0">尚未执行测算</div>`;
+      return `<div class="calc-empty-result" role="status">
+        <strong>尚未执行测算</strong>
+        <p>请确认下方测算参数后点击「开始测算」。结果必须由 Calculation Engine 产出。</p>
+      </div>`;
     }
     const profit = Number(metrics.monthlyProfit);
-    const profitTone = profit > 0 ? "positive" : profit < 0 ? "negative" : "";
+    const profitTone = Number.isFinite(profit) ? (profit > 0 ? "positive" : profit < 0 ? "negative" : "") : "";
+    const marginText =
+      metrics.profitMargin == null
+        ? metrics.profitMarginReason
+          ? `无法计算（${esc(metrics.profitMarginReason)}）`
+          : "—"
+        : pct(metrics.profitMargin);
+    const irrText =
+      metrics.irr == null
+        ? metrics.irrReason
+          ? `无解（${esc(metrics.irrReason)}）`
+          : "—"
+        : pct(metrics.irr);
+    const perVehicle =
+      metrics.profitPerVehicle == null
+        ? metrics.profitPerVehicleReason
+          ? "—"
+          : "—"
+        : money(metrics.profitPerVehicle);
     const items = [
-      ["月营收", money(metrics.monthlyRevenue), "元", ""],
+      ["月收入", money(metrics.monthlyRevenue), "元", ""],
       ["月总成本", money(metrics.monthlyTotalCost), "元", ""],
       ["月利润", money(metrics.monthlyProfit), "元", profitTone],
-      ["利润率", pct(metrics.profitMargin), "", profitTone],
-      ["月运量", money(metrics.monthlyVolume), "吨", ""],
-      ["月里程", money(metrics.monthlyMileage), "km", ""],
+      ["利润率", marginText, "", profitTone],
+      ["车辆数", metrics.fleetSize != null ? String(metrics.fleetSize) : "—", "台", ""],
+      ["单车月利润", perVehicle, "元", profitTone],
+      ["累计现金流", money(metrics.cumulativeCashFlow), "元", ""],
+      ["IRR", irrText, "", ""],
     ];
+    const meta = `<div class="calc-result-meta">
+      <span>固定成本：${money(metrics.monthlyFixedCost)} 元</span>
+      <span>变动成本：${money(metrics.monthlyVariableCost)} 元</span>
+      <span>能源相关已计入变动成本</span>
+      <span>转正月：${metrics.firstPositiveMonth ?? "—"}</span>
+      <span>最后测算时间：${formatCalcTime(options.calculatedAt)}</span>
+    </div>`;
     return `<div class="vehicle-metrics calc-result-metrics" aria-label="测算结果摘要">${items
-      .map(
-        ([label, value, unit, tone]) =>
-          `<article class="metric-card calc-result-metric ${tone}"><div class="metric-main"><div class="metric-label">${label}</div><div class="metric-value">${value}${unit ? `<span class="metric-unit">${unit}</span>` : ""}</div></div></article>`,
-      )
-      .join("")}</div>`;
+      .map(([label, value, unit, tone]) => {
+        const showUnit = Boolean(unit) && value !== "—" && !String(value).includes("无解") && !String(value).includes("无法");
+        return `<article class="metric-card calc-result-metric ${tone}"><div class="metric-main"><div class="metric-label">${label}</div><div class="metric-value">${value}${showUnit ? `<span class="metric-unit">${unit}</span>` : ""}</div></div></article>`;
+      })
+      .join("")}</div>${meta}`;
   }
 
   function contextFacts(ctx) {
     if (!ctx) return "";
     const cells = [
-      ["关联项目", `${esc(ctx.projectName)}<div class="object-meta">${esc(ctx.projectId)}</div>`],
+      ["项目名称", esc(ctx.projectName)],
+      ["项目编号", esc(ctx.projectId)],
       ["客户", esc(ctx.customer || "—")],
-      ["大区", esc(ctx.region || "—")],
-      ["负责人", esc(ctx.owner || "—")],
+      ["区域", esc(ctx.region || "—")],
+      ["项目负责人", esc(ctx.owner || "—")],
       ["项目类型", esc(ctx.projectType || "—")],
       ["项目地点", esc(ctx.place || "—")],
       ["需求车辆", ctx.tractorDemand ?? "—"],
-      ["需求挂车", ctx.trailerDemand ?? "—"],
     ];
-    return `<div class="facts calc-context-facts">${cells
-      .map(([label, value]) => `<div><div class="fact-label">${label}</div><div class="fact-value">${value}</div></div>`)
-      .join("")}</div>
-      <p class="calc-context-note">项目基础信息按项目编号自动带入；测算专属参数在方案中维护。引擎 ${esc(global.PmCalc.engineVersion)} · LocalStorage</p>`;
+    return `<div class="calc-context-block">
+      <div class="calc-section-kicker"><span class="tag info">项目自动带入</span><span>只读 · 以 projectId 关联，不用项目名称做主键</span></div>
+      <div class="facts calc-context-facts">${cells
+        .map(([label, value]) => `<div><div class="fact-label">${label}</div><div class="fact-value">${value}</div></div>`)
+        .join("")}</div>
+      <p class="calc-context-note">以上为项目管理系统上下文；测算方案参数在下方独立维护。引擎 ${esc(global.PmCalc.engineVersion)} · LocalStorage</p>
+    </div>`;
+  }
+
+  function changeRateText(base, next, isPctPoint) {
+    const lv = Number(base);
+    const rv = Number(next);
+    if (!Number.isFinite(lv) || !Number.isFinite(rv)) return "—";
+    if (lv === 0) return rv === 0 ? "0.00%" : "—";
+    if (isPctPoint) {
+      const delta = (rv - lv) * 100;
+      return `${delta >= 0 ? "+" : ""}${delta.toFixed(2)} pt`;
+    }
+    const rate = ((rv - lv) / Math.abs(lv)) * 100;
+    return `${rate >= 0 ? "+" : ""}${rate.toFixed(2)}%`;
   }
 
   function compareStrip(list) {
     if (list.length < 2) return "";
-    const baseline = list.find((s) => s.status === "baseline") || list[0];
-    const peer = list.find((s) => s.id !== baseline.id) || list[1];
-    const a = baseline.results?.metrics;
-    const b = peer.results?.metrics;
-    if (!a || !b) return "";
-    const rows = [
-      ["月营收（元）", money(a.monthlyRevenue), money(b.monthlyRevenue)],
-      ["月利润（元）", money(a.monthlyProfit), money(b.monthlyProfit)],
-      ["利润率", pct(a.profitMargin), pct(b.profitMargin)],
-      ["月总成本（元）", money(a.monthlyTotalCost), money(b.monthlyTotalCost)],
+    const baseline = list.find((s) => s.status === "baseline") || list.find((s) => s.results) || list[0];
+    const peer = list.find((s) => s.id !== baseline.id && s.results) || list.find((s) => s.id !== baseline.id);
+    const a = baseline?.results?.metrics;
+    const b = peer?.results?.metrics;
+    if (!a || !b || !peer) return "";
+    const defs = [
+      { label: "月收入（元）", key: "monthlyRevenue", mode: "money" },
+      { label: "月总成本（元）", key: "monthlyTotalCost", mode: "money" },
+      { label: "月利润（元）", key: "monthlyProfit", mode: "money" },
+      { label: "利润率", key: "profitMargin", mode: "pct" },
+      { label: "累计现金流（元）", key: "cumulativeCashFlow", mode: "money" },
+      { label: "IRR", key: "irr", mode: "pct" },
     ];
     return `<section class="panel calc-compare-panel">
-      <div class="section-title"><div><h2>方案对比</h2><p>基准方案与最近对比方案 · 数字来自真实引擎结果快照</p></div></div>
+      <div class="section-title"><div><h2>方案对比</h2><p>基准值 / 对比方案值 / 差值 / 变化率 · 数字来自真实引擎结果快照</p></div></div>
       <div class="table-wrap"><table class="calc-compare-table">
-        <thead><tr><th>指标</th><th class="num">${esc(baseline.name)}</th><th class="num">${esc(peer.name)}</th><th class="num">差额</th></tr></thead>
-        <tbody>${rows
-          .map(([label, left, right], index) => {
-            const keys = ["monthlyRevenue", "monthlyProfit", "profitMargin", "monthlyTotalCost"];
-            const lv = Number(a[keys[index]]);
-            const rv = Number(b[keys[index]]);
-            const diff = Number.isFinite(lv) && Number.isFinite(rv) ? rv - lv : null;
+        <thead><tr><th>指标</th><th class="num">基准值<br><span class="object-meta">${esc(baseline.name)}</span></th><th class="num">对比方案值<br><span class="object-meta">${esc(peer.name)}</span></th><th class="num">差值</th><th class="num">变化率</th></tr></thead>
+        <tbody>${defs
+          .map((def) => {
+            const lv = a[def.key];
+            const rv = b[def.key];
+            const ln = Number(lv);
+            const rn = Number(rv);
+            const left = def.mode === "pct" ? (lv == null ? "—" : pct(lv)) : money(lv);
+            const right = def.mode === "pct" ? (rv == null ? "—" : pct(rv)) : money(rv);
+            const diff = Number.isFinite(ln) && Number.isFinite(rn) ? rn - ln : null;
             const diffText =
-              diff === null
-                ? "—"
-                : keys[index] === "profitMargin"
-                  ? pct(String(diff))
-                  : money(String(diff));
+              diff === null ? "—" : def.mode === "pct" ? pct(String(diff)) : money(String(diff));
+            const rateText = changeRateText(lv, rv, def.mode === "pct");
             const diffClass = diff === null ? "" : diff > 0 ? "is-positive" : diff < 0 ? "is-negative" : "";
-            return `<tr><td>${label}</td><td class="num">${left}</td><td class="num">${right}</td><td class="num ${diffClass}">${diffText}</td></tr>`;
+            return `<tr><td>${def.label}</td><td class="num">${left}</td><td class="num">${right}</td><td class="num ${diffClass}">${diffText}</td><td class="num ${diffClass}">${rateText}</td></tr>`;
           })
           .join("")}</tbody>
       </table></div>
@@ -120,9 +185,9 @@
       .map((s) => {
         const m = s.results?.metrics;
         const profit = m ? Number(m.monthlyProfit) : null;
-        const profitClass = profit === null ? "" : profit >= 0 ? "is-positive" : "is-negative";
+        const profitClass = profit === null || !Number.isFinite(profit) ? "" : profit >= 0 ? "is-positive" : "is-negative";
         return `<tr>
-          <td class="object-cell"><div class="object-name" data-go="/projects/${esc(s.projectId)}/calculation/${esc(s.id)}">${esc(s.name)}</div><div class="object-meta">${esc(s.id)} · ${esc(s.version)}</div></td>
+          <td class="object-cell"><div class="object-name" data-go="/projects/${esc(s.projectId)}/calculation/${esc(s.id)}">${esc(s.name)}</div><div class="object-meta">${esc(s.id)} · ${esc(s.version)}${s.inputsSource === "demo_baseline" ? " · 演示基准参数" : ""}</div></td>
           <td>${statusTag(s.status)}</td>
           <td class="num">${m ? money(m.monthlyRevenue) : "—"}</td>
           <td class="num ${profitClass}">${m ? money(m.monthlyProfit) : "—"}</td>
@@ -136,6 +201,10 @@
         </tr>`;
       })
       .join("");
+  }
+
+  function resetDemoButton() {
+    return `<button type="button" class="btn" id="calc-reset-seed" title="清除本机测算 LocalStorage 并恢复演示种子">一键恢复演示数据</button>`;
   }
 
   function calcCenterPage() {
@@ -153,7 +222,7 @@
     const tableBody = [...byProject.entries()]
       .map(([projectId, scenarios]) => {
         const p = projects.find((x) => x.id === projectId);
-        const baseline = scenarios.find((s) => s.status === "baseline") || scenarios[0];
+        const baseline = scenarios.find((s) => s.status === "baseline") || scenarios.find((s) => s.results) || scenarios[0];
         const m = baseline?.results?.metrics;
         const profit = m ? Number(m.monthlyProfit) : null;
         return `<tr>
@@ -161,7 +230,7 @@
           <td class="num">${scenarios.length}</td>
           <td>${baseline ? statusTag(baseline.status) : "—"}</td>
           <td class="num">${m ? money(m.monthlyRevenue) : "—"}</td>
-          <td class="num ${profit === null ? "" : profit >= 0 ? "is-positive" : "is-negative"}">${m ? money(m.monthlyProfit) : "—"}</td>
+          <td class="num ${profit === null || !Number.isFinite(profit) ? "" : profit >= 0 ? "is-positive" : "is-negative"}">${m ? money(m.monthlyProfit) : "—"}</td>
           <td class="num">${m ? pct(m.profitMargin) : "—"}</td>
           <td><button class="btn ghost small text-action" data-go="/projects/${esc(projectId)}/calculation">进入测算</button></td>
         </tr>`;
@@ -172,7 +241,7 @@
       { label: "业务管理" },
       { label: "项目测算中心" },
     ])}
-    ${pageHead("项目测算中心", "跨项目查看测算方案 · 核心数字由浏览器真实计算引擎产出", stateControl())}
+    ${pageHead("项目测算中心", "跨项目查看测算方案 · 核心数字由浏览器真实计算引擎产出", `${stateControl()}${resetDemoButton()}`)}
     <section class="metric-section calc-center-metrics" aria-label="测算中心摘要">
       <div class="vehicle-metrics compact-inventory-metrics calc-center-metric-row">
         <article class="metric-card"><div class="metric-main"><div class="metric-label">可见测算项目</div><div class="metric-value">${byProject.size}<span class="metric-unit">个</span></div></div></article>
@@ -224,6 +293,7 @@
           </div>
           <div class="head-actions">
             ${canEdit() ? `<button class="btn primary" data-calc-new="${esc(projectId)}">${icons.plus}<span>新建方案</span></button>` : '<span class="tag">只读视图</span>'}
+            ${resetDemoButton()}
             <button class="btn" data-go="/calculation">测算中心</button>
           </div>
         </div>
@@ -231,7 +301,7 @@
       </div>
       ${compareStrip(list)}
       <section class="panel project-list-panel calc-scenario-panel">
-        <div class="section-title" style="padding:14px 0 0"><div><h2>测算方案</h2><p>一个项目可保存多个方案；复制仅复制输入并重新计算</p></div></div>
+        <div class="section-title" style="padding:14px 0 0"><div><h2>测算方案</h2><p>一个项目可保存多个方案；新建先加载演示基准参数并待确认，点击开始测算后才出结果</p></div></div>
         <div class="table-wrap responsive"><table>
           <thead><tr><th>方案</th><th>状态</th><th class="num">月营收</th><th class="num">月利润</th><th class="num">利润率</th><th>更新时间</th><th>引擎版本</th><th>操作</th></tr></thead>
           <tbody>${scenarioRows(list, projectId)}</tbody>
@@ -240,27 +310,73 @@
     </div>`);
   }
 
-  function editableFields(inputs) {
+  function editableFields(inputs, inputsSource) {
     const seg = inputs.routes?.[0]?.segments?.[0];
-    if (!seg) return "";
+    if (!seg) return `<div class="tag danger">演示基准参数结构不完整</div>`;
     const fleet = inputs.fleetSize ?? inputs.vehicle?.fleetSize ?? 1;
-    return `<div class="form-grid calc-param-grid">
-      <div class="field"><label for="calc-fleet">车辆数</label><input class="input" id="calc-fleet" type="number" min="1" step="1" value="${esc(fleet)}"></div>
-      <div class="field"><label for="calc-rent">单车月租（元）</label><input class="input" id="calc-rent" type="number" step="0.01" value="${esc(inputs.vehicle?.monthlyRentPerVehicle || "")}"></div>
-      <div class="field"><label for="calc-distance">路段1里程（km）</label><input class="input" id="calc-distance" type="number" step="0.01" value="${esc(seg.distanceKm)}"></div>
-      <div class="field"><label for="calc-load">载重（吨）</label><input class="input" id="calc-load" type="number" step="0.01" value="${esc(seg.loadTon)}"></div>
-      <div class="field"><label for="calc-price">运价</label><input class="input" id="calc-price" type="number" step="0.01" value="${esc(seg.freightPrice)}"></div>
-      <div class="field"><label for="calc-trips">单车月趟数</label><input class="input" id="calc-trips" type="number" step="0.01" value="${esc(seg.tripsPerVehicleMonth)}"></div>
-      <div class="field"><label for="calc-elec">电价（元/kWh）</label><input class="input" id="calc-elec" type="number" step="0.01" value="${esc(seg.electricityPrice)}"></div>
-      <div class="field"><label for="calc-energy">满载能耗（kWh/km）</label><input class="input" id="calc-energy" type="number" step="0.01" value="${esc(seg.loadedEnergyConsumption)}"></div>
-      <div class="field span-2"><label for="calc-driver">司机成本（元/趟，路段覆盖）</label><input class="input" id="calc-driver" type="number" step="0.01" value="${esc(seg.driverCostPerTrip || "0")}"></div>
+    const demoBanner =
+      inputsSource === "demo_baseline"
+        ? `<div class="calc-demo-banner" role="note">
+            <span class="tag warning">演示基准参数</span>
+            <span>当前预填为系统演示样本参数，<strong>不是</strong>本项目真实业务数据。确认或修改后请点击「开始测算」。</span>
+          </div>`
+        : `<div class="calc-demo-banner is-user" role="note">
+            <span class="tag info">测算方案参数</span>
+            <span>修改后需重新测算；KPI 一律由 Calculation Engine 计算，页面不自行估算。</span>
+          </div>`;
+    return `${demoBanner}
+    <div class="form-grid calc-param-grid" id="calc-param-form">
+      <div class="field"><label for="calc-fleet">车辆数</label><input class="input" id="calc-fleet" type="number" min="1" step="1" value="${esc(fleet)}" data-calc-field></div>
+      <div class="field"><label for="calc-rent">单车月租 / 车辆租金（元）</label><input class="input" id="calc-rent" type="number" step="0.01" value="${esc(inputs.vehicle?.monthlyRentPerVehicle || "")}" data-calc-field></div>
+      <div class="field"><label for="calc-distance">路段1里程（km）</label><input class="input" id="calc-distance" type="number" step="0.01" value="${esc(seg.distanceKm)}" data-calc-field></div>
+      <div class="field"><label for="calc-load">载重（吨）</label><input class="input" id="calc-load" type="number" step="0.01" value="${esc(seg.loadTon)}" data-calc-field></div>
+      <div class="field"><label for="calc-price">运价</label><input class="input" id="calc-price" type="number" step="0.01" value="${esc(seg.freightPrice)}" data-calc-field></div>
+      <div class="field"><label for="calc-trips">单车月趟数</label><input class="input" id="calc-trips" type="number" step="0.01" value="${esc(seg.tripsPerVehicleMonth)}" data-calc-field></div>
+      <div class="field"><label for="calc-elec">电价（元/kWh）</label><input class="input" id="calc-elec" type="number" step="0.01" value="${esc(seg.electricityPrice)}" data-calc-field></div>
+      <div class="field"><label for="calc-energy">满载能耗（kWh/km）</label><input class="input" id="calc-energy" type="number" step="0.01" value="${esc(seg.loadedEnergyConsumption)}" data-calc-field></div>
+      <div class="field span-2"><label for="calc-driver">司机成本（元/趟，路段覆盖）</label><input class="input" id="calc-driver" type="number" step="0.01" value="${esc(seg.driverCostPerTrip || "0")}" data-calc-field></div>
     </div>
-    <p class="help">演示页开放关键经营参数；「重新测算」调用浏览器引擎完整重算，非前端估算。</p>`;
+    <div id="calc-field-error" class="field-error calc-field-error" hidden></div>
+    <p class="help">运价 / 电价 / 能耗 / 里程 / 趟次 / 车辆数 / 载重 / 司机成本 / 车辆租金变更后，收入、成本、利润、现金流、IRR 等均由引擎重算。</p>`;
+  }
+
+  function readFormFingerprint() {
+    const fleetRaw = $("#calc-fleet")?.value ?? "";
+    return JSON.stringify({
+      fleet: Math.max(0, Math.round(Number(fleetRaw) || 0)),
+      rent: String($("#calc-rent")?.value ?? ""),
+      distanceKm: String($("#calc-distance")?.value ?? ""),
+      loadTon: String($("#calc-load")?.value ?? ""),
+      freightPrice: String($("#calc-price")?.value ?? ""),
+      trips: String($("#calc-trips")?.value ?? ""),
+      electricityPrice: String($("#calc-elec")?.value ?? ""),
+      energy: String($("#calc-energy")?.value ?? ""),
+      driver: String($("#calc-driver")?.value ?? ""),
+    });
+  }
+
+  function validateEditableForm() {
+    for (const field of EDIT_FIELDS) {
+      const el = $(`#${field.id}`);
+      const raw = (el?.value ?? "").trim();
+      if (raw === "") return `${field.label}不能为空`;
+      if (raw.toLowerCase() === "nan" || /[^\d.eE+\-]/.test(raw.replace(/^\+/, ""))) {
+        // allow scientific notation digits; still catch obvious junk
+      }
+      const n = Number(raw);
+      if (!Number.isFinite(n)) return `${field.label}必须是有效数字（不能为 NaN / Infinity）`;
+      if (n < 0) return `${field.label}不能为负数`;
+      if (!field.allowZero && n === 0) return `${field.label}必须大于 0`;
+      if (field.integer && (!Number.isInteger(n) || n < 1)) return `${field.label}必须为正整数`;
+      if (typeof field.max === "number" && n > field.max) return `${field.label}超出合理范围（最大 ${field.max}）`;
+      if (typeof field.min === "number" && n < field.min) return `${field.label}不能小于 ${field.min}`;
+    }
+    return null;
   }
 
   function applyEditableFields(inputs) {
     const next = JSON.parse(JSON.stringify(inputs));
-    const fleet = Math.max(1, Math.round(Number($("#calc-fleet")?.value || next.fleetSize || 1)));
+    const fleet = Math.round(Number($("#calc-fleet")?.value));
     next.fleetSize = fleet;
     if (next.vehicle) {
       next.vehicle.fleetSize = fleet;
@@ -277,6 +393,21 @@
       seg.driverCostPerTrip = String($("#calc-driver")?.value ?? seg.driverCostPerTrip ?? "0");
     }
     return next;
+  }
+
+  function showFieldError(message) {
+    const box = $("#calc-field-error");
+    if (!box) {
+      toast(message, "error");
+      return;
+    }
+    if (!message) {
+      box.hidden = true;
+      box.textContent = "";
+      return;
+    }
+    box.hidden = false;
+    box.textContent = message;
   }
 
   function aiPanelMarkup(scenarioId) {
@@ -345,17 +476,25 @@
     let remoteError = "";
     try {
       const scenario = global.PmCalc.getScenario(scenarioId);
+      if (!scenario?.results) {
+        body.innerHTML = renderAiBody(insight, "", "尚无测算结果，跳过远端润色");
+        return;
+      }
       const payload = global.PmCalc.buildAiPayload({
         scenario,
         project,
         question,
         localInsight: insight,
       });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
       const res = await fetch("/api/demo-ai/explain", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
+      clearTimeout(timer);
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.ok && data.text) {
         remoteText = data.text;
@@ -363,11 +502,23 @@
       } else {
         remoteError = data.message || `服务返回 ${res.status}`;
       }
-    } catch {
-      remoteError = "无法连接 AI 代理";
+    } catch (err) {
+      remoteError = err?.name === "AbortError" ? "AI 请求超时" : "无法连接 AI 代理";
     }
 
     body.innerHTML = renderAiBody(insight, remoteText, remoteError);
+  }
+
+  function isStaleScenario(scenario) {
+    if (!scenario?.results?.inputFingerprint) return false;
+    try {
+      const current = global.PmCalc.fingerprintInputs
+        ? global.PmCalc.fingerprintInputs(scenario.inputs)
+        : readFormFingerprint();
+      return current !== scenario.results.inputFingerprint;
+    } catch {
+      return false;
+    }
   }
 
   function scenarioWorkspacePage(projectId, scenarioId) {
@@ -381,6 +532,9 @@
     if (!scenario || scenario.projectId !== projectId) return errorPage("404");
     const ctx = global.PmCalc.buildProjectContext(p);
     const m = scenario.results?.metrics;
+    const stale = isStaleScenario(scenario);
+    const needFirstCalc = !scenario.results;
+    const actionLabel = needFirstCalc ? "开始测算" : "重新测算并保存";
     const costRows = (scenario.results?.full?.costBreakdown || [])
       .map(
         (row) =>
@@ -388,7 +542,7 @@
       )
       .join("");
 
-    return shell(`<div class="calc-page calc-workspace">
+    return shell(`<div class="calc-page calc-workspace" data-calc-workspace="${esc(scenarioId)}" data-has-results="${scenario.results ? "1" : "0"}" data-calc-fingerprint="${esc(scenario.results?.inputFingerprint || "")}">
       ${breadcrumb([
         { label: "项目管理", href: "/projects" },
         { label: p.name, href: `/projects/${projectId}` },
@@ -404,37 +558,34 @@
               <span>${statusTag(scenario.status)}</span>
               <span>${esc(scenario.id)}</span>
               <span>引擎 ${esc(scenario.calculationVersion)}</span>
+              ${scenario.inputsSource === "demo_baseline" ? '<span class="tag warning">演示基准参数</span>' : ""}
             </div>
           </div>
           <div class="head-actions">
-            ${canEdit() ? `<button class="btn primary" id="calc-rerun">重新测算并保存</button><button class="btn" data-calc-dup="${esc(scenario.id)}">复制方案</button>` : '<span class="tag">只读视图</span>'}
+            ${canEdit() ? `<button class="btn primary" id="calc-rerun">${esc(actionLabel)}</button><button class="btn" data-calc-dup="${esc(scenario.id)}">复制方案</button>` : '<span class="tag">只读视图</span>'}
             <button class="btn" data-go="/projects/${esc(projectId)}">返回项目详情</button>
           </div>
         </div>
         ${contextFacts(ctx)}
       </div>
 
-      <section class="panel calc-workspace-section">
-        <div class="section-title"><div><h2>测算结果</h2><p>真实计算 · 显示层与计算层精度分离</p></div></div>
-        ${metricStrip(m)}
-        <div class="calc-result-meta">
-          <span>IRR：${m?.irr != null ? pct(m.irr) : esc(m?.irrReason || "—")}</span>
-          <span>累计现金流：${m ? money(m.cumulativeCashFlow) : "—"}</span>
-          <span>转正月：${m?.firstPositiveMonth ?? "—"}</span>
-        </div>
+      <section class="panel calc-workspace-section calc-result-hero">
+        <div class="section-title"><div><h2>核心测算结果</h2><p>真实计算 · 显示层与计算层精度分离 · 禁止页面自算 KPI</p></div></div>
+        <div id="calc-stale-slot">${stale ? `<div class="calc-stale-banner" role="status">参数已变更，请重新测算</div>` : ""}</div>
+        ${metricStrip(m, { calculatedAt: scenario.results?.calculatedAt, stale: false })}
       </section>
 
       <div class="calc-workspace-grid">
         <section class="panel calc-workspace-section">
-          <div class="section-title"><div><h2>测算参数</h2><p>项目上下文只读；以下为测算专属参数</p></div></div>
+          <div class="section-title"><div><h2>测算方案参数</h2><p>与上方「项目自动带入」分离；项目名称/客户/区域/负责人只读</p></div></div>
           <div class="field" style="margin-bottom:14px"><label for="calc-name">方案名称</label><input class="input" id="calc-name" value="${esc(scenario.name)}" ${canEdit() ? "" : "disabled"}></div>
-          ${editableFields(scenario.inputs)}
+          ${editableFields(scenario.inputs, scenario.inputsSource)}
         </section>
         <section class="panel calc-workspace-section">
           <div class="section-title"><div><h2>成本构成</h2><p>与引擎 costBreakdown 一致</p></div></div>
           <div class="table-wrap"><table>
             <thead><tr><th>科目</th><th class="num">金额（元）</th><th class="num">占比</th></tr></thead>
-            <tbody>${costRows || '<tr class="empty-row"><td colspan="3">暂无成本明细</td></tr>'}</tbody>
+            <tbody>${costRows || '<tr class="empty-row"><td colspan="3">暂无成本明细（待测算）</td></tr>'}</tbody>
           </table></div>
         </section>
       </div>
@@ -454,19 +605,123 @@
       inputs.fleetSize = p.tractor;
       inputs.vehicle.fleetSize = p.tractor;
     }
-    const saved = global.PmCalc.saveScenario({
-      projectId,
-      name: `方案 ${new Date().toLocaleString("zh-CN", { hour12: false })}`,
-      version: "V1",
-      status: "calculated",
-      inputs,
-      notes: "从项目测算新建",
-    });
-    toast("方案已创建并完成测算");
+    const saved = global.PmCalc.saveScenario(
+      {
+        projectId,
+        name: `方案 ${new Date().toLocaleString("zh-CN", { hour12: false })}`,
+        version: "V1",
+        status: "draft",
+        inputs,
+        results: null,
+        notes: "新建方案：已加载演示基准参数，待确认后开始测算",
+        inputsSource: "demo_baseline",
+      },
+      { recalculate: false },
+    );
+    toast("已新建方案并加载演示基准参数，请确认后开始测算");
     go(`/projects/${projectId}/calculation/${saved.id}`);
   }
 
+  function runCalculateCurrent() {
+    const match = /^\/projects\/([^/]+)\/calculation\/([^/]+)$/.exec(currentRoute());
+    if (!match || !canEdit()) return;
+    const [, projectId, scenarioId] = match;
+    const origin = global.PmCalc.getScenario(scenarioId);
+    if (!origin) return toast("方案不存在", "error");
+
+    showFieldError("");
+    const formError = validateEditableForm();
+    if (formError) {
+      showFieldError(formError);
+      toast(formError, "error");
+      return;
+    }
+
+    try {
+      const inputs = applyEditableFields(origin.inputs);
+      const name = $("#calc-name")?.value.trim() || origin.name;
+      const validation = global.PmCalc.validateSchemeInput(inputs);
+      if (validation.errors?.length) {
+        const msg = validation.errors[0].message || "参数校验失败";
+        showFieldError(msg);
+        toast(msg, "error");
+        return;
+      }
+      // 先试算，捕获除零 / IRR 等引擎异常，避免白屏
+      try {
+        global.PmCalc.calculateProject(inputs);
+      } catch (engineErr) {
+        const msg = engineErr?.message || "测算引擎执行失败";
+        showFieldError(msg);
+        toast(msg, "error");
+        return;
+      }
+      global.PmCalc.saveScenario({
+        id: scenarioId,
+        projectId,
+        name,
+        version: origin.version,
+        status: origin.status === "baseline" ? "baseline" : "calculated",
+        inputs,
+        notes: origin.notes,
+        inputsSource: "user",
+      });
+      toast(origin.results ? "已重新测算并保存" : "测算完成并已保存");
+      render();
+    } catch (err) {
+      const msg = err?.message || "测算失败";
+      showFieldError(msg);
+      toast(msg, "error");
+    }
+  }
+
+  function bindDirtyWatchers() {
+    const workspace = $("[data-calc-workspace]");
+    if (!workspace || !canEdit()) return;
+    const baseline = workspace.dataset.calcFingerprint || "";
+    const hasResults = workspace.dataset.hasResults === "1";
+    const slot = $("#calc-stale-slot");
+    const update = () => {
+      if (!slot) return;
+      const current = readFormFingerprint();
+      const dirty = hasResults && Boolean(baseline) && current !== baseline;
+      if (dirty) {
+        slot.innerHTML = `<div class="calc-stale-banner" role="status">参数已变更，请重新测算</div>`;
+      } else if (!hasResults) {
+        slot.innerHTML = `<div class="calc-stale-banner is-pending" role="status">演示基准参数待确认，请点击「开始测算」</div>`;
+      } else {
+        slot.innerHTML = "";
+      }
+      showFieldError("");
+    };
+    $$("[data-calc-field], #calc-name").forEach((el) => {
+      el.addEventListener("input", update);
+      el.addEventListener("change", update);
+    });
+    update();
+  }
+
+  function bindResetSeed() {
+    $("#calc-reset-seed")?.addEventListener("click", () => {
+      modal(
+        "一键恢复演示数据",
+        "将清除本机测算相关 LocalStorage，并重新写入演示种子方案（含基准与对比方案）。项目管理列表中的会话修改不受影响。",
+        "确认恢复",
+        () => {
+          try {
+            global.PmCalc.resetDemoData();
+            toast("演示测算数据已恢复");
+            render();
+          } catch (err) {
+            toast(err?.message || "恢复失败", "error");
+          }
+        },
+      );
+    });
+  }
+
   function bindCalculationActions() {
+    bindResetSeed();
     $$("[data-calc-new]").forEach((btn) => {
       btn.onclick = () => createScenarioForProject(btn.dataset.calcNew);
     });
@@ -475,7 +730,7 @@
         if (!canEdit()) return toast("只读视图不可复制", "error");
         try {
           const copy = global.PmCalc.duplicateScenario(btn.dataset.calcDup);
-          toast("方案已复制");
+          toast("方案已复制（已用引擎重算）");
           go(`/projects/${copy.projectId}/calculation/${copy.id}`);
         } catch (err) {
           toast(err.message || "复制失败", "error");
@@ -492,35 +747,8 @@
         });
       };
     });
-    $("#calc-rerun")?.addEventListener("click", () => {
-      const match = /^\/projects\/([^/]+)\/calculation\/([^/]+)$/.exec(currentRoute());
-      if (!match || !canEdit()) return;
-      const [, projectId, scenarioId] = match;
-      const origin = global.PmCalc.getScenario(scenarioId);
-      if (!origin) return toast("方案不存在", "error");
-      try {
-        const inputs = applyEditableFields(origin.inputs);
-        const name = $("#calc-name")?.value.trim() || origin.name;
-        const validation = global.PmCalc.validateSchemeInput(inputs);
-        if (validation.errors?.length) {
-          toast(validation.errors[0].message || "参数校验失败", "error");
-          return;
-        }
-        global.PmCalc.saveScenario({
-          id: scenarioId,
-          projectId,
-          name,
-          version: origin.version,
-          status: origin.status === "baseline" ? "baseline" : "calculated",
-          inputs,
-          notes: origin.notes,
-        });
-        toast("已重新测算并保存");
-        render();
-      } catch (err) {
-        toast(err.message || "测算失败", "error");
-      }
-    });
+    $("#calc-rerun")?.addEventListener("click", runCalculateCurrent);
+    bindDirtyWatchers();
 
     const aiMatch = /^\/projects\/([^/]+)\/calculation\/([^/]+)$/.exec(currentRoute());
     if (aiMatch && $("#calc-ai-refresh")) {
@@ -529,8 +757,10 @@
       const p = projects.find((x) => x.id === projectId);
       const ctx = p && global.PmCalc ? global.PmCalc.buildProjectContext(p) : null;
       $("#calc-ai-refresh").onclick = () => runAiAnalysis(scenarioId, ctx);
-      // 进入工作区后自动生成本地解读（不阻塞；远端失败自动降级）
-      runAiAnalysis(scenarioId, ctx);
+      const scenario = global.PmCalc.getScenario(scenarioId);
+      if (scenario?.results) {
+        runAiAnalysis(scenarioId, ctx);
+      }
     }
   }
 

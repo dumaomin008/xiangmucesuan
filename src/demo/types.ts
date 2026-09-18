@@ -25,6 +25,9 @@ export type DemoProjectRecord = DemoProjectContext & {
 
 export type ScenarioStatus = "draft" | "calculated" | "baseline" | "archived";
 
+/** 测算方案输入来源：演示预填须明示，避免误认为项目真实业务数据 */
+export type DemoInputsSource = "demo_baseline" | "user";
+
 /** 测算方案：必须保存输入快照 + 结果快照 + 引擎版本 */
 export type DemoCalcScenario = {
   id: string;
@@ -39,6 +42,8 @@ export type DemoCalcScenario = {
   results: DemoScenarioResults | null;
   calculationVersion: string;
   notes?: string;
+  /** 新建方案预填演示基准参数时为 demo_baseline */
+  inputsSource?: DemoInputsSource;
 };
 
 export type DemoScenarioResults = {
@@ -60,10 +65,17 @@ export type DemoScenarioResults = {
     monthlyMileage: string;
     ruleVersionId: string;
     operatingMonthsYear: number;
+    /** 测算时车辆数（来自输入快照，便于结果区展示） */
+    fleetSize: number;
+    /** 单车月利润 = 月利润 / 车辆数；车辆数无效时为 null */
+    profitPerVehicle: string | null;
+    profitPerVehicleReason: string | null;
   };
   /** 完整可序列化结果树 */
   full: Record<string, unknown>;
   calculatedAt: string;
+  /** 产生本结果时的输入指纹；用于判断参数是否已变更 */
+  inputFingerprint: string;
 };
 
 export type DemoCalcDraft = {

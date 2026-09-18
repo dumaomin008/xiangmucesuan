@@ -80,8 +80,15 @@ describe("Phase 3：Demo 融合冒烟", () => {
     expect(calcApp).toContain("object-header project-object-header");
     expect(calcApp).toContain("calc-compare-panel");
     expect(calcApp).toContain("vehicle-metrics calc-result-metrics");
+    expect(calcApp).toContain("演示基准参数");
+    expect(calcApp).toContain("参数已变更，请重新测算");
+    expect(calcApp).toContain("项目自动带入");
+    expect(calcApp).toContain("开始测算");
+    expect(calcApp).toContain("一键恢复演示数据");
+    expect(calcApp).toContain("变化率");
     expect(css).toContain("Phase 4：项目测算模块");
     expect(css).toContain(".calc-breadcrumb");
+    expect(css).toContain(".calc-stale-banner");
     expect(css).not.toContain(".calc-metric { border:1px solid");
   });
 

@@ -6,6 +6,7 @@ export type {
   DemoCalcDraft,
   DemoCalcPreferences,
   DemoScenarioResults,
+  DemoInputsSource,
   ScenarioStatus,
   VersionedEnvelope,
 } from "./types";
@@ -22,7 +23,7 @@ export {
 export type { DemoRepositories, CreateDemoReposOptions } from "./bootstrap";
 
 export { ProjectRepository } from "./repository/projectRepository";
-export { ScenarioRepository } from "./repository/scenarioRepository";
+export { ScenarioRepository, fingerprintSchemeInputs } from "./repository/scenarioRepository";
 export { ParameterRepository } from "./repository/parameterRepository";
 export { VersionedStore } from "./storage/versioned";
 
