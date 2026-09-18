@@ -75,4 +75,6 @@
 
 ## E. Git 提交
 
-见本轮 Commit SHA（提交后回填）。
+- **Commit SHA**：`ba86235f1fe05a599e1831aef12af56093d5f37a`
+- **Message**：Harden wizard save/validation and leadership result UX before demo.
+- 未纳入：`demo/demo-due-diligence.xlsx`（无关二进制变动）
