@@ -102,4 +102,34 @@ export const FIELD_HELP: Record<string, FieldHelp> = {
     source: "用工合同或公司标准。",
     impacts: "人员成本、利润。",
   },
+  receivableCycle: {
+    what: "客户把运费打到账上通常要几个月。",
+    why: "回款越慢，项目垫的钱越多，资金成本越高。",
+    source: "合同账期或历史回款。",
+    impacts: "流动资金占用、财务成本。",
+  },
+  workingCapitalLoanCycle: {
+    what: "为垫付运费去贷款的期限。",
+    why: "和回款周期一起决定要借多久的钱。",
+    source: "财务安排或银行授信。",
+    impacts: "财务成本、现金流。",
+  },
+  discountRate: {
+    what: "把以后的钱折成今天的价值时用的利率，业务上也常叫资金成本率。",
+    why: "用于评估垫资和投资回报，不改变月度经营利润本身。",
+    source: "公司财务标准。",
+    impacts: "财务成本、投资评价。",
+  },
+  irr: {
+    what: "内部收益率，衡量投入这笔钱后每年大概能赚多少。",
+    why: "方便和贷款利率或其他项目比回报。现金流没有正负变化时无法计算。",
+    source: "由计算引擎根据现金流得出。",
+    impacts: "投资决策，不改变月度利润。",
+  },
+  firstPositiveMonth: {
+    what: "累计现金流从负变正的月份，也就是大概多久回本。",
+    why: "领导第一眼关心项目要垫多久钱。纯租赁且无需初始投入时显示无需回收。",
+    source: "由计算引擎根据现金流得出。",
+    impacts: "投资回收判断。",
+  },
 };

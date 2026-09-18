@@ -39,12 +39,10 @@ test.describe("E2E-03 输入错误", () => {
     await page.getByLabel("运价").first().fill("-1");
     await page.getByLabel("运价").first().blur();
     await expect(page.getByText(/运价不得为负|不得为负/).first()).toBeVisible();
-    await page.getByRole("button", { name: "1. 基本信息" }).click();
-    await page.getByRole("button", { name: "5. 确认测算" }).click();
-    await page.getByRole("button", { name: "开始测算" }).click();
-    const stillOnWizard = page.url().includes("/calculation/") && !page.url().includes("/results");
-    const errorVisible = await page.getByText(/运价不得为负|无法测算|CALC_PARAMETER_INVALID|INVALID_FREIGHT_PRICE/).isVisible().catch(() => false);
-    expect(stillOnWizard || errorVisible).toBeTruthy();
+    await page.getByRole("button", { name: "5. 测算检查" }).click();
+    await expect(page.getByRole("button", { name: /运价不得为负/ })).toBeVisible();
+    await expect(page.getByRole("button", { name: "开始测算" })).toHaveCount(0);
+    expect(page.url().includes("/results")).toBeFalsy();
   });
 });
 

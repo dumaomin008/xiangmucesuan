@@ -25,11 +25,11 @@ export async function waitSaved(page: Page) {
   await page.waitForResponse(
     (res) =>
       res.request().method() === "PUT" &&
-      /\/api\/(calculation-schemes|calculation-segments)\//.test(res.url()) &&
+      /\/api\/(calculation-schemes|calculation-segments|calculation-routes|projects)\//.test(res.url()) &&
       res.ok(),
     { timeout: 10_000 },
   );
-  await expect(page.getByText("已自动保存")).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByText("已保存").first()).toBeVisible({ timeout: 5_000 });
 }
 
 export async function fillFirstSegment(page: Page, values: Partial<Record<string, string>> = {}) {
@@ -70,5 +70,9 @@ export async function completeMinimalWizard(page: Page, schemeName: string) {
 }
 
 export function metricValue(page: Page, label: string) {
-  return page.getByRole("button").filter({ hasText: label }).locator("div").nth(1);
+  return page
+    .getByRole("button")
+    .filter({ has: page.getByText(label, { exact: true }) })
+    .locator("div")
+    .nth(1);
 }

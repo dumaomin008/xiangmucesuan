@@ -102,9 +102,37 @@ export default function ComparePage() {
     if (rows.length < 2) return "";
     const changed = FIELDS.filter((f) => diffKeys.has(f.key)).map((f) => f.label);
     return changed.length
-      ? `对比由计算引擎结果直接相减。发生变化的结果包括：${changed.join("、")}。请结合下方差异参数判断原因，AI 不会编造未经引擎支持的数字。`
+      ? `对比由计算引擎结果直接相减。发生变化的结果包括：${changed.join("、")}。请结合下方差异参数判断原因，系统不会编造未经引擎支持的数字，也不会推荐哪个方案更好。`
       : "所选方案的核心结果一致。";
   }, [diffKeys, rows.length]);
+
+  const decisionSummary = useMemo(() => {
+    if (rows.length < 2) return null;
+    const moneyFields: { key: keyof CompareRow; label: string }[] = [
+      { key: "monthlyRevenue", label: "月营收" },
+      { key: "monthlyCost", label: "月成本" },
+      { key: "monthlyProfit", label: "月利润" },
+    ];
+    let maxLabel = "无金额变化";
+    let maxDelta = 0;
+    if (rows.length === 2) {
+      for (const field of moneyFields) {
+        const delta = Number(rows[1][field.key] || 0) - Number(rows[0][field.key] || 0);
+        if (Math.abs(delta) >= Math.abs(maxDelta) && delta !== 0) {
+          maxDelta = delta;
+          maxLabel = `${field.label} ${formatMoney(delta)}`;
+        }
+      }
+    }
+    const paramLabels = [...new Set(paramRows.filter((row) => row.different).map((row) => row.label.replace(/^.*· /, "")))];
+    return {
+      schemeCount: rows.length,
+      metricDiffCount: diffKeys.size,
+      paramDiffCount: paramRows.filter((row) => row.different).length,
+      maxLabel,
+      paramLabels,
+    };
+  }, [diffKeys.size, paramRows, rows]);
 
   return (
     <PageCanvas wide>
@@ -151,6 +179,36 @@ export default function ComparePage() {
       </Button>
       {rows.length > 0 && (
         <>
+          {decisionSummary && (
+            <Card className="mt-5">
+              <h3 className="text-[18px] font-semibold">对比摘要</h3>
+              <div className="mt-3 grid gap-3 md:grid-cols-4">
+                <div>
+                  <div className="text-[12px] text-sn-muted">参与对比方案</div>
+                  <div className="mt-1 text-[22px] font-bold">{decisionSummary.schemeCount}</div>
+                </div>
+                <div>
+                  <div className="text-[12px] text-sn-muted">有差异的核心指标</div>
+                  <div className="mt-1 text-[22px] font-bold">{decisionSummary.metricDiffCount}</div>
+                </div>
+                <div>
+                  <div className="text-[12px] text-sn-muted">有差异的输入参数</div>
+                  <div className="mt-1 text-[22px] font-bold">{decisionSummary.paramDiffCount}</div>
+                </div>
+                <div>
+                  <div className="text-[12px] text-sn-muted">最大金额变化项</div>
+                  <div className="mt-1 text-[16px] font-bold">{decisionSummary.maxLabel}</div>
+                </div>
+              </div>
+              {decisionSummary.paramLabels.length > 0 && (
+                <p className="mt-3 text-[14px] text-sn-secondary">
+                  主要差异来源：两方案存在 {decisionSummary.paramDiffCount} 项输入参数差异：{decisionSummary.paramLabels.slice(0, 8).join("、")}
+                  {decisionSummary.paramLabels.length > 8 ? " 等" : ""}。
+                </p>
+              )}
+              <p className="mt-2 text-[12px] text-sn-muted">只展示客观差异，不自动推荐哪个方案更好。</p>
+            </Card>
+          )}
           {explain && <p className="mt-5 text-[14px] text-sn-secondary">{explain}</p>}
           <Card className="mt-5 overflow-x-auto p-0">
             <table className="min-w-full text-left text-sm">

@@ -6,6 +6,7 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import { CalculationSubnav } from "@/components/nav";
 import { Card, MetricCard, PageHeader, Button } from "@/components/ui";
 import { PageCanvas } from "@/components/shell/app-shell";
+import { HelpTip } from "@/components/wizard/help-tip";
 import { api } from "@/lib/client";
 import { explainUnavailable, formatFirstPositiveMonth, formatMoney, formatPercent, formatQty } from "@/lib/format";
 import { Character } from "@/components/empty";
@@ -141,14 +142,14 @@ export default function ResultsPage() {
   const annualCost = (Number(result.monthlyTotalCost) * months).toFixed(2);
   const annualProfit = (Number(result.monthlyProfit) * months).toFixed(2);
   const annualVolume = (Number(result.monthlyVolume) * months).toFixed(2);
-  const summary = `本方案由计算引擎给出：月收入 ${formatMoney(result.monthlyRevenue)} 元，月成本 ${formatMoney(result.monthlyTotalCost)} 元，月利润 ${formatMoney(result.monthlyProfit)} 元，利润率 ${result.profitMargin ? formatPercent(result.profitMargin) : "无法计算"}。按年运营 ${months} 个月折年，年收入 ${formatMoney(annualRevenue)}，年利润 ${formatMoney(annualProfit)}。投资回收期：${formatFirstPositiveMonth(result.firstPositiveMonth)}。以上数字均来自引擎结果，AI 只做解释。`;
+  const summary = `本方案由计算引擎给出：年运输量 ${formatQty(annualVolume)} 吨，年收入 ${formatMoney(annualRevenue)} 元，年总成本 ${formatMoney(annualCost)} 元，年利润 ${formatMoney(annualProfit)} 元，利润率 ${result.profitMargin ? formatPercent(result.profitMargin) : "无法计算"}，投资回收期 ${formatFirstPositiveMonth(result.firstPositiveMonth)}。年数据 = 月度引擎结果 × 年运营月数 ${months}。所有数字来自确定性计算引擎。`;
 
   return (
     <PageCanvas wide>
       <CalculationSubnav projectId={projectId} schemeId={schemeId} />
       <PageHeader
         title="测算结果"
-        subtitle={`点击任意核心指标可查看计算依据。正式结果绑定快照 ${result.payload.snapshotId || "—"}，不会被后续改参覆盖。`}
+        subtitle={`第一屏看年度决策结论。正式结果绑定快照 ${result.payload.snapshotId || "—"}，不会被后续改参覆盖。`}
         actions={
           <>
             <Button variant="secondary" onClick={() => router.push(`/projects/${projectId}/calculation/${schemeId}`)}>
@@ -166,9 +167,6 @@ export default function ResultsPage() {
             >
               创建对比方案
             </Button>
-            <Button variant="ghost" onClick={() => router.push(`/projects/${projectId}/calculation/${schemeId}/cash-flow`)}>
-              查看完整测算明细
-            </Button>
           </>
         }
       />
@@ -177,12 +175,24 @@ export default function ResultsPage() {
         <span>项目经营月数 {result.payload.projectOperatingMonths ?? "按租赁规则"}</span>
         <span>运价 {result.payload.freightPricing?.label ?? "—"}</span>
       </div>
-      <Card className="mb-5">
-        <h3 className="text-[16px] font-semibold">AI 测算摘要</h3>
+      <h2 className="mb-3 text-[20px] font-semibold">决策结果</h2>
+      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+        <MetricCard label="年运输量" value={`${formatQty(annualVolume)} t`} hint={`月运量 × ${months} 个月`} />
+        <MetricCard label="年收入" value={formatMoney(annualRevenue)} hint={`月营收 × ${months} 个月`} onClick={() => show("monthly_revenue")} />
+        <MetricCard label="年总成本" value={formatMoney(annualCost)} hint={`月成本 × ${months} 个月`} onClick={() => show("monthly_total_cost")} />
+        <MetricCard label="年利润" value={formatMoney(annualProfit)} hint={`月利润 × ${months} 个月`} onClick={() => show("monthly_profit")} />
+        <MetricCard
+          label="利润率"
+          value={result.profitMargin ? formatPercent(result.profitMargin) : "无法计算"}
+          hint={explainUnavailable(result.profitMarginReason) || undefined}
+          onClick={() => show("profit_margin")}
+        />
+        <MetricCard label="投资回收期" value={formatFirstPositiveMonth(result.firstPositiveMonth)} hint="首次现金流转正" />
+      </div>
+      <Card className="mt-5 mb-8">
+        <h3 className="text-[16px] font-semibold">系统测算摘要</h3>
         <p className="mt-2 text-[14px] leading-6 text-sn-secondary">{summary}</p>
-        <p className="mt-2 text-[12px] text-sn-muted">
-          年运输量 {formatQty(annualVolume)} 吨 · 年收入 {formatMoney(annualRevenue)} · 年成本 {formatMoney(annualCost)} · 年利润 {formatMoney(annualProfit)}
-        </p>
+        <p className="mt-2 text-[12px] text-sn-muted">所有数字来自确定性计算引擎，不是大模型生成。</p>
       </Card>
       {result.payload.freightPricing?.mixed && (
         <Card className="mb-5">
@@ -198,27 +208,21 @@ export default function ResultsPage() {
           </div>
         </Card>
       )}
+      <h2 className="mb-3 text-[20px] font-semibold">经营效率</h2>
       <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-5">
-        <MetricCard label="月营收" value={formatMoney(result.monthlyRevenue)} onClick={() => show("monthly_revenue")} />
-        <MetricCard label="月总成本" value={formatMoney(result.monthlyTotalCost)} onClick={() => show("monthly_total_cost")} />
-        <MetricCard label="月利润" value={formatMoney(result.monthlyProfit)} onClick={() => show("monthly_profit")} />
-        <MetricCard
-          label="利润率"
-          value={result.profitMargin ? formatPercent(result.profitMargin) : "无法计算"}
-          hint={explainUnavailable(result.profitMarginReason) || undefined}
-          onClick={() => show("profit_margin")}
-        />
+        <MetricCard label="月运输量" value={`${formatQty(result.monthlyVolume)} t`} />
+        <MetricCard label="月运营里程" value={`${formatQty(result.monthlyMileage)} km`} />
+        <MetricCard label="单车月收入" value={formatMoney(result.vehicleMonthlyRevenue)} />
+        <MetricCard label="单车月利润" value={formatMoney(result.vehicleMonthlyProfit)} />
         <MetricCard
           label="IRR"
           value={result.irr ? formatPercent(result.irr) : "无法计算"}
           hint={explainUnavailable(result.irrReason) || `首次转正：${formatFirstPositiveMonth(result.firstPositiveMonth)}`}
         />
-        <MetricCard label="单车月收入" value={formatMoney(result.vehicleMonthlyRevenue)} />
-        <MetricCard label="单车月利润" value={formatMoney(result.vehicleMonthlyProfit)} />
-        <MetricCard label="月运输量" value={`${formatQty(result.monthlyVolume)} t`} />
-        <MetricCard label="月运营里程" value={`${formatQty(result.monthlyMileage)} km`} />
+        <MetricCard label="月营收" value={formatMoney(result.monthlyRevenue)} onClick={() => show("monthly_revenue")} />
+        <MetricCard label="月总成本" value={formatMoney(result.monthlyTotalCost)} onClick={() => show("monthly_total_cost")} />
+        <MetricCard label="月利润" value={formatMoney(result.monthlyProfit)} onClick={() => show("monthly_profit")} />
       </div>
-
       <div className="mt-4 flex flex-wrap gap-3 text-[13px] text-sn-secondary">
         <span>IRR 4年 {result.irr4y ? formatPercent(result.irr4y) : "无法计算"}</span>
         <span>IRR 5年 {result.irr5y ? formatPercent(result.irr5y) : "无法计算"}</span>
@@ -226,9 +230,10 @@ export default function ResultsPage() {
         <span>IRR 8年 {result.irr8y ? formatPercent(result.irr8y) : "无法计算"}</span>
       </div>
 
-      <div className="mt-8 grid gap-5 lg:grid-cols-2">
+      <h2 className="mt-8 mb-3 text-[20px] font-semibold">成本结构</h2>
+      <div className="grid gap-5 lg:grid-cols-2">
         <Card>
-          <h3 className="mb-4 text-[20px] font-semibold">成本结构</h3>
+          <h3 className="mb-4 text-[20px] font-semibold">成本明细占比</h3>
           <div className="space-y-3">
             {result.payload.costBreakdown.map((item) => {
               const amount = Number(item.amount);
@@ -262,7 +267,9 @@ export default function ResultsPage() {
           </p>
           <div className="mt-4 grid grid-cols-2 gap-3">
             <div className="rounded-sn-md bg-sn-subtle p-4">
-              <div className="text-[12px] text-sn-muted">首次现金流转正</div>
+              <div className="text-[12px] text-sn-muted">
+                首次现金流转正 <HelpTip field="firstPositiveMonth" />
+              </div>
               <div className="mt-1 text-[22px] font-bold">{formatFirstPositiveMonth(result.firstPositiveMonth)}</div>
             </div>
             <div className="rounded-sn-md bg-sn-subtle p-4">
@@ -371,6 +378,21 @@ export default function ResultsPage() {
             ))}
           </tbody>
         </table>
+      </Card>
+
+      <Card className="mt-5">
+        <h2 className="text-[20px] font-semibold">专业明细</h2>
+        <p className="mt-2 text-[14px] text-sn-secondary">
+          点击上方指标可查看计算表达式与来源参数快照。快照 ID {result.payload.snapshotId || "—"} · 规则版本 RULE_PACK_V1。
+        </p>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button variant="secondary" onClick={() => router.push(`/projects/${projectId}/calculation/${schemeId}/cash-flow`)}>
+            查看完整测算明细
+          </Button>
+          <Button variant="ghost" onClick={() => show("monthly_profit")}>
+            查看计算表达式
+          </Button>
+        </div>
       </Card>
 
       {open && (

@@ -54,6 +54,7 @@ export type Scheme = {
   status: string;
   versionNo: string;
   updatedAt?: string;
+  sourceSchemeId?: string | null;
   project?: ProjectBrief;
   routes: Route[];
   vehiclePlan: Vehicle;
@@ -103,11 +104,11 @@ export type PreviewDto = {
 export type Issue = { field: string; message: string; level?: "error" | "warning"; code?: string };
 
 export const WIZARD_STEPS = [
-  { key: "basic", label: "基本信息" },
+  { key: "basic", label: "项目与方案" },
   { key: "scenario", label: "运输场景" },
-  { key: "operations", label: "运营参数" },
-  { key: "cost", label: "成本收益" },
-  { key: "confirm", label: "确认测算" },
+  { key: "operations", label: "运营效率" },
+  { key: "cost", label: "收入与成本" },
+  { key: "confirm", label: "测算检查" },
 ] as const;
 
 export const VEHICLE_FIELDS: { key: string; label: string; unit: string; std?: string; group: "vehicle" | "opex" | "insure" | "tire" | "driver" }[] = [

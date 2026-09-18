@@ -8,36 +8,14 @@ import { Button, Card, Field, Select, TextArea, TextInput } from "@/components/u
 import { formatMoney, formatQty } from "@/lib/format";
 import { useCalcMode } from "@/lib/workspace/mode";
 import { VEHICLE_FIELDS } from "@/lib/workspace/types";
+import { currentValueForField, mapEngineIssue, type FieldIssue } from "@/lib/workspace/step-validate";
 import type { useSchemeWorkspace } from "@/lib/workspace/use-scheme-workspace";
 
 type Ctx = ReturnType<typeof useSchemeWorkspace>;
+type FieldErrors = Record<string, string>;
 
-function CostGroup({
-  title,
-  amount,
-  open,
-  onToggle,
-  children,
-}: {
-  title: string;
-  amount: number | null;
-  open: boolean;
-  onToggle: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <Card>
-      <button type="button" className="mb-3 flex w-full items-center justify-between" onClick={onToggle}>
-        <h3 className="text-[18px] font-semibold">{title}</h3>
-        <span className="text-[16px] font-bold">{amount != null ? formatMoney(amount) : "—"}</span>
-      </button>
-      {open && children}
-    </Card>
-  );
-}
-
-export function StepBasic({ ctx, onPatchProject }: { ctx: Ctx; onPatchProject: (patch: Record<string, string>) => void }) {
-  const { scheme, meta, patch, patchFinance } = ctx;
+export function StepBasic({ ctx, fieldErrors = {} }: { ctx: Ctx; fieldErrors?: FieldErrors }) {
+  const { scheme, meta, patch, patchFinance, patchProject } = ctx;
   const { professional } = useCalcMode();
   if (!scheme || !meta) return null;
   const project = scheme.project;
@@ -45,14 +23,14 @@ export function StepBasic({ ctx, onPatchProject }: { ctx: Ctx; onPatchProject: (
     <div className="mx-auto max-w-[860px] space-y-5">
       {project && (
         <Card className="grid gap-5 md:grid-cols-2">
-          <Field label="项目名称" required>
-            <TextInput value={project.projectName} onChange={(e) => onPatchProject({ projectName: e.target.value })} />
+          <Field label="项目名称" required fieldId="project.projectName" error={fieldErrors["project.projectName"]}>
+            <TextInput value={project.projectName} onChange={(e) => patchProject({ projectName: e.target.value })} />
           </Field>
-          <Field label="客户名称" required>
-            <TextInput value={project.customerName} onChange={(e) => onPatchProject({ customerName: e.target.value })} />
+          <Field label="客户名称" required fieldId="project.customerName" error={fieldErrors["project.customerName"]}>
+            <TextInput value={project.customerName} onChange={(e) => patchProject({ customerName: e.target.value })} />
           </Field>
-          <Field label="项目经理" required>
-            <TextInput value={project.projectManager} onChange={(e) => onPatchProject({ projectManager: e.target.value })} />
+          <Field label="项目经理" required fieldId="project.projectManager" error={fieldErrors["project.projectManager"]}>
+            <TextInput value={project.projectManager} onChange={(e) => patchProject({ projectManager: e.target.value })} />
           </Field>
           <Field label="业务类型">
             <TextInput value={project.projectStatus} readOnly />
@@ -60,10 +38,10 @@ export function StepBasic({ ctx, onPatchProject }: { ctx: Ctx; onPatchProject: (
         </Card>
       )}
       <Card className="grid gap-5 md:grid-cols-2">
-        <Field label="测算方案名称" required>
+        <Field label="测算方案名称" required fieldId="schemeName" error={fieldErrors.schemeName}>
           <TextInput value={scheme.schemeName} onChange={(e) => patch({ schemeName: e.target.value })} />
         </Field>
-        <Field label="租赁形式" required hint="枚举来自配置，不写死中文判断" help={<HelpTip field="leaseType" />}>
+        <Field label="租赁形式" required hint="枚举来自配置，不写死中文判断" help={<HelpTip field="leaseType" />} fieldId="leaseType" error={fieldErrors.leaseType}>
           <Select value={scheme.leaseType} onChange={(e) => patch({ leaseType: e.target.value })}>
             {meta.leaseTypes.map((l) => (
               <option key={l.code} value={l.code}>
@@ -72,10 +50,10 @@ export function StepBasic({ ctx, onPatchProject }: { ctx: Ctx; onPatchProject: (
             ))}
           </Select>
         </Field>
-        <Field label="测算年限" required unit="年" source="项目填写" help={<HelpTip field="calculationYears" />}>
+        <Field label="测算年限" required unit="年" source="项目填写" help={<HelpTip field="calculationYears" />} fieldId="calculationYears" error={fieldErrors.calculationYears}>
           <TextInput type="number" min={1} value={scheme.calculationYears} onChange={(e) => patch({ calculationYears: Number(e.target.value) })} />
         </Field>
-        <Field label="年运营月数" required unit="月" source="项目填写" help={<HelpTip field="operatingMonthsYear" />}>
+        <Field label="年运营月数" required unit="月" source="项目填写" help={<HelpTip field="operatingMonthsYear" />} fieldId="operatingMonthsYear" error={fieldErrors.operatingMonthsYear}>
           <TextInput
             type="number"
             min={1}
@@ -105,13 +83,38 @@ export function StepBasic({ ctx, onPatchProject }: { ctx: Ctx; onPatchProject: (
   );
 }
 
-export function StepScenario({ ctx }: { ctx: Ctx }) {
-  const { scheme, meta, routeId, setRouteId, currentRoute, patchSegment, flushSegment, refreshRoutes } = ctx;
+function CostGroup({
+  title,
+  amount,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  amount: number | null;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <Card>
+      <button type="button" className="mb-3 flex w-full items-center justify-between" onClick={onToggle}>
+        <h3 className="text-[18px] font-semibold">{title}</h3>
+        <span className="text-[16px] font-bold">{amount != null ? formatMoney(amount) : "—"}</span>
+      </button>
+      {open && children}
+    </Card>
+  );
+}
+
+export function StepScenario({ ctx, fieldErrors = {} }: { ctx: Ctx; fieldErrors?: FieldErrors }) {
+  const { scheme, meta, routeId, setRouteId, currentRoute, patchSegment, patchRoute, flushSegment, refreshRoutes } = ctx;
   const { professional } = useCalcMode();
   if (!scheme || !meta) return null;
   const summarySeg = currentRoute?.segments[0];
   return (
     <div className="grid gap-5 lg:grid-cols-[240px_minmax(0,1fr)]">
+      <div data-field="routes">
       <Card className="p-4">
         <div className="mb-3 flex items-center justify-between">
           <h3 className="font-semibold">运输线路</h3>
@@ -167,31 +170,20 @@ export function StepScenario({ ctx }: { ctx: Ctx }) {
           </div>
         )}
       </Card>
+      </div>
       {currentRoute ? (
         <div className="space-y-4">
           <Card className="grid gap-4 md:grid-cols-2">
-            <Field label="线路名称" required>
+            <Field label="线路名称" required fieldId={`route.${currentRoute.id}.name`} error={fieldErrors[`route.${currentRoute.id}.name`]}>
               <TextInput
                 value={currentRoute.routeName}
-                onChange={async (e) => {
-                  await api(`/api/calculation-routes/${currentRoute.id}`, {
-                    method: "PUT",
-                    body: JSON.stringify({ ...currentRoute, routeName: e.target.value }),
-                  });
-                  await refreshRoutes();
-                }}
+                onChange={(e) => patchRoute(currentRoute.id, { routeName: e.target.value })}
               />
             </Field>
             <Field label="线路说明">
               <TextInput
                 value={currentRoute.description || ""}
-                onChange={async (e) => {
-                  await api(`/api/calculation-routes/${currentRoute.id}`, {
-                    method: "PUT",
-                    body: JSON.stringify({ ...currentRoute, description: e.target.value }),
-                  });
-                  await refreshRoutes();
-                }}
+                onChange={(e) => patchRoute(currentRoute.id, { description: e.target.value })}
               />
             </Field>
           </Card>
@@ -214,16 +206,16 @@ export function StepScenario({ ctx }: { ctx: Ctx }) {
                   <TextInput value={seg.segmentName} onChange={(e) => patchSegment(scheme, seg.id, "segmentName", e.target.value)} onBlur={() => flushSegment(seg)} />
                 </Field>
                 <div />
-                <Field label="装货地" required help={<HelpTip field="originName" />}>
+                <Field label="装货地" required help={<HelpTip field="originName" />} fieldId={`segment.${seg.id}.originName`} error={fieldErrors[`segment.${seg.id}.originName`]}>
                   <TextInput value={seg.originName} onChange={(e) => patchSegment(scheme, seg.id, "originName", e.target.value)} onBlur={() => flushSegment(seg)} />
                 </Field>
-                <Field label="卸货地" required help={<HelpTip field="destinationName" />}>
+                <Field label="卸货地" required help={<HelpTip field="destinationName" />} fieldId={`segment.${seg.id}.destinationName`} error={fieldErrors[`segment.${seg.id}.destinationName`]}>
                   <TextInput value={seg.destinationName} onChange={(e) => patchSegment(scheme, seg.id, "destinationName", e.target.value)} onBlur={() => flushSegment(seg)} />
                 </Field>
-                <Field label="单程距离" required unit="km" help={<HelpTip field="distanceKm" />}>
+                <Field label="单程距离" required unit="km" help={<HelpTip field="distanceKm" />} fieldId={`segment.${seg.id}.distanceKm`} error={fieldErrors[`segment.${seg.id}.distanceKm`]}>
                   <TextInput value={seg.distanceKm} onChange={(e) => patchSegment(scheme, seg.id, "distanceKm", e.target.value)} onBlur={() => flushSegment(seg)} />
                 </Field>
-                <Field label="单趟载重" required unit="吨" help={<HelpTip field="loadTon" />}>
+                <Field label="单趟载重" required unit="吨" help={<HelpTip field="loadTon" />} fieldId={`segment.${seg.id}.loadTon`} error={fieldErrors[`segment.${seg.id}.loadTon`]}>
                   <TextInput value={seg.loadTon} onChange={(e) => patchSegment(scheme, seg.id, "loadTon", e.target.value)} onBlur={() => flushSegment(seg)} />
                 </Field>
               </div>
@@ -258,13 +250,7 @@ export function StepScenario({ ctx }: { ctx: Ctx }) {
                 <TextInput
                   type="number"
                   value={currentRoute.weight ?? ""}
-                  onChange={async (e) => {
-                  await api(`/api/calculation-routes/${currentRoute.id}`, {
-                      method: "PUT",
-                      body: JSON.stringify({ ...currentRoute, weight: e.target.value === "" ? null : Number(e.target.value) }),
-                    });
-                    await refreshRoutes();
-                  }}
+                  onChange={(e) => patchRoute(currentRoute.id, { weight: e.target.value === "" ? null : Number(e.target.value) })}
                 />
               </Field>
             </Card>
@@ -273,13 +259,14 @@ export function StepScenario({ ctx }: { ctx: Ctx }) {
       ) : (
         <Card>
           <p className="text-sn-secondary">请先新增一条线路，再描述货从哪里到哪里。</p>
+          {fieldErrors.routes && <p className="mt-2 text-[13px] text-[#C44747]">{fieldErrors.routes}</p>}
         </Card>
       )}
     </div>
   );
 }
 
-export function StepOperations({ ctx }: { ctx: Ctx }) {
+export function StepOperations({ ctx, fieldErrors = {} }: { ctx: Ctx; fieldErrors?: FieldErrors }) {
   const { scheme, currentRoute, patch, patchFinance, patchSegment, flushSegment, helpers } = ctx;
   if (!scheme) return null;
   const months = Number(scheme.financeTaxPlan.operatingMonthsYear ?? 12);
@@ -287,15 +274,15 @@ export function StepOperations({ ctx }: { ctx: Ctx }) {
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="space-y-5">
         <Card>
-          <h3 className="mb-2 text-[20px] font-semibold">一天为什么能跑这些趟</h3>
+          <h3 className="mb-2 text-[20px] font-semibold">车辆运营与运输效率</h3>
           <p className="mb-5 text-[14px] text-sn-secondary">
-            当前模型以「单车月趟数」为运营输入，不通过装卸/在途时间反推趟次。修改趟次后，右侧产能会按同一套计算逻辑更新。
+            当前测算模型以「单车月趟数」作为核心运营输入。请根据历史运营数据、现场调研或项目假设填写，系统将据此计算运输能力、里程、收入及相关成本。
           </p>
           <div className="grid gap-5 md:grid-cols-2">
-            <Field label="车队规模" required unit="辆" help={<HelpTip field="fleetSize" />}>
+            <Field label="车队规模" required unit="辆" help={<HelpTip field="fleetSize" />} fieldId="fleetSize" error={fieldErrors.fleetSize}>
               <TextInput type="number" min={1} value={scheme.fleetSize} onChange={(e) => patch({ fleetSize: Number(e.target.value) })} />
             </Field>
-            <Field label="年运营月数" required unit="月" help={<HelpTip field="operatingMonthsYear" />}>
+            <Field label="年运营月数" required unit="月" help={<HelpTip field="operatingMonthsYear" />} fieldId="operatingMonthsYear" error={fieldErrors.operatingMonthsYear}>
               <TextInput
                 type="number"
                 min={1}
@@ -323,7 +310,7 @@ export function StepOperations({ ctx }: { ctx: Ctx }) {
               ))}
             </div>
             <div className="grid gap-5 md:grid-cols-2">
-              <Field label="单车月趟数" required unit="趟/车/月" help={<HelpTip field="tripsPerVehicleMonth" />}>
+              <Field label="单车月趟数" required unit="趟/车/月" help={<HelpTip field="tripsPerVehicleMonth" />} fieldId={`segment.${seg.id}.tripsPerVehicleMonth`} error={fieldErrors[`segment.${seg.id}.tripsPerVehicleMonth`]}>
                 <TextInput
                   value={seg.tripsPerVehicleMonth}
                   onChange={(e) => patchSegment(scheme, seg.id, "tripsPerVehicleMonth", e.target.value)}
@@ -360,8 +347,8 @@ export function StepOperations({ ctx }: { ctx: Ctx }) {
   );
 }
 
-export function StepCost({ ctx }: { ctx: Ctx }) {
-  const { scheme, meta, std, reasons, setReasons, currentRoute, patchVehicle, patchFinance, patchSegment, flushSegment, preview, helpers } = ctx;
+export function StepCost({ ctx, fieldErrors = {} }: { ctx: Ctx; fieldErrors?: FieldErrors }) {
+  const { scheme, meta, std, reasons, patchReason, currentRoute, patchVehicle, patchFinance, patchSegment, flushSegment, preview, helpers } = ctx;
   const { professional } = useCalcMode();
   const [open, setOpen] = useState<Record<string, boolean>>({ income: true, vehicle: true, energy: true });
   if (!scheme || !meta) return null;
@@ -390,13 +377,20 @@ export function StepCost({ ctx }: { ctx: Ctx }) {
             source={stdItem ? "公司标准" : "项目填写"}
             overridden={overridden}
             help={f.key === "monthlyRentPerVehicle" || f.key === "driverCost" ? <HelpTip field={f.key} /> : undefined}
+            fieldId={f.key}
+            error={fieldErrors[f.key]}
           >
             <TextInput value={current} onChange={(e) => patchVehicle(f.key, e.target.value)} />
           </Field>
           {stdItem && <p className="mt-1 text-[12px] text-sn-muted">标准值 {stdItem.value} {stdItem.unit}</p>}
           {overridden && (
-            <Field label="调整原因" required>
-              <TextInput value={reasons[f.std!] || ""} onChange={(e) => setReasons((r) => ({ ...r, [f.std!]: e.target.value }))} placeholder="覆盖公司标准必须填写原因" />
+            <Field
+              label="调整原因"
+              required={Boolean(reasons[f.std!]) || scheme.overrides.some((item) => item.parameterCode === f.std)}
+              fieldId={`override.${f.std!}`}
+              error={fieldErrors[`override.${f.std!}`]}
+            >
+              <TextInput value={reasons[f.std!] || ""} onChange={(e) => patchReason(f.std!, e.target.value)} placeholder="覆盖公司标准时请填写原因" />
             </Field>
           )}
         </div>
@@ -419,10 +413,10 @@ export function StepCost({ ctx }: { ctx: Ctx }) {
         {open.income &&
           (currentRoute?.segments || []).map((seg) => (
             <div key={seg.id} className="mb-4 grid gap-4 md:grid-cols-3">
-              <Field label="运价" required help={<HelpTip field="freightPrice" />}>
+              <Field label="运价" required help={<HelpTip field="freightPrice" />} fieldId={`segment.${seg.id}.freightPrice`} error={fieldErrors[`segment.${seg.id}.freightPrice`]}>
                 <TextInput value={seg.freightPrice} onChange={(e) => patchSegment(scheme, seg.id, "freightPrice", e.target.value)} onBlur={() => flushSegment(seg)} />
               </Field>
-              <Field label="运价单位" required>
+              <Field label="运价单位" required fieldId={`segment.${seg.id}.freightPriceUnit`} error={fieldErrors[`segment.${seg.id}.freightPriceUnit`]}>
                 <Select value={seg.freightPriceUnit} onChange={(e) => patchSegment(scheme, seg.id, "freightPriceUnit", e.target.value)} onBlur={() => flushSegment({ ...seg, freightPriceUnit: seg.freightPriceUnit })}>
                   {meta.units.map((u) => (
                     <option key={u.code} value={u.code}>
@@ -442,13 +436,13 @@ export function StepCost({ ctx }: { ctx: Ctx }) {
       <CostGroup title="能源成本" amount={costAmount(["energy_cost"])} open={Boolean(open.energy)} onToggle={() => toggle("energy")}>
         {(currentRoute?.segments || []).map((seg) => (
           <div key={seg.id} className="mb-4 grid gap-4 md:grid-cols-3">
-            <Field label="电价" unit="元/kWh" required help={<HelpTip field="electricityPrice" />}>
+            <Field label="电价" unit="元/kWh" required help={<HelpTip field="electricityPrice" />} fieldId={`segment.${seg.id}.electricityPrice`} error={fieldErrors[`segment.${seg.id}.electricityPrice`]}>
               <TextInput value={seg.electricityPrice} onChange={(e) => patchSegment(scheme, seg.id, "electricityPrice", e.target.value)} onBlur={() => flushSegment(seg)} />
             </Field>
-            <Field label="满载能耗" unit="kWh/km" required help={<HelpTip field="loadedEnergyConsumption" />}>
+            <Field label="满载能耗" unit="kWh/km" required help={<HelpTip field="loadedEnergyConsumption" />} fieldId={`segment.${seg.id}.loadedEnergyConsumption`} error={fieldErrors[`segment.${seg.id}.loadedEnergyConsumption`]}>
               <TextInput value={seg.loadedEnergyConsumption} onChange={(e) => patchSegment(scheme, seg.id, "loadedEnergyConsumption", e.target.value)} onBlur={() => flushSegment(seg)} />
             </Field>
-            <Field label="空载能耗" unit="kWh/km" required help={<HelpTip field="emptyEnergyConsumption" />}>
+            <Field label="空载能耗" unit="kWh/km" required help={<HelpTip field="emptyEnergyConsumption" />} fieldId={`segment.${seg.id}.emptyEnergyConsumption`} error={fieldErrors[`segment.${seg.id}.emptyEnergyConsumption`]}>
               <TextInput value={seg.emptyEnergyConsumption} onChange={(e) => patchSegment(scheme, seg.id, "emptyEnergyConsumption", e.target.value)} onBlur={() => flushSegment(seg)} />
             </Field>
           </div>
@@ -523,16 +517,16 @@ export function StepCost({ ctx }: { ctx: Ctx }) {
           </button>
           {(professional || open.finance) && (
             <div className="grid gap-5 md:grid-cols-2">
-              <Field label="应收回款周期" unit="月">
+              <Field label="应收回款周期" unit="月" help={<HelpTip field="receivableCycle" />} fieldId="receivableCycle" error={fieldErrors.receivableCycle}>
                 <TextInput value={String(scheme.financeTaxPlan.receivableCycle)} onChange={(e) => patchFinance("receivableCycle", Number(e.target.value))} />
               </Field>
-              <Field label="流动资金贷款周期" unit="月">
+              <Field label="流动资金贷款周期" unit="月" help={<HelpTip field="workingCapitalLoanCycle" />} fieldId="workingCapitalLoanCycle" error={fieldErrors.workingCapitalLoanCycle}>
                 <TextInput value={String(scheme.financeTaxPlan.workingCapitalLoanCycle)} onChange={(e) => patchFinance("workingCapitalLoanCycle", Number(e.target.value))} />
               </Field>
               <Field label="流动资金贷款利率" unit="年利率" source="公司标准">
                 <TextInput value={String(scheme.financeTaxPlan.workingCapitalInterestRate)} onChange={(e) => patchFinance("workingCapitalInterestRate", e.target.value)} />
               </Field>
-              <Field label="营收垫资资金成本率" unit="年利率" source="公司标准">
+              <Field label="折现率 / 资金成本率" unit="年利率" source="公司标准" help={<HelpTip field="discountRate" />} fieldId="discountRate" error={fieldErrors.discountRate}>
                 <TextInput value={String(scheme.financeTaxPlan.discountRate)} onChange={(e) => patchFinance("discountRate", e.target.value)} />
               </Field>
               <Field label="车辆折旧年限" unit="月">
@@ -580,95 +574,123 @@ export function StepConfirm({
   ctx,
   onCalculate,
   onAiCheck,
+  onGoFix,
   aiChecking,
   aiNotes,
 }: {
   ctx: Ctx;
   onCalculate: () => void;
   onAiCheck: () => void;
+  onGoFix: (issue: FieldIssue) => void;
   aiChecking: boolean;
   aiNotes: string;
 }) {
-  const { scheme, meta, completeness, errors, warnings, calculating, preview } = ctx;
+  const { scheme, meta, completeness, errors, warnings, calculating, flushing, preview } = ctx;
+  const [showPassed, setShowPassed] = useState(false);
   if (!scheme || !meta) return null;
   const lease = meta.leaseTypes.find((l) => l.code === scheme.leaseType);
   const blocked = errors.length > 0;
+  const blockers = errors.map((item) => {
+    const mapped = mapEngineIssue(item);
+    return { ...mapped, current: currentValueForField(scheme, mapped.field) || "（空）" };
+  });
+  const passedCount = completeness?.filled ?? 0;
+  const actionBusy = calculating || flushing || aiChecking;
   return (
     <div className="space-y-5">
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
-          <div className="text-[13px] text-sn-muted">参数完整度</div>
+          <div className="text-[13px] text-sn-muted">填写进度</div>
           <div className="mt-2 text-[28px] font-extrabold">{completeness?.percent ?? 0}%</div>
+          <p className="mt-1 text-[12px] text-sn-muted">只表示填了多少，不等于可以测算</p>
+        </Card>
+        <Card>
+          <div className="text-[13px] text-sn-muted">测算校验</div>
+          <div className="mt-2 text-[22px] font-extrabold">
+            {errors.length} 项阻断 / {warnings.length} 项提醒
+          </div>
         </Card>
         <Card>
           <div className="text-[13px] text-sn-muted">已填写参数</div>
           <div className="mt-2 text-[28px] font-extrabold">{completeness?.filled ?? 0}</div>
         </Card>
         <Card>
-          <div className="text-[13px] text-sn-muted">系统计算参数</div>
-          <div className="mt-2 text-[28px] font-extrabold">{completeness?.computed ?? 0}</div>
-        </Card>
-        <Card>
-          <div className="text-[13px] text-sn-muted">待确认 / 待补</div>
+          <div className="text-[13px] text-sn-muted">待完成</div>
           <div className="mt-2 text-[28px] font-extrabold">{completeness?.pending ?? 0}</div>
         </Card>
       </div>
       <Card>
-        <h3 className="mb-2 text-[20px] font-semibold">测算前核对</h3>
+        <h3 className="mb-2 text-[20px] font-semibold">这些参数现在能不能正式测算？</h3>
         <p className="text-sn-secondary">
           租赁 {lease?.name} · 车辆 {scheme.fleetSize} 辆 · 线路 {scheme.routes.length} 条 · 年运营 {String(scheme.financeTaxPlan.operatingMonthsYear ?? 12)} 个月
           {preview ? ` · 预览月利润 ${formatMoney(preview.monthlyProfit)}` : ""}
         </p>
-        {completeness && completeness.missing.length > 0 && (
-          <ul className="mt-3 list-disc pl-5 text-[13px] text-sn-secondary">
-            {completeness.missing.slice(0, 8).map((item) => (
-              <li key={item}>{item}</li>
-            ))}
-          </ul>
-        )}
       </Card>
-      {errors.length > 0 && (
+      {blockers.length > 0 && (
         <Card className="bg-sn-error/10">
-          <h3 className="font-semibold text-[#C44747]">阻断错误，必须修改后才能测算</h3>
-          <ul className="mt-2 list-disc pl-5 text-sm text-[#C44747]">
-            {errors.map((e) => (
-              <li key={e.field}>{e.message}</li>
+          <h3 className="font-semibold text-[#C44747]">必须处理 · 阻断测算</h3>
+          <div className="mt-3 space-y-3">
+            {blockers.map((item) => (
+              <div key={`${item.field}-${item.message}`} className="rounded-sn-sm bg-white/70 p-3">
+                <div className="text-sm font-medium text-[#C44747]">{item.message}</div>
+                <div className="mt-1 text-[12px] text-sn-secondary">当前值：{item.current || "（空）"}</div>
+                <button type="button" className="mt-2 text-[13px] text-sn-info" onClick={() => onGoFix(item)}>
+                  去修改
+                </button>
+              </div>
             ))}
-          </ul>
+          </div>
         </Card>
       )}
       {warnings.length > 0 && (
         <Card className="bg-sn-warning/10">
-          <h3 className="font-semibold text-[#8A5A10]">风险提醒，可修改或确认后继续</h3>
-          <ul className="mt-2 list-disc pl-5 text-sm text-[#8A5A10]">
+          <h3 className="font-semibold text-[#8A5A10]">风险提醒 · 允许继续</h3>
+          <ul className="mt-2 space-y-2 text-sm text-[#8A5A10]">
             {warnings.map((e) => (
-              <li key={e.field}>{e.message}</li>
+              <li key={`${e.field}-${e.message}`}>{e.message}</li>
             ))}
           </ul>
         </Card>
       )}
-      {errors.length === 0 && warnings.length === 0 && (
-        <Card className="bg-sn-success/10">
-          <h3 className="font-semibold text-sn-success">规则检查正常</h3>
-          <p className="mt-2 text-[14px] text-sn-secondary">必填项和合法范围已通过。正式结果仍由计算引擎在点击开始测算后生成。</p>
+      <Card className="bg-sn-success/10">
+        <button type="button" className="flex w-full items-center justify-between" onClick={() => setShowPassed((v) => !v)}>
+          <h3 className="font-semibold text-sn-success">✓ 已通过 {passedCount} 项</h3>
+          <span className="text-[13px] text-sn-muted">{showPassed ? "收起" : "展开"}</span>
+        </button>
+        {showPassed && completeness && (
+          <p className="mt-2 text-[13px] text-sn-secondary">
+            已填写 {completeness.filled} / {completeness.required} 项进度字段。正式可测算仍以规则引擎阻断项是否清零为准。
+          </p>
+        )}
+      </Card>
+      {scheme.overrides.length > 0 && (
+        <Card>
+          <h3 className="mb-2 font-semibold">公司标准覆盖项</h3>
+          <ul className="list-disc pl-5 text-[13px] text-sn-secondary">
+            {scheme.overrides.map((item) => (
+              <li key={item.parameterCode}>
+                {item.parameterCode}：{item.standardValue} → {item.overrideValue}（{item.overrideReason}）
+              </li>
+            ))}
+          </ul>
         </Card>
       )}
       {aiNotes && (
         <Card>
-          <h3 className="mb-2 font-semibold">AI 检查</h3>
+          <h3 className="mb-2 font-semibold">规则校验结果</h3>
           <p className="whitespace-pre-wrap text-[14px] leading-6 text-sn-secondary">{aiNotes}</p>
         </Card>
       )}
       <div className="flex flex-wrap gap-3">
-        <Button variant="secondary" disabled={aiChecking} onClick={onAiCheck}>
-          {aiChecking ? "正在检查…" : "AI 检查当前步骤"}
+        <Button variant="secondary" disabled={actionBusy} onClick={onAiCheck}>
+          {aiChecking || flushing ? "正在检查…" : "智能检查参数"}
         </Button>
-        <Button disabled={calculating || blocked} onClick={onCalculate}>
-          {calculating ? "正在执行项目测算…" : "开始测算"}
+        <Button disabled={calculating || blocked || flushing} onClick={onCalculate}>
+          {flushing ? "正在保存…" : calculating ? "正在执行项目测算…" : "开始测算"}
         </Button>
       </div>
-      {calculating && (
-        <p className="text-[13px] text-sn-muted">校验参数 → 调用计算引擎 → 固化结果版本。不会用 AI 生成财务数字。</p>
+      {actionBusy && (
+        <p className="text-[13px] text-sn-muted">先保存最新输入 → 规则校验 → 调用计算引擎 → 固化结果版本。不会用大模型生成财务数字。</p>
       )}
     </div>
   );

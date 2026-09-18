@@ -11,13 +11,13 @@ test.describe("E2E-08 方案复制和对比", () => {
     await page.getByRole("button", { name: "复制方案" }).first().click();
     await page.waitForURL(/\/calculation\/.+/);
     await expect(page.getByLabel("测算方案名称")).toBeVisible();
-    await page.getByRole("button", { name: "4. 成本收益" }).click();
+    await page.getByRole("button", { name: "4. 收入与成本" }).click();
     const price = page.getByLabel("运价").first();
     const saved = waitSaved(page);
     await price.fill("60");
     await price.blur();
     await saved;
-    await page.getByRole("button", { name: "5. 确认测算" }).click();
+    await page.getByRole("button", { name: "5. 测算检查" }).click();
     await page.getByRole("button", { name: "开始测算" }).click();
     await page.waitForURL(/\/results/);
     const bProfit = parseUiMoney(await metricValue(page, "月利润").textContent());

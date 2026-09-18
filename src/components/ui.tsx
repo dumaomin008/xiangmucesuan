@@ -77,6 +77,8 @@ export function Field({
   source,
   overridden,
   help,
+  error,
+  fieldId,
   children,
 }: {
   label: string;
@@ -86,10 +88,12 @@ export function Field({
   source?: string;
   overridden?: boolean;
   help?: ReactNode;
+  error?: string;
+  fieldId?: string;
   children: ReactNode;
 }) {
   return (
-    <div className="block">
+    <div className="block" data-field={fieldId}>
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-[13px] font-medium tracking-[0.02em] text-sn-secondary">
           {label}
@@ -111,9 +115,18 @@ export function Field({
         </span>
       </div>
       {isValidElement(children)
-        ? cloneElement(children as ReactElement<{ "aria-label"?: string }>, { "aria-label": label })
+        ? cloneElement(children as ReactElement<{ "aria-label"?: string; "aria-invalid"?: boolean; className?: string; id?: string }>, {
+            "aria-label": label,
+            "aria-invalid": Boolean(error) || undefined,
+            id: fieldId ? `input-${fieldId.replace(/\./g, "-")}` : undefined,
+            className: clsx(
+              (children as ReactElement<{ className?: string }>).props.className,
+              error && "border-sn-error bg-[#FFF6F6]",
+            ),
+          })
         : children}
-      {hint && <p className="mt-1.5 text-[12px] text-sn-muted">{hint}</p>}
+      {error && <p className="mt-1.5 text-[12px] text-[#C44747]">{error}</p>}
+      {hint && !error && <p className="mt-1.5 text-[12px] text-sn-muted">{hint}</p>}
     </div>
   );
 }

@@ -22,7 +22,7 @@ test.describe("E2E-05 结果页与 Golden 四层一致性", () => {
     expect(uiCost).toBeCloseTo(Number(EXCEL_EXAMPLE_AC.totalCost), 2);
     expect(uiProfit).toBeCloseTo(Number(EXCEL_EXAMPLE_AC.profit), 2);
     expect(uiRevenue).toBeCloseTo(total.revenue.toNumber(), 2);
-    await expect(page.getByText("成本结构")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "成本结构" })).toBeVisible();
     await expect(page.getByText("路段1")).toBeVisible();
   });
 });

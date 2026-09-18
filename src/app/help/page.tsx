@@ -11,7 +11,7 @@ export default function HelpPage() {
         <Card>
           <h3 className="text-[18px] font-semibold">五步测算</h3>
           <p className="mt-2 text-[14px] leading-6 text-sn-secondary">
-            基本信息 → 运输场景 → 运营参数 → 成本收益 → 确认测算。常用参数在普通模式，财务税务和线路权重在专业模式。
+            项目与方案 → 运输场景 → 运营效率 → 收入与成本 → 测算检查。常用参数在普通模式，财务税务和线路权重在专业模式。填写进度不等于可以测算。
           </p>
         </Card>
         <Card>

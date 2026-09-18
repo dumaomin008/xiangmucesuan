@@ -19,6 +19,7 @@ function filledPositive(value: unknown) {
   return Number.isFinite(n) && n > 0;
 }
 
+/** 填写进度，不等于“可以正式测算”。正式可测算状态由 Rule Engine 决定。 */
 export function calcCompleteness(scheme: Scheme, previewReady: boolean, aiExtracted = 0): Completeness {
   const missing: string[] = [];
   const checks: { ok: boolean; label: string }[] = [
