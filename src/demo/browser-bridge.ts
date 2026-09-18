@@ -31,6 +31,7 @@ import {
   type AssistantSession,
   type AssistantTurnResult,
 } from "./ai/assistant";
+import { validateLlmIntent } from "./ai/llm-intent";
 import { excelExampleInput } from "../lib/engine/__tests__/fixture";
 
 export type PmCalcBridge = {
@@ -84,10 +85,13 @@ export type PmCalcBridge = {
     message: string;
     session?: AssistantSession;
     project?: DemoProjectContext | null;
+    parsedIntent?: import("./ai/intent").AssistantIntent;
   }) => AssistantTurnResult;
   confirmAssistantAction: (session: AssistantSession) => AssistantTurnResult;
   createAssistantSession: typeof createAssistantSession;
   assistantShortcuts: typeof ASSISTANT_SHORTCUTS;
+  /** 校验 LLM 结构化意图；含 KPI 字段则返回 null */
+  validateLlmIntent: typeof import("./ai/llm-intent").validateLlmIntent;
 };
 
 let repos: DemoRepositories | null = null;
@@ -217,7 +221,7 @@ export const PmCalc: PmCalcBridge = {
     return analyzeScenarioLocal({ scenario, project, question });
   },
   buildAiPayload,
-  runAssistant: ({ projectId, scenarioId, message, session, project }) =>
+  runAssistant: ({ projectId, scenarioId, message, session, project, parsedIntent }) =>
     runAssistantTurn({
       repos: ensureRepos(),
       projectId,
@@ -225,6 +229,7 @@ export const PmCalc: PmCalcBridge = {
       message,
       session,
       project,
+      parsedIntent,
     }),
   confirmAssistantAction: (session) =>
     confirmPendingAction({
@@ -233,6 +238,7 @@ export const PmCalc: PmCalcBridge = {
     }),
   createAssistantSession,
   assistantShortcuts: ASSISTANT_SHORTCUTS,
+  validateLlmIntent,
 };
 
 declare global {

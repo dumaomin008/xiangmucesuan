@@ -523,8 +523,8 @@
       .map((m) => {
         const compare =
           m.compareRows?.length
-            ? `<div class="table-wrap calc-ai-compare"><table><thead><tr><th>指标</th><th class="num">方案A</th><th class="num">方案B</th><th class="num">差值</th></tr></thead><tbody>${m.compareRows
-                .map((r) => `<tr><td>${esc(r.label)}</td><td class="num">${esc(r.a)}</td><td class="num">${esc(r.b)}</td><td class="num">${esc(r.delta)}</td></tr>`)
+            ? `<div class="table-wrap calc-ai-compare"><table><thead><tr><th>指标</th><th class="num">方案A</th><th class="num">方案B</th><th class="num">差值</th><th class="num">变化率</th></tr></thead><tbody>${m.compareRows
+                .map((r) => `<tr><td>${esc(r.label)}</td><td class="num">${esc(r.a)}</td><td class="num">${esc(r.b)}</td><td class="num">${esc(r.delta)}</td><td class="num">${esc(r.changeRate || "—")}</td></tr>`)
                 .join("")}</tbody></table></div>`
             : "";
         return `<div class="calc-ai-msg ${esc(m.role)}"><div class="calc-ai-bubble">${esc(m.content).replace(/\n/g, "<br>")}${compare}</div></div>`;
@@ -542,19 +542,54 @@
       return;
     }
     const rows = (pending.changes || [])
-      .map((c) => `<li><strong>${esc(c.label)}</strong>：${esc(c.from)} → ${esc(c.to)}${c.unit ? ` ${esc(c.unit)}` : ""}</li>`)
+      .map(
+        (c) =>
+          `<li><strong>${esc(c.label)}</strong>：${esc(c.from)} → ${esc(c.to)}${c.unit ? ` ${esc(c.unit)}` : ""}${
+            c.scopeLabel ? ` <span class="tag info">${esc(c.scopeLabel)}</span>` : ""
+          }</li>`,
+      )
       .join("");
+    const scopeLine = pending.scopeLabel
+      ? `<p>作用范围：<strong>${esc(pending.scopeLabel)}</strong>${pending.willRecalculate ? " · 确认后重新调用 Calculation Engine" : ""}${
+          pending.createNewScenario ? " · 将创建新方案" : " · 修改当前方案"
+        }</p>`
+      : "";
+    const scopeActions =
+      pending.type === "await_scope"
+        ? `<div class="calc-ai-confirm-actions">
+            <button type="button" class="btn primary" data-ai-scope="全部路段">全部路段统一修改</button>
+            <button type="button" class="btn" data-ai-scope="指定线路">指定线路</button>
+            <button type="button" class="btn" data-ai-scope="指定路段">指定路段</button>
+            <button type="button" class="btn" id="calc-ai-cancel-btn">取消</button>
+          </div>`
+        : `<div class="calc-ai-confirm-actions">
+            <button type="button" class="btn primary" id="calc-ai-confirm-btn">确认并测算</button>
+            <button type="button" class="btn" id="calc-ai-cancel-btn">取消</button>
+          </div>`;
     slot.hidden = false;
     slot.innerHTML = `<div class="calc-ai-confirm-card">
       <strong>待确认操作</strong>
       <p>${esc(pending.previewText)}</p>
-      <ul>${rows || "<li>无参数变更</li>"}</ul>
-      <div class="calc-ai-confirm-actions">
-        <button type="button" class="btn primary" id="calc-ai-confirm-btn">确认并测算</button>
-        <button type="button" class="btn" id="calc-ai-cancel-btn">取消</button>
-      </div>
+      ${scopeLine}
+      <ul>${rows || (pending.type === "await_scope" ? "<li>请先选择作用范围</li>" : "<li>无参数变更</li>")}</ul>
+      ${scopeActions}
     </div>`;
-    $("#calc-ai-confirm-btn").onclick = () => void runAssistantMessage("确认并测算");
+    if (pending.type === "await_scope") {
+      slot.querySelectorAll("[data-ai-scope]").forEach((btn) => {
+        btn.onclick = () => {
+          const mode = btn.getAttribute("data-ai-scope");
+          if (mode === "指定线路" || mode === "指定路段") {
+            const hint = window.prompt(mode === "指定线路" ? "请输入线路名称" : "请输入路段名称");
+            if (!hint) return;
+            void runAssistantMessage(`${mode}：${hint}`);
+            return;
+          }
+          void runAssistantMessage(mode);
+        };
+      });
+    } else {
+      $("#calc-ai-confirm-btn").onclick = () => void runAssistantMessage("确认并测算");
+    }
     $("#calc-ai-cancel-btn").onclick = () => void runAssistantMessage("取消");
   }
 
@@ -567,6 +602,26 @@
       renderChat();
       renderConfirmCard(ensureAssistantSession()?.pending || null);
       $("#calc-ai-input")?.focus();
+    }
+  }
+
+  async function tryRemoteIntent(projectId, scenarioId, message) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch("/api/demo-ai/intent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: message, projectId, scenarioId }),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok || !data.intent) return null;
+      if (!global.PmCalc?.validateLlmIntent) return null;
+      return global.PmCalc.validateLlmIntent(data.intent);
+    } catch {
+      return null;
     }
   }
 
@@ -593,6 +648,20 @@
         session: ensureAssistantSession(),
         project,
       });
+      // 规则未命中时，尝试远端 LLM 结构化意图（失败则保持本地 fallback）
+      if (result.intent?.kind === "unmatched" && !result.confirmRequired) {
+        const llmIntent = await tryRemoteIntent(projectId, scenarioId, message);
+        if (llmIntent && llmIntent.kind !== "unmatched") {
+          result = global.PmCalc.runAssistant({
+            projectId,
+            scenarioId,
+            message,
+            session: ensureAssistantSession(),
+            project,
+            parsedIntent: llmIntent,
+          });
+        }
+      }
       assistantSession = result.session;
     } catch (err) {
       assistantHistory.push({
@@ -611,7 +680,6 @@
     renderChat();
     renderConfirmCard(result.pending);
 
-    // 可选远端润色：仅增强文案，不改数字；失败则忽略
     if (!result.confirmRequired && result.reply && result.source === "local_engine") {
       tryPolishAssistantReply(scenarioId, project, message, result.reply);
     }

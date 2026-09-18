@@ -2,14 +2,31 @@ import type { DemoRepositories } from "../bootstrap";
 import type { DemoCalcScenario, DemoProjectContext } from "../types";
 import { analyzeScenarioLocal } from "./analyze";
 import { parseAssistantIntent, type AssistantIntent } from "./intent";
-import { describePatches, type ParamPatch } from "./params";
+import {
+  areSegmentValuesEqual,
+  countSegments,
+  defaultScopeForField,
+  describePatches,
+  fieldScopeLevel,
+  FIELD_META,
+  findRouteByHint,
+  findSegmentByHint,
+  formatScopeLabel,
+  listSegmentParamLocations,
+  validatePatches,
+  type AssistantParamKey,
+  type ParamPatch,
+  type ParamScope,
+} from "./params";
 import {
   calculateAndSaveTool,
   compareScenariosTool,
   formatMetricAnswer,
   generateReportTool,
   getCalculationResultTool,
+  getParameterScopeTool,
   getProjectContextTool,
+  getRoutesTool,
   getScenarioTool,
   getSensitivityAnalysisTool,
   localDiagnoseTool,
@@ -21,13 +38,25 @@ import {
 export type AssistantPageContext = "project" | "input" | "results" | "compare";
 
 export type PendingAssistantAction = {
-  type: "modify" | "create_scenario";
+  type: "modify" | "create_scenario" | "await_scope" | "await_abnormal_confirm";
   patches: ParamPatch[];
   scenarioName?: string;
   baseScenarioId: string;
   projectId: string;
   previewText: string;
-  changes: { label: string; from: string; to: string; unit: string }[];
+  changes: {
+    label: string;
+    from: string;
+    to: string;
+    unit: string;
+    scope?: ParamScope;
+    scopeLabel?: string;
+  }[];
+  scope?: ParamScope;
+  scopeLabel?: string;
+  createNewScenario: boolean;
+  willRecalculate: boolean;
+  warnings?: string[];
 };
 
 export type AssistantSession = {
@@ -50,7 +79,7 @@ export type AssistantTurnResult = {
   scenarioId?: string;
   refreshedScenarioIds?: string[];
   traces: ToolTrace[];
-  source: "local_engine" | "tools";
+  source: "local_engine" | "tools" | "llm_intent";
   confirmRequired: boolean;
 };
 
@@ -89,7 +118,7 @@ function resolveComparePair(
   if (hint === "last_two" && session.recentScenarioIds.length >= 2) {
     const a = repos.scenarios.getScenario(session.recentScenarioIds[1]);
     const b = repos.scenarios.getScenario(session.recentScenarioIds[0]);
-    if (a?.results && b?.results) return { a, b };
+    if (a?.results && b?.results && a.projectId === projectId && b.projectId === projectId) return { a, b };
   }
 
   const baseline = list.find((s) => s.status === "baseline") || list.find((s) => s.id === currentId) || list[0];
@@ -98,8 +127,100 @@ function resolveComparePair(
   return { a: baseline, b: peer };
 }
 
-function buildPending(
-  type: PendingAssistantAction["type"],
+function applyScopeToPatches(
+  patches: ParamPatch[],
+  scope: ParamScope,
+  ids?: { routeId?: string; segmentId?: string },
+): ParamPatch[] {
+  return patches.map((p) => {
+    if (fieldScopeLevel(p.field) === "vehicle") {
+      return { ...p, scope: "vehicle", routeId: undefined, segmentId: undefined };
+    }
+    return {
+      ...p,
+      scope,
+      routeId: scope === "route" || scope === "segment" ? ids?.routeId : undefined,
+      segmentId: scope === "segment" ? ids?.segmentId : undefined,
+    };
+  });
+}
+
+function resolveScopeFromHint(
+  scenario: DemoCalcScenario,
+  intent: AssistantIntent,
+): { ok: true; patches: ParamPatch[] } | { ok: false; reply: string } {
+  const patches = intent.patches.map((p) => ({ ...p }));
+  const hint = intent.scopeHint;
+
+  const allVehicle = patches.every((p) => fieldScopeLevel(p.field) === "vehicle");
+  if (allVehicle) {
+    return { ok: true, patches: applyScopeToPatches(patches, "vehicle") };
+  }
+
+  const segFields = patches.filter((p) => fieldScopeLevel(p.field) === "segment");
+  const segCount = countSegments(scenario.inputs);
+
+  if (hint?.scope === "all_routes") {
+    return { ok: true, patches: applyScopeToPatches(patches, "all_routes") };
+  }
+  if (hint?.scope === "route") {
+    const found = hint.routeHint ? findRouteByHint(scenario.inputs, hint.routeHint) : null;
+    if (!found) {
+      const routes = getRoutesTool(scenario.inputs);
+      return {
+        ok: false,
+        reply: `请指定线路。可选：${routes.routes.map((r) => r.routeName).join("、") || "无"}。可回复「指定线路：线路名」。`,
+      };
+    }
+    return { ok: true, patches: applyScopeToPatches(patches, "route", { routeId: found.id }) };
+  }
+  if (hint?.scope === "segment") {
+    const found = hint.segmentHint ? findSegmentByHint(scenario.inputs, hint.segmentHint) : null;
+    if (!found) {
+      const segs = getParameterScopeTool(scenario.inputs, segFields[0]?.field || "electricityPrice");
+      return {
+        ok: false,
+        reply: `请指定路段。当前路段：${segs.locations.map((l) => `${l.routeName}/${l.segmentName}`).join("、") || "无"}。`,
+      };
+    }
+    return {
+      ok: true,
+      patches: applyScopeToPatches(patches, "segment", { routeId: found.routeId, segmentId: found.segmentId }),
+    };
+  }
+
+  if (segCount <= 1) {
+    const locs = listSegmentParamLocations(scenario.inputs, segFields[0]?.field || "electricityPrice");
+    const only = locs[0];
+    return {
+      ok: true,
+      patches: applyScopeToPatches(patches, only ? "segment" : "all_routes", {
+        routeId: only?.routeId,
+        segmentId: only?.segmentId,
+      }),
+    };
+  }
+
+  return { ok: true, patches };
+}
+
+function needsScopeClarification(scenario: DemoCalcScenario, patches: ParamPatch[]): boolean {
+  const segPatches = patches.filter((p) => fieldScopeLevel(p.field) === "segment");
+  if (!segPatches.length) return false;
+  if (countSegments(scenario.inputs) <= 1) return false;
+  // 已明确 scope（含用户选择的 all_routes）则不再追问
+  if (segPatches.every((p) => p.scope === "route" || p.scope === "segment" || p.scope === "all_routes")) {
+    return false;
+  }
+  return segPatches.some((p) => !areSegmentValuesEqual(scenario.inputs, p.field));
+}
+
+function fieldLabel(field: AssistantParamKey) {
+  return FIELD_META[field].label;
+}
+
+function buildScopeClarifyPending(
+  type: "modify" | "create_scenario",
   ctx: {
     patches: ParamPatch[];
     scenario: DemoCalcScenario;
@@ -107,13 +228,52 @@ function buildPending(
     scenarioName?: string;
   },
 ): PendingAssistantAction {
+  const field = ctx.patches.find((p) => fieldScopeLevel(p.field) === "segment")?.field || ctx.patches[0].field;
+  const locs = listSegmentParamLocations(ctx.scenario.inputs, field);
+  const lines = locs.map((l) => `- ${l.routeName}/${l.segmentName}：${l.value ?? "—"}`).join("\n");
+  const previewText = [
+    `检测到「${fieldLabel(field)}」在各路段取值不一致，不能直接按模糊指令批量修改。`,
+    `当前各路段值：\n${lines}`,
+    `请选择作用范围后继续：`,
+    `1. 全部路段统一修改`,
+    `2. 指定线路（回复：指定线路：线路名）`,
+    `3. 指定路段（回复：指定路段：路段名）`,
+  ].join("\n");
+
+  return {
+    type: "await_scope",
+    patches: ctx.patches,
+    scenarioName: ctx.scenarioName,
+    baseScenarioId: ctx.scenario.id,
+    projectId: ctx.projectId,
+    previewText,
+    changes: [],
+    createNewScenario: type === "create_scenario",
+    willRecalculate: true,
+  };
+}
+
+function buildPending(
+  type: "modify" | "create_scenario",
+  ctx: {
+    patches: ParamPatch[];
+    scenario: DemoCalcScenario;
+    projectId: string;
+    scenarioName?: string;
+    warnings?: string[];
+  },
+): PendingAssistantAction {
   const updated = updateScenarioInputTool(ctx.scenario.inputs, ctx.patches);
+  const scope = ctx.patches[0]?.scope || defaultScopeForField(ctx.patches[0]?.field || "electricityPrice");
+  const scopeLabel = ctx.patches[0] ? formatScopeLabel(ctx.scenario.inputs, ctx.patches[0]) : "项目/车辆级";
+  const changeLines = updated.changes
+    .map((c) => `${c.label}：${c.from} → ${c.to}${c.unit ? ` ${c.unit}` : ""}（${c.scopeLabel}）`)
+    .join("；");
+  const warnText = ctx.warnings?.length ? `\n注意：${ctx.warnings.join("；")}` : "";
   const previewText =
     type === "create_scenario"
-      ? `将基于「${ctx.scenario.name}」创建「${ctx.scenarioName || "AI模拟方案"}」，并应用：${updated.changes
-          .map((c) => `${c.label} ${c.from}→${c.to}${c.unit ? c.unit : ""}`)
-          .join("；") || "无参数变更"}。是否确认并测算？`
-      : `已识别参数调整：${updated.changes.map((c) => `${c.label}：${c.from} → ${c.to}${c.unit ? ` ${c.unit}` : ""}`).join("；")}。是否应用并重新测算？`;
+      ? `将基于「${ctx.scenario.name}」创建「${ctx.scenarioName || "AI模拟方案"}」，并应用：${changeLines || "无参数变更"}。作用范围：${scopeLabel}。确认后将调用 Calculation Engine 重新测算。是否确认？${warnText}`
+      : `已识别参数调整：${changeLines}。作用范围：${scopeLabel}。确认后将更新当前方案并调用 Calculation Engine 重新测算。是否确认？${warnText}`;
 
   return {
     type,
@@ -122,7 +282,31 @@ function buildPending(
     baseScenarioId: ctx.scenario.id,
     projectId: ctx.projectId,
     previewText,
-    changes: updated.changes,
+    changes: updated.changes.map((c) => ({
+      label: c.label,
+      from: c.from,
+      to: c.to,
+      unit: c.unit,
+      scope: c.scope,
+      scopeLabel: c.scopeLabel,
+    })),
+    scope,
+    scopeLabel,
+    createNewScenario: type === "create_scenario",
+    willRecalculate: true,
+    warnings: ctx.warnings,
+  };
+}
+
+function isolationFailure(session: AssistantSession, intent: AssistantIntent, traces: ToolTrace[]): AssistantTurnResult {
+  return {
+    reply: "当前方案不属于打开的项目，已拒绝写操作，避免跨项目串改。",
+    intent,
+    pending: null,
+    session: { ...session, pending: null },
+    traces,
+    source: "tools",
+    confirmRequired: false,
   };
 }
 
@@ -146,14 +330,29 @@ function executePending(
     };
   }
 
+  if (base.scenario.projectId !== pending.projectId) {
+    return isolationFailure(session, { kind: "modify", title: "隔离拒绝", patches: [], parser: "rule" }, traces);
+  }
+
+  const validation = validatePatches(base.scenario.inputs, pending.patches);
+  if (validation.errors.length) {
+    session.pending = null;
+    return {
+      reply: `参数非法，已拦截，未修改方案、未调用引擎：${validation.errors.map((e) => e.message).join("；")}`,
+      intent: { kind: "modify", title: "校验失败", patches: pending.patches, parser: "rule" },
+      pending: null,
+      session,
+      traces,
+      source: "tools",
+      confirmRequired: false,
+    };
+  }
+
   const updated = updateScenarioInputTool(base.scenario.inputs, pending.patches);
   traces.push(updated.trace);
 
-  const createNew = pending.type === "create_scenario";
-  const name =
-    pending.type === "create_scenario"
-      ? pending.scenarioName || "AI模拟方案"
-      : base.scenario.name;
+  const createNew = pending.type === "create_scenario" || pending.createNewScenario;
+  const name = createNew ? pending.scenarioName || "AI模拟方案" : base.scenario.name;
 
   const calc = calculateAndSaveTool(repos, {
     scenarioId: createNew ? undefined : base.scenario.id,
@@ -177,10 +376,15 @@ function executePending(
       ? (profitAfter - profitBefore).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
       : "—";
 
-  const changeLines = pending.changes.map((c) => `${c.label}：${c.from} → ${c.to}${c.unit ? ` ${c.unit}` : ""}`).join("\n");
+  const changeLines = pending.changes
+    .map((c) => `${c.label}：${c.from} → ${c.to}${c.unit ? ` ${c.unit}` : ""}${c.scopeLabel ? `（${c.scopeLabel}）` : ""}`)
+    .join("\n");
   const reply = [
-    createNew ? `已创建方案「${calc.scenario.name}」（${calc.scenario.id}）并完成真实测算。` : `已应用参数并调用 Calculation Engine 重新测算。`,
+    createNew
+      ? `已创建方案「${calc.scenario.name}」（${calc.scenario.id}）并完成真实测算。`
+      : `已应用参数并调用 Calculation Engine 重新测算。`,
     changeLines ? `变更：\n${changeLines}` : "",
+    pending.scopeLabel ? `作用范围：${pending.scopeLabel}` : "",
     after
       ? `新结果：月收入 ${Number(after.monthlyRevenue).toLocaleString("zh-CN", { minimumFractionDigits: 2 })} 元；月成本 ${Number(after.monthlyTotalCost).toLocaleString("zh-CN", { minimumFractionDigits: 2 })} 元；月利润 ${Number(after.monthlyProfit).toLocaleString("zh-CN", { minimumFractionDigits: 2 })} 元；利润率 ${
           after.profitMargin == null ? "—" : `${(Number(after.profitMargin) * 100).toFixed(2)}%`
@@ -210,6 +414,100 @@ function executePending(
   };
 }
 
+function prepareModifyOrCreate(
+  intent: AssistantIntent,
+  scenario: DemoCalcScenario,
+  projectId: string,
+  session: AssistantSession,
+  traces: ToolTrace[],
+  source: AssistantTurnResult["source"],
+): AssistantTurnResult {
+  const type = intent.kind === "create_scenario" ? "create_scenario" : "modify";
+
+  if (!intent.patches.length && type === "create_scenario") {
+    const pending = buildPending("create_scenario", {
+      patches: [],
+      scenario,
+      projectId,
+      scenarioName: intent.scenarioName,
+    });
+    session.pending = pending;
+    return { reply: pending.previewText, intent, pending, session, traces, source, confirmRequired: true };
+  }
+
+  if (!intent.patches.length) {
+    return {
+      reply: "已识别到修改意图，但未解析出具体参数值。请例如：「把电价改成0.65元」。",
+      intent,
+      pending: null,
+      session,
+      traces,
+      source,
+      confirmRequired: false,
+    };
+  }
+
+  const scoped = resolveScopeFromHint(scenario, intent);
+  if (!scoped.ok) {
+    return { reply: scoped.reply, intent, pending: null, session, traces, source, confirmRequired: false };
+  }
+
+  let patches = scoped.patches;
+
+  if (needsScopeClarification(scenario, patches)) {
+    const pending = buildScopeClarifyPending(type, {
+      patches,
+      scenario,
+      projectId,
+      scenarioName: intent.scenarioName,
+    });
+    session.pending = pending;
+    return { reply: pending.previewText, intent, pending, session, traces, source, confirmRequired: true };
+  }
+
+  patches = patches.map((p) => {
+    if (fieldScopeLevel(p.field) === "vehicle") return { ...p, scope: "vehicle" as const };
+    if (!p.scope) return { ...p, scope: "all_routes" as const };
+    return p;
+  });
+
+  const validation = validatePatches(scenario.inputs, patches);
+  if (validation.errors.length) {
+    return {
+      reply: `参数非法，已拦截，不会写入方案也不会调用引擎：${validation.errors.map((e) => e.message).join("；")}`,
+      intent,
+      pending: null,
+      session,
+      traces,
+      source,
+      confirmRequired: false,
+    };
+  }
+
+  if (validation.warnings.length) {
+    const pending = buildPending(type, {
+      patches,
+      scenario,
+      projectId,
+      scenarioName: intent.scenarioName,
+      warnings: validation.warnings.map((w) => w.message),
+    });
+    pending.type = "await_abnormal_confirm";
+    pending.previewText = `${validation.warnings.map((w) => w.message).join("；")}。\n${pending.previewText}\n回复「确认」继续，或「取消」放弃。`;
+    session.pending = pending;
+    return { reply: pending.previewText, intent, pending, session, traces, source, confirmRequired: true };
+  }
+
+  const pending = buildPending(type, {
+    patches,
+    scenario,
+    projectId,
+    scenarioName: intent.scenarioName,
+  });
+  session.pending = pending;
+  return { reply: pending.previewText, intent, pending, session, traces, source, confirmRequired: true };
+}
+
 /**
  * AI 项目测算助手单轮执行。
  * 修改类意图只生成确认卡片；确认后才调用引擎。
@@ -221,12 +519,17 @@ export function runAssistantTurn(params: {
   message: string;
   session?: AssistantSession;
   project?: DemoProjectContext | null;
+  /** 可选：LLM 已校验的结构化意图，优先于规则解析 */
+  parsedIntent?: AssistantIntent;
 }): AssistantTurnResult {
-  const session = params.session ? { ...params.session, recentScenarioIds: [...params.session.recentScenarioIds] } : createAssistantSession();
+  const session = params.session
+    ? { ...params.session, recentScenarioIds: [...params.session.recentScenarioIds] }
+    : createAssistantSession();
   session.pending = params.session?.pending ? { ...params.session.pending } : null;
 
-  const intent = parseAssistantIntent(params.message);
+  const intent = params.parsedIntent || parseAssistantIntent(params.message);
   const traces: ToolTrace[] = [];
+  const source: AssistantTurnResult["source"] = params.parsedIntent?.parser === "llm" ? "llm_intent" : "tools";
 
   const projectHit = getProjectContextTool(params.repos, params.projectId);
   traces.push(projectHit.trace);
@@ -243,9 +546,13 @@ export function runAssistantTurn(params: {
       pending: null,
       session,
       traces,
-      source: "tools",
+      source,
       confirmRequired: false,
     };
+  }
+
+  if (scenario.projectId !== params.projectId) {
+    return isolationFailure(session, intent, traces);
   }
 
   pushRecent(session, scenario.id);
@@ -258,8 +565,25 @@ export function runAssistantTurn(params: {
         pending: null,
         session,
         traces,
-        source: "tools",
+        source,
         confirmRequired: false,
+      };
+    }
+    if (session.pending.type === "await_scope") {
+      return {
+        reply: "请先选择作用范围（全部路段 / 指定线路 / 指定路段），再确认测算。",
+        intent,
+        pending: session.pending,
+        session,
+        traces,
+        source,
+        confirmRequired: true,
+      };
+    }
+    if (session.pending.type === "await_abnormal_confirm") {
+      session.pending = {
+        ...session.pending,
+        type: session.pending.createNewScenario ? "create_scenario" : "modify",
       };
     }
     return executePending(params.repos, session.pending, session);
@@ -273,73 +597,71 @@ export function runAssistantTurn(params: {
       pending: null,
       session,
       traces,
-      source: "tools",
+      source,
       confirmRequired: false,
     };
   }
 
-  if (intent.kind === "modify" || intent.kind === "create_scenario") {
-    if (!intent.patches.length && intent.kind === "create_scenario") {
-      // 允许无补丁复制创建
-      const pending = buildPending("create_scenario", {
-        patches: [],
-        scenario,
-        projectId: params.projectId,
-        scenarioName: intent.scenarioName,
+  if (intent.kind === "scope_choice" && session.pending?.type === "await_scope") {
+    const basePending = session.pending;
+    let patches = basePending.patches;
+    if (intent.scopeChoice?.mode === "all_routes") {
+      patches = applyScopeToPatches(patches, "all_routes");
+    } else if (intent.scopeChoice?.mode === "route") {
+      const hint = intent.scopeChoice.routeHint || params.message;
+      const found = findRouteByHint(scenario.inputs, hint);
+      if (!found) {
+        const routes = getRoutesTool(scenario.inputs);
+        return {
+          reply: `未匹配到线路。可选：${routes.routes.map((r) => r.routeName).join("、")}。请回复「指定线路：线路名」。`,
+          intent,
+          pending: session.pending,
+          session,
+          traces,
+          source,
+          confirmRequired: true,
+        };
+      }
+      patches = applyScopeToPatches(patches, "route", { routeId: found.id });
+    } else if (intent.scopeChoice?.mode === "segment") {
+      const hint = intent.scopeChoice.segmentHint || params.message;
+      const found = findSegmentByHint(scenario.inputs, hint);
+      if (!found) {
+        return {
+          reply: "未匹配到路段。请回复「指定路段：路段名」。",
+          intent,
+          pending: session.pending,
+          session,
+          traces,
+          source,
+          confirmRequired: true,
+        };
+      }
+      patches = applyScopeToPatches(patches, "segment", {
+        routeId: found.routeId,
+        segmentId: found.segmentId,
       });
-      session.pending = pending;
-      return {
-        reply: pending.previewText,
-        intent,
-        pending,
-        session,
-        traces,
-        source: "tools",
-        confirmRequired: true,
-      };
     }
-    if (!intent.patches.length) {
-      return {
-        reply: "已识别到修改意图，但未解析出具体参数值。请例如：「把电价改成0.65元」。",
-        intent,
-        pending: null,
-        session,
-        traces,
-        source: "tools",
-        confirmRequired: false,
-      };
-    }
-    const pending = buildPending(intent.kind === "create_scenario" ? "create_scenario" : "modify", {
-      patches: intent.patches,
-      scenario,
-      projectId: params.projectId,
-      scenarioName: intent.scenarioName,
-    });
-    session.pending = pending;
-    return {
-      reply: pending.previewText,
-      intent,
-      pending,
-      session,
-      traces,
-      source: "tools",
-      confirmRequired: true,
+
+    const nextIntent: AssistantIntent = {
+      kind: basePending.createNewScenario ? "create_scenario" : "modify",
+      title: "已明确作用范围",
+      patches,
+      scenarioName: basePending.scenarioName,
+      parser: intent.parser,
     };
+    return prepareModifyOrCreate(nextIntent, scenario, params.projectId, session, traces, source);
+  }
+
+  if (intent.kind === "modify" || intent.kind === "create_scenario") {
+    return prepareModifyOrCreate(intent, scenario, params.projectId, session, traces, source);
   }
 
   if (intent.kind === "query") {
     getCalculationResultTool(scenario);
     const count = params.repos.scenarios.listScenarios(params.projectId).length;
     const reply = formatMetricAnswer(scenario, intent.queryTarget || "general", count);
-    return {
-      reply,
-      intent,
-      pending: session.pending,
-      session,
-      traces,
-      source: "tools",
-      confirmRequired: false,
-    };
+    return { reply, intent, pending: session.pending, session, traces, source, confirmRequired: false };
   }
 
   if (intent.kind === "compare") {
@@ -351,20 +673,24 @@ export function runAssistantTurn(params: {
         pending: session.pending,
         session,
         traces,
-        source: "tools",
+        source,
         confirmRequired: false,
       };
     }
     const cmp = compareScenariosTool(pair.a, pair.b);
     traces.push(cmp.trace);
     return {
-      reply: cmp.summary + (cmp.rows.length ? `\n\n${cmp.rows.map((r) => `${r.label}：${r.a} → ${r.b}（Δ ${r.delta}）`).join("\n")}` : ""),
+      reply:
+        cmp.summary +
+        (cmp.rows.length
+          ? `\n\n${cmp.rows.map((r) => `${r.label}：${r.a} → ${r.b}（Δ ${r.delta}，变化率 ${r.changeRate}）`).join("\n")}`
+          : ""),
       intent,
       pending: session.pending,
       session,
       compareRows: cmp.rows,
       traces,
-      source: "tools",
+      source,
       confirmRequired: false,
     };
   }
@@ -379,7 +705,7 @@ export function runAssistantTurn(params: {
       pending: session.pending,
       session,
       traces,
-      source: "tools",
+      source,
       confirmRequired: false,
     };
   }
@@ -387,23 +713,11 @@ export function runAssistantTurn(params: {
   if (intent.kind === "report") {
     const report = generateReportTool({ project, scenario });
     traces.push(report.trace);
-    return {
-      reply: report.text,
-      intent,
-      pending: session.pending,
-      session,
-      traces,
-      source: "tools",
-      confirmRequired: false,
-    };
+    return { reply: report.text, intent, pending: session.pending, session, traces, source, confirmRequired: false };
   }
 
   if (intent.kind === "advice" || intent.kind === "diagnose") {
-    const diag = localDiagnoseTool({
-      scenario,
-      project,
-      question: params.message,
-    });
+    const diag = localDiagnoseTool({ scenario, project, question: params.message });
     traces.push(diag.trace);
     const insight = diag.insight;
     const adviceExtra =
@@ -424,7 +738,6 @@ export function runAssistantTurn(params: {
     };
   }
 
-  // unmatched：降级到本地解读引擎，保证不白屏
   try {
     const fallback = analyzeScenarioLocal({ scenario, project, question: params.message });
     return {
@@ -465,7 +778,25 @@ export function confirmPendingAction(params: {
       confirmRequired: false,
     };
   }
-  return executePending(params.repos, params.session.pending, {
+  if (params.session.pending.type === "await_scope") {
+    return {
+      reply: "请先选择作用范围后再确认。",
+      intent: { kind: "confirm", title: "待选范围", patches: [], parser: "rule" },
+      pending: params.session.pending,
+      session: params.session,
+      traces: [],
+      source: "tools",
+      confirmRequired: true,
+    };
+  }
+  const pending =
+    params.session.pending.type === "await_abnormal_confirm"
+      ? {
+          ...params.session.pending,
+          type: (params.session.pending.createNewScenario ? "create_scenario" : "modify") as PendingAssistantAction["type"],
+        }
+      : params.session.pending;
+  return executePending(params.repos, pending, {
     ...params.session,
     recentScenarioIds: [...params.session.recentScenarioIds],
   });

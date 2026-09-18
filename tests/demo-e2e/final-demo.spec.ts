@@ -13,7 +13,7 @@ async function loginAsSales(page: Page) {
 async function openProjectCalc(page: Page, projectId = "PRJ-DEMO-001") {
   await page.goto(`/#/projects/${projectId}`);
   await expect(page.locator("h1")).toBeVisible();
-  await page.locator(`button[data-go="/projects/${projectId}/calculation"]`).click();
+  await page.getByRole("button", { name: "进入测算" }).click();
   await expect(page.locator("h1", { hasText: "项目测算" })).toBeVisible();
 }
 
@@ -98,7 +98,7 @@ test.describe("终审 Demo 主链路", () => {
 
     // 打开任一已测算方案看 AI
     await page.getByRole("button", { name: "打开" }).first().click();
-    await page.getByRole("button", { name: "生成解读" }).click();
+    await page.getByRole("button", { name: "本地解读" }).click();
     await expect(page.locator("#calc-ai-body")).toContainText(/本地解读|大模型|AI 暂不可用|测算结果解读|业务诊断/);
     await expect(page.locator(".calc-ai-panel")).toContainText("AI 项目测算助手");
     await page.locator("#calc-ai-open").click();
@@ -107,6 +107,7 @@ test.describe("终审 Demo 主链路", () => {
     await page.locator("#calc-ai-send").click();
     await expect(page.locator("#calc-ai-chat")).toContainText(/月利润|引擎/);
 
+    await page.locator("#calc-ai-close").click();
     await page.getByRole("button", { name: "返回项目详情" }).click();
     await expect(page.locator("h1")).toContainText("临港");
 
@@ -133,6 +134,74 @@ test.describe("终审 Demo 主链路", () => {
     const names008 = await page.locator(".calc-scenario-panel .object-name").allTextContents();
     expect(names008.every((n) => !n.includes("临港"))).toBeTruthy();
     expect(names008.some((n) => n.includes("基准"))).toBeTruthy();
+  });
+
+  test("AI业务助手领导演示链路：诊断→改参确认→创建→加车→对比→敏感性→汇报→刷新仍在", async ({ page }) => {
+    await loginAsSales(page);
+    await openProjectCalc(page, "PRJ-DEMO-008");
+    await page.getByRole("button", { name: "打开" }).first().click();
+    await expect(page.locator(".calc-ai-panel")).toContainText("AI 项目测算助手");
+
+    await page.locator("#calc-ai-open").click();
+    await expect(page.locator("#calc-ai-drawer")).toBeVisible();
+
+    async function ask(text: string) {
+      await page.locator("#calc-ai-input").fill(text);
+      await page.locator("#calc-ai-send").click();
+      await expect(page.locator("#calc-ai-chat")).toContainText(text.slice(0, 6), { timeout: 15000 });
+    }
+
+    await ask("这个项目为什么利润比较低？");
+    await expect(page.locator("#calc-ai-chat")).toContainText(/月利润|利润率|引擎|成本/, { timeout: 15000 });
+
+    await ask("如果电价从0.8降到0.65呢？");
+    await expect(page.locator("#calc-ai-confirm")).toBeVisible();
+    await expect(page.locator("#calc-ai-confirm")).toContainText(/电价|0\.65|确认/);
+    await page.locator("#calc-ai-confirm-btn").click();
+    await expect(page.locator("#calc-ai-chat")).toContainText(/Calculation Engine|重新测算|引擎/, { timeout: 20000 });
+    await expect(page.locator("#app")).not.toHaveText(/NaN|Infinity/);
+
+    await ask("帮我做一个低电价方案");
+    await expect(page.locator("#calc-ai-confirm")).toBeVisible();
+    await page.locator("#calc-ai-confirm-btn").click();
+    await expect(page.locator("#calc-ai-chat")).toContainText(/已创建方案/, { timeout: 20000 });
+
+    await ask("车辆增加10台");
+    await expect(page.locator("#calc-ai-confirm")).toBeVisible();
+    await page.locator("#calc-ai-confirm-btn").click();
+    await expect(page.locator("#calc-ai-chat")).toContainText(/重新测算|Calculation Engine|引擎/, { timeout: 20000 });
+
+    await ask("帮我比较刚才两个方案");
+    await expect(page.locator("#calc-ai-chat")).toContainText(/月利润|月收入/, { timeout: 15000 });
+
+    await ask("哪些参数最影响利润？");
+    await expect(page.locator("#calc-ai-chat")).toContainText(/敏感|引擎|利润/, { timeout: 20000 });
+
+    await ask("帮我生成一段给领导汇报的结论");
+    await expect(page.locator("#calc-ai-chat")).toContainText(/汇报结论|Calculation Engine/, { timeout: 15000 });
+
+    const scenarioUrl = page.url();
+    await page.locator("#calc-ai-close").click();
+    await page.reload();
+    if (await page.locator("#login-form").count()) {
+      await loginAsSales(page);
+      await page.goto(scenarioUrl);
+    }
+    await expect(page.locator(".calc-result-metrics")).toBeVisible();
+    await expect(page.locator("#app")).not.toHaveText(/NaN|Infinity/);
+
+    await page.getByRole("button", { name: "返回项目详情" }).click();
+    await expect(page.locator("h1")).toBeVisible();
+
+    const errors = (page as Page & { __demoErrors?: string[] }).__demoErrors || [];
+    const realBlocking = errors.filter(
+      (e) =>
+        !e.includes("favicon") &&
+        !e.includes("404") &&
+        !/Failed to load resource.*favicon/i.test(e) &&
+        !/503|AI_NOT_CONFIGURED|demo-ai/i.test(e),
+    );
+    expect(realBlocking).toEqual([]);
   });
 
   test("异常输入不白屏：空值/负数/非数字", async ({ page }) => {

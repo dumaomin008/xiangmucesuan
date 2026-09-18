@@ -4932,48 +4932,145 @@ var PmCalcModule = (() => {
 
   // src/demo/ai/params.ts
   var FIELD_META = {
-    electricityPrice: { label: "\u7535\u4EF7", unit: "\u5143/kWh" },
-    fleetSize: { label: "\u8F66\u8F86\u6570", unit: "\u53F0" },
-    freightPrice: { label: "\u8FD0\u4EF7", unit: "\u5143" },
-    tripsPerVehicleMonth: { label: "\u5355\u8F66\u6708\u8D9F\u6B21", unit: "\u8D9F" },
-    distanceKm: { label: "\u91CC\u7A0B", unit: "km" },
-    loadTon: { label: "\u8F7D\u91CD", unit: "\u5428" },
-    loadedEnergyConsumption: { label: "\u91CD\u8F7D\u80FD\u8017", unit: "kWh/km" },
-    driverCostPerTrip: { label: "\u53F8\u673A\u6210\u672C", unit: "\u5143/\u8D9F" },
-    monthlyRentPerVehicle: { label: "\u5355\u8F66\u6708\u79DF", unit: "\u5143" }
+    electricityPrice: { label: "\u7535\u4EF7", unit: "\u5143/kWh", scopeLevel: "segment" },
+    fleetSize: { label: "\u8F66\u8F86\u6570", unit: "\u53F0", scopeLevel: "vehicle" },
+    freightPrice: { label: "\u8FD0\u4EF7", unit: "\u5143", scopeLevel: "segment" },
+    tripsPerVehicleMonth: { label: "\u5355\u8F66\u6708\u8D9F\u6B21", unit: "\u8D9F", scopeLevel: "segment" },
+    distanceKm: { label: "\u91CC\u7A0B", unit: "km", scopeLevel: "segment" },
+    loadTon: { label: "\u8F7D\u91CD", unit: "\u5428", scopeLevel: "segment" },
+    loadedEnergyConsumption: { label: "\u91CD\u8F7D\u80FD\u8017", unit: "kWh/km", scopeLevel: "segment" },
+    driverCostPerTrip: { label: "\u53F8\u673A\u6210\u672C", unit: "\u5143/\u8D9F", scopeLevel: "segment" },
+    monthlyRentPerVehicle: { label: "\u5355\u8F66\u6708\u79DF", unit: "\u5143", scopeLevel: "vehicle" }
   };
-  function firstSegment(inputs) {
-    return inputs.routes?.[0]?.segments?.[0];
-  }
+  var HARD_RULES = {
+    electricityPrice: (n) => n < 0 ? "\u7535\u4EF7\u4E0D\u80FD\u4E3A\u8D1F\u6570" : null,
+    fleetSize: (n) => n <= 0 ? "\u8F66\u8F86\u6570\u5FC5\u987B\u5927\u4E8E 0" : null,
+    freightPrice: (n) => n < 0 ? "\u8FD0\u4EF7\u4E0D\u80FD\u4E3A\u8D1F\u6570" : null,
+    tripsPerVehicleMonth: (n) => n < 0 ? "\u8D9F\u6B21\u4E0D\u80FD\u4E3A\u8D1F\u6570" : null,
+    distanceKm: (n) => n <= 0 ? "\u91CC\u7A0B\u5FC5\u987B\u5927\u4E8E 0" : null,
+    loadTon: (n) => n < 0 ? "\u8F7D\u91CD\u4E0D\u80FD\u4E3A\u8D1F\u6570" : null,
+    loadedEnergyConsumption: (n) => n < 0 ? "\u80FD\u8017\u4E0D\u80FD\u4E3A\u8D1F\u6570" : null,
+    driverCostPerTrip: (n) => n < 0 ? "\u53F8\u673A\u6210\u672C\u4E0D\u80FD\u4E3A\u8D1F\u6570" : null,
+    monthlyRentPerVehicle: (n) => n < 0 ? "\u6708\u79DF\u4E0D\u80FD\u4E3A\u8D1F\u6570" : null
+  };
+  var SOFT_RANGE = {
+    electricityPrice: { min: 0.1, max: 5, hint: "\u5E38\u89C4\u7535\u4EF7\u591A\u5728 0.1\uFF5E5 \u5143/kWh" },
+    fleetSize: { min: 1, max: 2e3, hint: "\u5E38\u89C4\u8F66\u8F86\u6570\u591A\u5728 1\uFF5E2000 \u53F0" },
+    freightPrice: { min: 1, max: 2e3, hint: "\u5E38\u89C4\u8FD0\u4EF7\u591A\u5728 1\uFF5E2000 \u5143\u91CF\u7EA7" },
+    tripsPerVehicleMonth: { min: 1, max: 60, hint: "\u5E38\u89C4\u5355\u8F66\u6708\u8D9F\u6B21\u591A\u5728 1\uFF5E60 \u8D9F" },
+    distanceKm: { min: 1, max: 2e3, hint: "\u5E38\u89C4\u91CC\u7A0B\u591A\u5728 1\uFF5E2000 km" },
+    loadTon: { min: 0.1, max: 80, hint: "\u5E38\u89C4\u8F7D\u91CD\u591A\u5728 0.1\uFF5E80 \u5428" },
+    loadedEnergyConsumption: { min: 0.2, max: 5, hint: "\u5E38\u89C4\u91CD\u8F7D\u80FD\u8017\u591A\u5728 0.2\uFF5E5 kWh/km" },
+    driverCostPerTrip: { min: 0, max: 2e3, hint: "\u5E38\u89C4\u53F8\u673A\u5355\u8D9F\u6210\u672C\u591A\u5728 0\uFF5E2000 \u5143" },
+    monthlyRentPerVehicle: { min: 1e3, max: 5e4, hint: "\u5E38\u89C4\u5355\u8F66\u6708\u79DF\u591A\u5728 1000\uFF5E50000 \u5143" }
+  };
   function num(v) {
     if (v === null || v === void 0 || v === "") return null;
     const n = Number(v);
     return Number.isFinite(n) ? n : null;
   }
-  function getParamValue(inputs, field) {
-    const seg = firstSegment(inputs);
-    switch (field) {
-      case "fleetSize":
-        return num(inputs.fleetSize ?? inputs.vehicle?.fleetSize);
-      case "monthlyRentPerVehicle":
-        return num(inputs.vehicle?.monthlyRentPerVehicle);
-      case "electricityPrice":
-        return num(seg?.electricityPrice);
-      case "freightPrice":
-        return num(seg?.freightPrice);
-      case "tripsPerVehicleMonth":
-        return num(seg?.tripsPerVehicleMonth);
-      case "distanceKm":
-        return num(seg?.distanceKm);
-      case "loadTon":
-        return num(seg?.loadTon);
-      case "loadedEnergyConsumption":
-        return num(seg?.loadedEnergyConsumption);
-      case "driverCostPerTrip":
-        return num(seg?.driverCostPerTrip);
-      default:
-        return null;
+  function fieldScopeLevel(field) {
+    return FIELD_META[field].scopeLevel;
+  }
+  function defaultScopeForField(field) {
+    return FIELD_META[field].scopeLevel === "vehicle" ? "vehicle" : "all_routes";
+  }
+  function listSegmentParamLocations(inputs, field) {
+    if (FIELD_META[field].scopeLevel !== "segment") return [];
+    const key = field;
+    const rows = [];
+    for (const route of inputs.routes || []) {
+      for (const seg of route.segments || []) {
+        rows.push({
+          routeId: route.id,
+          routeName: route.routeName || route.routeCode || route.id,
+          segmentId: seg.id,
+          segmentName: seg.segmentName || seg.id,
+          value: num(seg[key])
+        });
+      }
     }
+    return rows;
+  }
+  function getParamValue(inputs, field, scope) {
+    if (field === "fleetSize") {
+      return num(inputs.fleetSize ?? inputs.vehicle?.fleetSize);
+    }
+    if (field === "monthlyRentPerVehicle") {
+      return num(inputs.vehicle?.monthlyRentPerVehicle);
+    }
+    const locs = listSegmentParamLocations(inputs, field);
+    if (!locs.length) return null;
+    if (scope?.scope === "segment" && scope.segmentId) {
+      return locs.find((l) => l.segmentId === scope.segmentId)?.value ?? null;
+    }
+    if (scope?.scope === "route" && scope.routeId) {
+      const routeVals = locs.filter((l) => l.routeId === scope.routeId).map((l) => l.value);
+      const finite2 = routeVals.filter((v) => v != null);
+      if (!finite2.length) return null;
+      if (finite2.every((v) => v === finite2[0])) return finite2[0];
+      return finite2[0];
+    }
+    const finite = locs.map((l) => l.value).filter((v) => v != null);
+    if (!finite.length) return null;
+    if (finite.every((v) => v === finite[0])) return finite[0];
+    return locs[0]?.value ?? null;
+  }
+  function describeParamValues(inputs, field) {
+    if (FIELD_META[field].scopeLevel === "vehicle") {
+      const v = getParamValue(inputs, field);
+      return v == null ? "\u2014" : String(v);
+    }
+    const locs = listSegmentParamLocations(inputs, field);
+    if (!locs.length) return "\u2014";
+    const finite = locs.map((l) => l.value);
+    if (finite.every((v) => v === finite[0])) return finite[0] == null ? "\u2014" : String(finite[0]);
+    return locs.map((l) => `${l.routeName}/${l.segmentName}=${l.value ?? "\u2014"}`).join("\uFF1B");
+  }
+  function areSegmentValuesEqual(inputs, field) {
+    if (FIELD_META[field].scopeLevel !== "segment") return true;
+    const locs = listSegmentParamLocations(inputs, field);
+    if (locs.length <= 1) return true;
+    const first = locs[0]?.value;
+    return locs.every((l) => l.value === first);
+  }
+  function countSegments(inputs) {
+    return (inputs.routes || []).reduce((n, r) => n + (r.segments?.length || 0), 0);
+  }
+  function resolveComputedValue(inputs, patch2) {
+    const current = getParamValue(inputs, patch2.field, patch2);
+    if (patch2.operation === "set") return patch2.value;
+    if (patch2.operation === "add") return (current ?? 0) + patch2.value;
+    if (current == null) return null;
+    return current * patch2.value;
+  }
+  function validateParamValue(field, nextValue) {
+    const hard = HARD_RULES[field](nextValue);
+    if (hard) return { level: "error", field, message: hard };
+    const soft = SOFT_RANGE[field];
+    if (soft.min != null && nextValue < soft.min) {
+      return { level: "warning", field, message: `${FIELD_META[field].label}=${nextValue} \u660E\u663E\u504F\u4F4E\uFF08${soft.hint}\uFF09\uFF0C\u8BF7\u786E\u8BA4\u662F\u5426\u4ECD\u8981\u4FEE\u6539` };
+    }
+    if (soft.max != null && nextValue > soft.max) {
+      return { level: "warning", field, message: `${FIELD_META[field].label}=${nextValue} \u660E\u663E\u504F\u9AD8\uFF08${soft.hint}\uFF09\uFF0C\u8BF7\u786E\u8BA4\u662F\u5426\u4ECD\u8981\u4FEE\u6539` };
+    }
+    return null;
+  }
+  function validatePatches(inputs, patches) {
+    const errors = [];
+    const warnings = [];
+    for (const patch2 of patches) {
+      const next = resolveComputedValue(inputs, patch2);
+      if (next == null || !Number.isFinite(next)) {
+        errors.push({ level: "error", field: patch2.field, message: `${patch2.label}\u65E0\u6CD5\u8BA1\u7B97\u76EE\u6807\u503C` });
+        continue;
+      }
+      const issue = validateParamValue(patch2.field, next);
+      if (!issue) continue;
+      if (issue.level === "error") errors.push(issue);
+      else warnings.push(issue);
+    }
+    return { errors, warnings };
   }
   function snapshotParams(inputs) {
     return Object.keys(FIELD_META).map((field) => {
@@ -4989,7 +5086,7 @@ var PmCalcModule = (() => {
     });
   }
   function applyOne(inputs, patch2) {
-    const current = getParamValue(inputs, patch2.field);
+    const current = getParamValue(inputs, patch2.field, patch2);
     let next;
     if (patch2.operation === "set") next = patch2.value;
     else if (patch2.operation === "add") next = (current ?? 0) + patch2.value;
@@ -5005,9 +5102,14 @@ var PmCalcModule = (() => {
       return;
     }
     const key = patch2.field;
+    const scope = patch2.scope || "all_routes";
     for (const route of inputs.routes || []) {
+      if (scope === "route" && patch2.routeId && route.id !== patch2.routeId) continue;
       for (const seg of route.segments || []) {
-        seg[key] = String(next);
+        if (scope === "segment" && patch2.segmentId && seg.id !== patch2.segmentId) continue;
+        if (scope === "route" || scope === "segment" || scope === "all_routes") {
+          seg[key] = String(next);
+        }
       }
     }
   }
@@ -5015,18 +5117,67 @@ var PmCalcModule = (() => {
     const next = cloneJson(inputs);
     const changes = patches.map((patch2) => {
       const meta = FIELD_META[patch2.field];
-      const fromVal = getParamValue(next, patch2.field);
-      applyOne(next, patch2);
-      const toVal = getParamValue(next, patch2.field);
+      const scope = patch2.scope || defaultScopeForField(patch2.field);
+      const fromText = meta.scopeLevel === "segment" && scope === "all_routes" && !areSegmentValuesEqual(inputs, patch2.field) ? describeParamValues(inputs, patch2.field) : (() => {
+        const fromVal = getParamValue(next, patch2.field, patch2);
+        return fromVal == null ? "\u2014" : String(fromVal);
+      })();
+      applyOne(next, { ...patch2, scope });
+      const toVal = getParamValue(next, patch2.field, { ...patch2, scope });
       return {
         field: patch2.field,
         label: meta.label,
-        from: fromVal == null ? "\u2014" : String(fromVal),
+        from: fromText,
         to: toVal == null ? "\u2014" : String(toVal),
-        unit: meta.unit
+        unit: meta.unit,
+        scope,
+        scopeLabel: formatScopeLabel(inputs, { ...patch2, scope })
       };
     });
     return { inputs: next, changes };
+  }
+  function formatScopeLabel(inputs, patch2) {
+    const scope = patch2.scope || defaultScopeForField(patch2.field);
+    if (scope === "project" || scope === "vehicle") return "\u9879\u76EE/\u8F66\u8F86\u7EA7";
+    if (scope === "all_routes") {
+      const n = countSegments(inputs);
+      return n <= 1 ? "\u5F53\u524D\u8DEF\u6BB5" : `\u5168\u90E8${n}\u4E2A\u8DEF\u6BB5`;
+    }
+    if (scope === "route") {
+      const route = (inputs.routes || []).find((r) => r.id === patch2.routeId);
+      return route ? `\u7EBF\u8DEF\u300C${route.routeName || route.id}\u300D` : "\u6307\u5B9A\u7EBF\u8DEF";
+    }
+    if (scope === "segment") {
+      for (const route of inputs.routes || []) {
+        const seg = (route.segments || []).find((s) => s.id === patch2.segmentId);
+        if (seg) return `\u8DEF\u6BB5\u300C${route.routeName}/${seg.segmentName}\u300D`;
+      }
+      return "\u6307\u5B9A\u8DEF\u6BB5";
+    }
+    return "\u672A\u6307\u5B9A";
+  }
+  function findRouteByHint(inputs, hint) {
+    const q = hint.replace(/\s+/g, "");
+    for (const route of inputs.routes || []) {
+      const name = route.routeName || "";
+      const code = route.routeCode || "";
+      if (q.includes(name) || code && q.includes(code) || q.includes(route.id)) {
+        return { id: route.id, name: name || code || route.id };
+      }
+    }
+    return null;
+  }
+  function findSegmentByHint(inputs, hint) {
+    const q = hint.replace(/\s+/g, "");
+    for (const route of inputs.routes || []) {
+      for (const seg of route.segments || []) {
+        const label = `${route.routeName}/${seg.segmentName}`;
+        if (q.includes(seg.segmentName) || q.includes(seg.id) || q.includes(label.replace(/\s+/g, ""))) {
+          return { routeId: route.id, segmentId: seg.id, label };
+        }
+      }
+    }
+    return null;
   }
 
   // src/demo/ai/intent.ts
@@ -5043,9 +5194,123 @@ var PmCalcModule = (() => {
     }
     return null;
   }
-  function patch(field, operation, value) {
+  function signedNumMatch(q, patterns) {
+    return numMatch(q, patterns);
+  }
+  function patch(field, operation, value, scopeHint) {
     const meta = FIELD_META[field];
-    return { field, label: meta.label, operation, value, unit: meta.unit };
+    return {
+      field,
+      label: meta.label,
+      operation,
+      value,
+      unit: meta.unit,
+      scope: scopeHint
+    };
+  }
+  function detectScopeHint(q) {
+    if (/全部路段|所有路段|全部线路|所有线路|统一修改|全部修改/.test(q)) {
+      return { scope: "all_routes" };
+    }
+    const routeNamed = q.match(/(?:线路|路线)[「『]?([^」』，,。；;\s]{1,20})/);
+    if (routeNamed) return { scope: "route", routeHint: routeNamed[1] };
+    const segNamed = q.match(/(?:路段)[「『]?([^」』，,。；;\s]{1,20})/);
+    if (segNamed) return { scope: "segment", segmentHint: segNamed[1] };
+    if (/指定线路|某一线路|某条线路/.test(q)) return { scope: "route" };
+    if (/指定路段|某一路段|某个路段/.test(q)) return { scope: "segment" };
+    return void 0;
+  }
+  function collectPatches(q) {
+    const patches = [];
+    const elecPctUp = numMatch(q, [/电价[^0-9\-]{0,8}(?:上涨|上调|提高|增加)(-?\d+(?:\.\d+)?)\s*%/]);
+    const elecPctDown = numMatch(q, [/电价[^0-9\-]{0,8}(?:下降|下调|降低|降)(-?\d+(?:\.\d+)?)\s*%/]);
+    if (elecPctUp != null) patches.push(patch("electricityPrice", "multiply", 1 + elecPctUp / 100));
+    else if (elecPctDown != null) patches.push(patch("electricityPrice", "multiply", 1 - elecPctDown / 100));
+    else {
+      const elecTo = signedNumMatch(q, [
+        /电价[^0-9\-]{0,12}(?:降到|降为|改为|改成|调整为|调到|按照|按|设为)(-?\d+(?:\.\d+)?)/,
+        /电价.*?降到(-?\d+(?:\.\d+)?)/
+      ]);
+      if (elecTo != null && /电价/.test(q)) {
+        patches.push(patch("electricityPrice", "set", elecTo));
+      } else if (/电价/.test(q) && /下降|降低|降了|降电价/.test(q) && !/降到|降为|改为|改成/.test(q) && !/%/.test(q)) {
+        const drop = signedNumMatch(q, [/下降(-?\d+(?:\.\d+)?)元?/, /降低(-?\d+(?:\.\d+)?)元?/, /降(?:了)?(-?\d+(?:\.\d+)?)元?/]) ?? 0.1;
+        patches.push(patch("electricityPrice", "add", -Math.abs(drop)));
+      } else if (/电价/.test(q) && /上涨|上调|提高/.test(q) && !/%/.test(q)) {
+        const up = signedNumMatch(q, [/上涨(-?\d+(?:\.\d+)?)/, /上调(-?\d+(?:\.\d+)?)/, /提高(-?\d+(?:\.\d+)?)/]);
+        if (up != null) patches.push(patch("electricityPrice", "add", Math.abs(up)));
+      } else if (/电价/.test(q) && /改成|改为|调整为|设为|把电价/.test(q)) {
+        const n = signedNumMatch(q, [/(-?\d+(?:\.\d+)?)/]);
+        if (n != null) patches.push(patch("electricityPrice", "set", n));
+      } else {
+        const elecSet = signedNumMatch(q, [/电价[^0-9\-]{0,8}(?:为|是|=)(-?\d+(?:\.\d+)?)/]);
+        if (elecSet != null) patches.push(patch("electricityPrice", "set", elecSet));
+      }
+    }
+    const fleetSet = numMatch(q, [/车辆(?:数|配置)?[^0-9]{0,6}(?:改成|改为|调整为|设为|调整到)?(\d+)\s*台?/]);
+    if (fleetSet != null && /车辆/.test(q) && !/增加|减少|加|少/.test(q)) {
+      patches.push(patch("fleetSize", "set", fleetSet));
+    }
+    const fleetAdd = numMatch(q, [/车辆[^0-9]{0,8}增加(\d+)/, /增加(\d+)\s*台/, /车辆增加(\d+)/]);
+    if (fleetAdd != null) patches.push(patch("fleetSize", "add", fleetAdd));
+    const fleetSub = numMatch(q, [/车辆[^0-9]{0,8}减少(\d+)/, /减少(\d+)\s*台/, /车辆减少(\d+)/]);
+    if (fleetSub != null) patches.push(patch("fleetSize", "add", -fleetSub));
+    const freightPctDown = numMatch(q, [/运价[^0-9]{0,8}(?:下降|下调|降低|降)(\d+(?:\.\d+)?)\s*%/]);
+    const freightPctUp = numMatch(q, [/运价[^0-9]{0,8}(?:上涨|上调|提高|升)(\d+(?:\.\d+)?)\s*%/]);
+    if (freightPctDown != null) patches.push(patch("freightPrice", "multiply", 1 - freightPctDown / 100));
+    else if (freightPctUp != null) patches.push(patch("freightPrice", "multiply", 1 + freightPctUp / 100));
+    else {
+      const freightSet = numMatch(q, [/运价[^0-9]{0,8}(?:改成|改为|调整为|调到|设为)?(\d+(?:\.\d+)?)/]);
+      if (freightSet != null && /运价/.test(q)) {
+        patches.push(patch("freightPrice", "set", freightSet));
+      }
+    }
+    const tripsPctDown = numMatch(q, [/(?:趟次|单车月趟次)[^0-9\-]{0,8}(?:下降|下调|降低|降)(-?\d+(?:\.\d+)?)\s*%/]);
+    const tripsPctUp = numMatch(q, [/(?:趟次|单车月趟次)[^0-9\-]{0,8}(?:上涨|上调|提高|升)(-?\d+(?:\.\d+)?)\s*%/]);
+    if (tripsPctDown != null) patches.push(patch("tripsPerVehicleMonth", "multiply", 1 - tripsPctDown / 100));
+    else if (tripsPctUp != null) patches.push(patch("tripsPerVehicleMonth", "multiply", 1 + tripsPctUp / 100));
+    else if (/趟次|趟/.test(q) && /减少|增加/.test(q)) {
+      const tripsSub = numMatch(q, [/趟次[^0-9\-]{0,6}减少(-?\d+(?:\.\d+)?)/, /减少(-?\d+(?:\.\d+)?)趟/]);
+      if (tripsSub != null) patches.push(patch("tripsPerVehicleMonth", "add", -Math.abs(tripsSub)));
+      const tripsAdd = numMatch(q, [/趟次[^0-9\-]{0,6}增加(-?\d+(?:\.\d+)?)/, /增加(-?\d+(?:\.\d+)?)趟/]);
+      if (tripsAdd != null && !/台/.test(q)) patches.push(patch("tripsPerVehicleMonth", "add", Math.abs(tripsAdd)));
+    } else {
+      const tripsSet = signedNumMatch(q, [
+        /(?:单车月趟次|月趟次|趟次)[^0-9\-]{0,8}(?:改成|改为|调整为|调整到|调到|设为)?(-?\d+(?:\.\d+)?)/,
+        /调整到(-?\d+(?:\.\d+)?)趟/
+      ]);
+      if (tripsSet != null && /趟/.test(q)) {
+        patches.push(patch("tripsPerVehicleMonth", "set", tripsSet));
+      }
+    }
+    const distSet = numMatch(q, [
+      /(?:运输)?里程[^0-9]{0,8}(?:改成|改为|调整为|调到|设为)?(\d+(?:\.\d+)?)/,
+      /改成(\d+(?:\.\d+)?)(?:公里|千米|km)/i
+    ]);
+    if (distSet != null && (/里程/.test(q) || /公里|千米|km/i.test(q))) {
+      patches.push(patch("distanceKm", "set", distSet));
+    }
+    const loadSet = numMatch(q, [/(?:载重|吨位)[^0-9]{0,8}(?:改成|改为|调整为|按|按照)?(\d+(?:\.\d+)?)/, /按(\d+(?:\.\d+)?)吨/]);
+    if (loadSet != null && (/载重|吨位/.test(q) || /按\d/.test(q) && /吨/.test(q))) {
+      patches.push(patch("loadTon", "set", loadSet));
+    }
+    const energySet = numMatch(q, [
+      /(?:重载)?能耗[^0-9]{0,8}(?:改成|改为|调整为|调整到|调到|设为)?(\d+(?:\.\d+)?)/
+    ]);
+    if (energySet != null && /能耗/.test(q)) {
+      patches.push(patch("loadedEnergyConsumption", "set", energySet));
+    }
+    const driverSet = numMatch(q, [
+      /司机(?:单趟)?(?:成本)?[^0-9]{0,8}(?:改成|改为|调整为|调到|设为)?(\d+(?:\.\d+)?)/
+    ]);
+    if (driverSet != null && /司机/.test(q)) {
+      patches.push(patch("driverCostPerTrip", "set", driverSet));
+    }
+    const rent = numMatch(q, [/(?:单车)?月租[^0-9]{0,8}(?:改成|改为|调整为|调到|设为)?(\d+(?:\.\d+)?)/]);
+    if (rent != null && /月租/.test(q)) {
+      patches.push(patch("monthlyRentPerVehicle", "set", rent));
+    }
+    return patches;
   }
   function parseAssistantIntent(question) {
     const raw = question.trim();
@@ -5053,11 +5318,22 @@ var PmCalcModule = (() => {
     if (!q) {
       return { kind: "unmatched", title: "\u7A7A\u95EE\u9898", patches: [], parser: "rule" };
     }
-    if (/^(确认|确认并测算|应用并测算|好的|执行|同意)$/.test(q) || /确认并.*测算/.test(q)) {
+    if (/^(确认|确认并测算|应用并测算|好的|执行|同意|仍然确认|继续修改)$/.test(q) || /确认并.*测算/.test(q)) {
       return { kind: "confirm", title: "\u786E\u8BA4\u4FEE\u6539\u5E76\u6D4B\u7B97", patches: [], parser: "rule" };
     }
     if (/^(取消|不要|算了|放弃)$/.test(q)) {
       return { kind: "cancel", title: "\u53D6\u6D88\u4FEE\u6539", patches: [], parser: "rule" };
+    }
+    if (/^(1|全部|全部路段|所有路段|统一修改|全部修改)$/.test(q) || /全部\d*个?路段/.test(q)) {
+      return { kind: "scope_choice", title: "\u9009\u62E9\u5168\u90E8\u8DEF\u6BB5", patches: [], scopeChoice: { mode: "all_routes" }, parser: "rule" };
+    }
+    if (/^(2|指定线路)/.test(q) || /选(择)?线路/.test(q)) {
+      const hint = raw.match(/线路[：:\s]*([^\s，,。]+)/)?.[1];
+      return { kind: "scope_choice", title: "\u9009\u62E9\u6307\u5B9A\u7EBF\u8DEF", patches: [], scopeChoice: { mode: "route", routeHint: hint }, parser: "rule" };
+    }
+    if (/^(3|指定路段)/.test(q) || /选(择)?路段/.test(q)) {
+      const hint = raw.match(/路段[：:\s]*([^\s，,。]+)/)?.[1];
+      return { kind: "scope_choice", title: "\u9009\u62E9\u6307\u5B9A\u8DEF\u6BB5", patches: [], scopeChoice: { mode: "segment", segmentHint: hint }, parser: "rule" };
     }
     if (/汇报|给领导|经营结论|汇报结论|项目结论/.test(q)) {
       return { kind: "report", title: "\u751F\u6210\u6C47\u62A5\u7ED3\u8BBA", patches: [], parser: "rule" };
@@ -5082,41 +5358,8 @@ var PmCalcModule = (() => {
     }
     const createName = (raw.match(/做[一个]?(?:个)?(.+?)方案/) || raw.match(/创建(.+?)方案/) || raw.match(/低电价方案/))?.[1];
     const isCreate = /做[一个]?|创建|新建|生成.+方案|低电价方案/.test(q) && /方案/.test(q);
-    const patches = [];
-    const elecTo = numMatch(q, [
-      /电价[^0-9]{0,12}(?:降到|降为|改为|改成|调整为|调到|按照|按)(\d+(?:\.\d+)?)/,
-      /电价.*?降到(\d+(?:\.\d+)?)/
-    ]);
-    if (elecTo != null && /电价/.test(q)) {
-      patches.push(patch("electricityPrice", "set", elecTo));
-    } else if (/电价/.test(q) && /下降|降低|降了|降电价/.test(q) && !/降到|降为|改为|改成/.test(q)) {
-      const drop = numMatch(q, [/下降(\d+(?:\.\d+)?)元?/, /降低(\d+(?:\.\d+)?)元?/, /降(?:了)?(\d+(?:\.\d+)?)元?/]) ?? 0.1;
-      patches.push(patch("electricityPrice", "add", -Math.abs(drop)));
-    } else if (/电价/.test(q) && /改成|改为|调整为|设为|把电价/.test(q)) {
-      const n = numMatch(q, [/(\d+(?:\.\d+)?)/]);
-      if (n != null) patches.push(patch("electricityPrice", "set", n));
-    } else {
-      const elecSet = numMatch(q, [/电价[^0-9]{0,8}(?:为|是|=)(\d+(?:\.\d+)?)/]);
-      if (elecSet != null) patches.push(patch("electricityPrice", "set", elecSet));
-    }
-    const fleetSet = numMatch(q, [/车辆(?:数|配置)?[^0-9]{0,6}(?:改成|改为|调整为|设为)?(\d+)\s*台?/]);
-    if (fleetSet != null && /车辆/.test(q) && !/增加|减少|加|少/.test(q)) {
-      patches.push(patch("fleetSize", "set", fleetSet));
-    }
-    const fleetAdd = numMatch(q, [/车辆[^0-9]{0,8}增加(\d+)/, /增加(\d+)\s*台/, /车辆增加(\d+)/]);
-    if (fleetAdd != null) patches.push(patch("fleetSize", "add", fleetAdd));
-    const fleetSub = numMatch(q, [/车辆[^0-9]{0,8}减少(\d+)/, /减少(\d+)\s*台/, /车辆减少(\d+)/]);
-    if (fleetSub != null) patches.push(patch("fleetSize", "add", -fleetSub));
-    const freightPct = numMatch(q, [/运价[^0-9]{0,8}(?:下降|下调|降低|降)(\d+(?:\.\d+)?)\s*%/]);
-    if (freightPct != null) {
-      patches.push(patch("freightPrice", "multiply", 1 - freightPct / 100));
-    }
-    const freightSet = numMatch(q, [/运价[^0-9]{0,6}(?:改成|改为|调整为)?(\d+(?:\.\d+)?)/]);
-    if (freightSet != null && /运价/.test(q) && freightPct == null) {
-      patches.push(patch("freightPrice", "set", freightSet));
-    }
-    const rent = numMatch(q, [/月租[^0-9]{0,6}(?:改成|改为|调整为)?(\d+(?:\.\d+)?)/]);
-    if (rent != null) patches.push(patch("monthlyRentPerVehicle", "set", rent));
+    const patches = collectPatches(q);
+    const scopeHint = detectScopeHint(q);
     if (isCreate || patches.length && /方案|情景|模拟/.test(q) && /做|创建|新建|生成|帮我/.test(q)) {
       const name = createName && createName.length < 20 ? createName.includes("\u65B9\u6848") ? createName : `${createName}\u65B9\u6848` : patches.some((p) => p.field === "electricityPrice") ? "\u4F4E\u7535\u4EF7\u65B9\u6848" : patches.some((p) => p.field === "fleetSize") ? "\u8F66\u8F86\u8C03\u6574\u65B9\u6848" : "AI\u6A21\u62DF\u65B9\u6848";
       return {
@@ -5124,6 +5367,7 @@ var PmCalcModule = (() => {
         title: `\u521B\u5EFA${name}`,
         patches,
         scenarioName: name,
+        scopeHint,
         parser: "rule"
       };
     }
@@ -5132,6 +5376,7 @@ var PmCalcModule = (() => {
         kind: "modify",
         title: "\u4FEE\u6539\u6D4B\u7B97\u53C2\u6570",
         patches,
+        scopeHint,
         parser: "rule"
       };
     }
@@ -5214,6 +5459,12 @@ var PmCalcModule = (() => {
     };
   }
   function calculateAndSaveTool(repos2, params) {
+    if (!params.createNew && params.scenarioId) {
+      const existing = repos2.scenarios.getScenario(params.scenarioId);
+      if (existing && existing.projectId !== params.projectId) {
+        throw new Error("\u8DE8\u9879\u76EE\u5199\u64CD\u4F5C\u5DF2\u62D2\u7EDD\uFF1Ascenario.projectId \u4E0E\u5F53\u524D projectId \u4E0D\u4E00\u81F4");
+      }
+    }
     const live = calculateProject(params.inputs);
     const saved = repos2.scenarios.saveScenario({
       id: params.createNew ? void 0 : params.scenarioId,
@@ -5258,15 +5509,23 @@ var PmCalcModule = (() => {
       const na = va == null ? null : Number(va);
       const nb = vb == null ? null : Number(vb);
       let delta = "\u2014";
+      let changeRate = "\u2014";
       if (na != null && nb != null && Number.isFinite(na) && Number.isFinite(nb)) {
         const diff2 = nb - na;
         delta = d.kind === "pct" ? `${(diff2 * 100).toFixed(2)} ppt` : money3(diff2);
+        if (d.kind === "pct") {
+          changeRate = `${(diff2 * 100).toFixed(2)} ppt`;
+        } else if (na === 0) {
+          changeRate = nb === 0 ? "0%" : "\u2014";
+        } else {
+          changeRate = `${(diff2 / Math.abs(na) * 100).toFixed(2)}%`;
+        }
       }
       const fmt = (v) => {
         if (v == null) return "\u2014";
         return d.kind === "pct" ? pct2(v) : d.kind === "money" ? money3(v) : String(v);
       };
-      return { key: String(d.key), label: d.label, a: fmt(va), b: fmt(vb), delta };
+      return { key: String(d.key), label: d.label, a: fmt(va), b: fmt(vb), delta, changeRate };
     });
     const profitA = Number(ma.monthlyProfit);
     const profitB = Number(mb.monthlyProfit);
@@ -5276,6 +5535,21 @@ var PmCalcModule = (() => {
       rows,
       summary,
       trace: { tool: "compareScenarios", ok: true, detail: `${a.id} vs ${b.id}` }
+    };
+  }
+  function getRoutesTool(inputs) {
+    const routes = (inputs.routes || []).map((r) => ({
+      id: r.id,
+      routeName: r.routeName || r.routeCode || r.id,
+      segmentCount: r.segments?.length || 0
+    }));
+    return { routes, trace: { tool: "getRoutes", ok: true, detail: String(routes.length) } };
+  }
+  function getParameterScopeTool(inputs, field) {
+    const locations = listSegmentParamLocations(inputs, field);
+    return {
+      locations,
+      trace: { tool: "getParameterScope", ok: true, detail: `${field}:${locations.length}` }
     };
   }
   function getSensitivityAnalysisTool(inputs) {
@@ -5412,16 +5686,121 @@ var PmCalcModule = (() => {
     if (hint === "last_two" && session.recentScenarioIds.length >= 2) {
       const a = repos2.scenarios.getScenario(session.recentScenarioIds[1]);
       const b = repos2.scenarios.getScenario(session.recentScenarioIds[0]);
-      if (a?.results && b?.results) return { a, b };
+      if (a?.results && b?.results && a.projectId === projectId && b.projectId === projectId) return { a, b };
     }
     const baseline = list.find((s) => s.status === "baseline") || list.find((s) => s.id === currentId) || list[0];
     const peer = list.find((s) => s.id !== baseline.id) || list[1];
     if (!baseline || !peer) return null;
     return { a: baseline, b: peer };
   }
+  function applyScopeToPatches(patches, scope, ids) {
+    return patches.map((p) => {
+      if (fieldScopeLevel(p.field) === "vehicle") {
+        return { ...p, scope: "vehicle", routeId: void 0, segmentId: void 0 };
+      }
+      return {
+        ...p,
+        scope,
+        routeId: scope === "route" || scope === "segment" ? ids?.routeId : void 0,
+        segmentId: scope === "segment" ? ids?.segmentId : void 0
+      };
+    });
+  }
+  function resolveScopeFromHint(scenario2, intent) {
+    const patches = intent.patches.map((p) => ({ ...p }));
+    const hint = intent.scopeHint;
+    const allVehicle = patches.every((p) => fieldScopeLevel(p.field) === "vehicle");
+    if (allVehicle) {
+      return { ok: true, patches: applyScopeToPatches(patches, "vehicle") };
+    }
+    const segFields = patches.filter((p) => fieldScopeLevel(p.field) === "segment");
+    const segCount = countSegments(scenario2.inputs);
+    if (hint?.scope === "all_routes") {
+      return { ok: true, patches: applyScopeToPatches(patches, "all_routes") };
+    }
+    if (hint?.scope === "route") {
+      const found = hint.routeHint ? findRouteByHint(scenario2.inputs, hint.routeHint) : null;
+      if (!found) {
+        const routes = getRoutesTool(scenario2.inputs);
+        return {
+          ok: false,
+          reply: `\u8BF7\u6307\u5B9A\u7EBF\u8DEF\u3002\u53EF\u9009\uFF1A${routes.routes.map((r) => r.routeName).join("\u3001") || "\u65E0"}\u3002\u53EF\u56DE\u590D\u300C\u6307\u5B9A\u7EBF\u8DEF\uFF1A\u7EBF\u8DEF\u540D\u300D\u3002`
+        };
+      }
+      return { ok: true, patches: applyScopeToPatches(patches, "route", { routeId: found.id }) };
+    }
+    if (hint?.scope === "segment") {
+      const found = hint.segmentHint ? findSegmentByHint(scenario2.inputs, hint.segmentHint) : null;
+      if (!found) {
+        const segs = getParameterScopeTool(scenario2.inputs, segFields[0]?.field || "electricityPrice");
+        return {
+          ok: false,
+          reply: `\u8BF7\u6307\u5B9A\u8DEF\u6BB5\u3002\u5F53\u524D\u8DEF\u6BB5\uFF1A${segs.locations.map((l) => `${l.routeName}/${l.segmentName}`).join("\u3001") || "\u65E0"}\u3002`
+        };
+      }
+      return {
+        ok: true,
+        patches: applyScopeToPatches(patches, "segment", { routeId: found.routeId, segmentId: found.segmentId })
+      };
+    }
+    if (segCount <= 1) {
+      const locs = listSegmentParamLocations(scenario2.inputs, segFields[0]?.field || "electricityPrice");
+      const only = locs[0];
+      return {
+        ok: true,
+        patches: applyScopeToPatches(patches, only ? "segment" : "all_routes", {
+          routeId: only?.routeId,
+          segmentId: only?.segmentId
+        })
+      };
+    }
+    return { ok: true, patches };
+  }
+  function needsScopeClarification(scenario2, patches) {
+    const segPatches = patches.filter((p) => fieldScopeLevel(p.field) === "segment");
+    if (!segPatches.length) return false;
+    if (countSegments(scenario2.inputs) <= 1) return false;
+    if (segPatches.every((p) => p.scope === "route" || p.scope === "segment" || p.scope === "all_routes")) {
+      return false;
+    }
+    return segPatches.some((p) => !areSegmentValuesEqual(scenario2.inputs, p.field));
+  }
+  function fieldLabel(field) {
+    return FIELD_META[field].label;
+  }
+  function buildScopeClarifyPending(type, ctx) {
+    const field = ctx.patches.find((p) => fieldScopeLevel(p.field) === "segment")?.field || ctx.patches[0].field;
+    const locs = listSegmentParamLocations(ctx.scenario.inputs, field);
+    const lines = locs.map((l) => `- ${l.routeName}/${l.segmentName}\uFF1A${l.value ?? "\u2014"}`).join("\n");
+    const previewText = [
+      `\u68C0\u6D4B\u5230\u300C${fieldLabel(field)}\u300D\u5728\u5404\u8DEF\u6BB5\u53D6\u503C\u4E0D\u4E00\u81F4\uFF0C\u4E0D\u80FD\u76F4\u63A5\u6309\u6A21\u7CCA\u6307\u4EE4\u6279\u91CF\u4FEE\u6539\u3002`,
+      `\u5F53\u524D\u5404\u8DEF\u6BB5\u503C\uFF1A
+${lines}`,
+      `\u8BF7\u9009\u62E9\u4F5C\u7528\u8303\u56F4\u540E\u7EE7\u7EED\uFF1A`,
+      `1. \u5168\u90E8\u8DEF\u6BB5\u7EDF\u4E00\u4FEE\u6539`,
+      `2. \u6307\u5B9A\u7EBF\u8DEF\uFF08\u56DE\u590D\uFF1A\u6307\u5B9A\u7EBF\u8DEF\uFF1A\u7EBF\u8DEF\u540D\uFF09`,
+      `3. \u6307\u5B9A\u8DEF\u6BB5\uFF08\u56DE\u590D\uFF1A\u6307\u5B9A\u8DEF\u6BB5\uFF1A\u8DEF\u6BB5\u540D\uFF09`
+    ].join("\n");
+    return {
+      type: "await_scope",
+      patches: ctx.patches,
+      scenarioName: ctx.scenarioName,
+      baseScenarioId: ctx.scenario.id,
+      projectId: ctx.projectId,
+      previewText,
+      changes: [],
+      createNewScenario: type === "create_scenario",
+      willRecalculate: true
+    };
+  }
   function buildPending(type, ctx) {
     const updated = updateScenarioInputTool(ctx.scenario.inputs, ctx.patches);
-    const previewText = type === "create_scenario" ? `\u5C06\u57FA\u4E8E\u300C${ctx.scenario.name}\u300D\u521B\u5EFA\u300C${ctx.scenarioName || "AI\u6A21\u62DF\u65B9\u6848"}\u300D\uFF0C\u5E76\u5E94\u7528\uFF1A${updated.changes.map((c) => `${c.label} ${c.from}\u2192${c.to}${c.unit ? c.unit : ""}`).join("\uFF1B") || "\u65E0\u53C2\u6570\u53D8\u66F4"}\u3002\u662F\u5426\u786E\u8BA4\u5E76\u6D4B\u7B97\uFF1F` : `\u5DF2\u8BC6\u522B\u53C2\u6570\u8C03\u6574\uFF1A${updated.changes.map((c) => `${c.label}\uFF1A${c.from} \u2192 ${c.to}${c.unit ? ` ${c.unit}` : ""}`).join("\uFF1B")}\u3002\u662F\u5426\u5E94\u7528\u5E76\u91CD\u65B0\u6D4B\u7B97\uFF1F`;
+    const scope = ctx.patches[0]?.scope || defaultScopeForField(ctx.patches[0]?.field || "electricityPrice");
+    const scopeLabel = ctx.patches[0] ? formatScopeLabel(ctx.scenario.inputs, ctx.patches[0]) : "\u9879\u76EE/\u8F66\u8F86\u7EA7";
+    const changeLines = updated.changes.map((c) => `${c.label}\uFF1A${c.from} \u2192 ${c.to}${c.unit ? ` ${c.unit}` : ""}\uFF08${c.scopeLabel}\uFF09`).join("\uFF1B");
+    const warnText = ctx.warnings?.length ? `
+\u6CE8\u610F\uFF1A${ctx.warnings.join("\uFF1B")}` : "";
+    const previewText = type === "create_scenario" ? `\u5C06\u57FA\u4E8E\u300C${ctx.scenario.name}\u300D\u521B\u5EFA\u300C${ctx.scenarioName || "AI\u6A21\u62DF\u65B9\u6848"}\u300D\uFF0C\u5E76\u5E94\u7528\uFF1A${changeLines || "\u65E0\u53C2\u6570\u53D8\u66F4"}\u3002\u4F5C\u7528\u8303\u56F4\uFF1A${scopeLabel}\u3002\u786E\u8BA4\u540E\u5C06\u8C03\u7528 Calculation Engine \u91CD\u65B0\u6D4B\u7B97\u3002\u662F\u5426\u786E\u8BA4\uFF1F${warnText}` : `\u5DF2\u8BC6\u522B\u53C2\u6570\u8C03\u6574\uFF1A${changeLines}\u3002\u4F5C\u7528\u8303\u56F4\uFF1A${scopeLabel}\u3002\u786E\u8BA4\u540E\u5C06\u66F4\u65B0\u5F53\u524D\u65B9\u6848\u5E76\u8C03\u7528 Calculation Engine \u91CD\u65B0\u6D4B\u7B97\u3002\u662F\u5426\u786E\u8BA4\uFF1F${warnText}`;
     return {
       type,
       patches: ctx.patches,
@@ -5429,7 +5808,30 @@ var PmCalcModule = (() => {
       baseScenarioId: ctx.scenario.id,
       projectId: ctx.projectId,
       previewText,
-      changes: updated.changes
+      changes: updated.changes.map((c) => ({
+        label: c.label,
+        from: c.from,
+        to: c.to,
+        unit: c.unit,
+        scope: c.scope,
+        scopeLabel: c.scopeLabel
+      })),
+      scope,
+      scopeLabel,
+      createNewScenario: type === "create_scenario",
+      willRecalculate: true,
+      warnings: ctx.warnings
+    };
+  }
+  function isolationFailure(session, intent, traces) {
+    return {
+      reply: "\u5F53\u524D\u65B9\u6848\u4E0D\u5C5E\u4E8E\u6253\u5F00\u7684\u9879\u76EE\uFF0C\u5DF2\u62D2\u7EDD\u5199\u64CD\u4F5C\uFF0C\u907F\u514D\u8DE8\u9879\u76EE\u4E32\u6539\u3002",
+      intent,
+      pending: null,
+      session: { ...session, pending: null },
+      traces,
+      source: "tools",
+      confirmRequired: false
     };
   }
   function executePending(repos2, pending, session) {
@@ -5447,10 +5849,26 @@ var PmCalcModule = (() => {
         confirmRequired: false
       };
     }
+    if (base.scenario.projectId !== pending.projectId) {
+      return isolationFailure(session, { kind: "modify", title: "\u9694\u79BB\u62D2\u7EDD", patches: [], parser: "rule" }, traces);
+    }
+    const validation = validatePatches(base.scenario.inputs, pending.patches);
+    if (validation.errors.length) {
+      session.pending = null;
+      return {
+        reply: `\u53C2\u6570\u975E\u6CD5\uFF0C\u5DF2\u62E6\u622A\uFF0C\u672A\u4FEE\u6539\u65B9\u6848\u3001\u672A\u8C03\u7528\u5F15\u64CE\uFF1A${validation.errors.map((e) => e.message).join("\uFF1B")}`,
+        intent: { kind: "modify", title: "\u6821\u9A8C\u5931\u8D25", patches: pending.patches, parser: "rule" },
+        pending: null,
+        session,
+        traces,
+        source: "tools",
+        confirmRequired: false
+      };
+    }
     const updated = updateScenarioInputTool(base.scenario.inputs, pending.patches);
     traces.push(updated.trace);
-    const createNew = pending.type === "create_scenario";
-    const name = pending.type === "create_scenario" ? pending.scenarioName || "AI\u6A21\u62DF\u65B9\u6848" : base.scenario.name;
+    const createNew = pending.type === "create_scenario" || pending.createNewScenario;
+    const name = createNew ? pending.scenarioName || "AI\u6A21\u62DF\u65B9\u6848" : base.scenario.name;
     const calc = calculateAndSaveTool(repos2, {
       scenarioId: createNew ? void 0 : base.scenario.id,
       projectId: pending.projectId,
@@ -5468,11 +5886,12 @@ var PmCalcModule = (() => {
     const profitBefore = before ? Number(before.monthlyProfit) : null;
     const profitAfter = after ? Number(after.monthlyProfit) : Number(calc.liveProfit);
     const delta = profitBefore != null && Number.isFinite(profitBefore) ? (profitAfter - profitBefore).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "\u2014";
-    const changeLines = pending.changes.map((c) => `${c.label}\uFF1A${c.from} \u2192 ${c.to}${c.unit ? ` ${c.unit}` : ""}`).join("\n");
+    const changeLines = pending.changes.map((c) => `${c.label}\uFF1A${c.from} \u2192 ${c.to}${c.unit ? ` ${c.unit}` : ""}${c.scopeLabel ? `\uFF08${c.scopeLabel}\uFF09` : ""}`).join("\n");
     const reply = [
       createNew ? `\u5DF2\u521B\u5EFA\u65B9\u6848\u300C${calc.scenario.name}\u300D\uFF08${calc.scenario.id}\uFF09\u5E76\u5B8C\u6210\u771F\u5B9E\u6D4B\u7B97\u3002` : `\u5DF2\u5E94\u7528\u53C2\u6570\u5E76\u8C03\u7528 Calculation Engine \u91CD\u65B0\u6D4B\u7B97\u3002`,
       changeLines ? `\u53D8\u66F4\uFF1A
 ${changeLines}` : "",
+      pending.scopeLabel ? `\u4F5C\u7528\u8303\u56F4\uFF1A${pending.scopeLabel}` : "",
       after ? `\u65B0\u7ED3\u679C\uFF1A\u6708\u6536\u5165 ${Number(after.monthlyRevenue).toLocaleString("zh-CN", { minimumFractionDigits: 2 })} \u5143\uFF1B\u6708\u6210\u672C ${Number(after.monthlyTotalCost).toLocaleString("zh-CN", { minimumFractionDigits: 2 })} \u5143\uFF1B\u6708\u5229\u6DA6 ${Number(after.monthlyProfit).toLocaleString("zh-CN", { minimumFractionDigits: 2 })} \u5143\uFF1B\u5229\u6DA6\u7387 ${after.profitMargin == null ? "\u2014" : `${(Number(after.profitMargin) * 100).toFixed(2)}%`}\u3002\u76F8\u5BF9\u539F\u65B9\u6848\u6708\u5229\u6DA6\u53D8\u5316 ${delta} \u5143\u3002` : `\u5F15\u64CE\u6708\u5229\u6DA6 ${Number(calc.liveProfit).toLocaleString("zh-CN", { minimumFractionDigits: 2 })} \u5143\u3002`,
       "\u4EE5\u4E0A\u6570\u5B57\u5747\u6765\u81EA\u8BA1\u7B97\u5F15\u64CE\uFF0CAI \u672A\u81EA\u884C\u8BA1\u7B97\u3002"
     ].filter(Boolean).join("\n");
@@ -5494,11 +5913,91 @@ ${changeLines}` : "",
       confirmRequired: false
     };
   }
+  function prepareModifyOrCreate(intent, scenario2, projectId, session, traces, source) {
+    const type = intent.kind === "create_scenario" ? "create_scenario" : "modify";
+    if (!intent.patches.length && type === "create_scenario") {
+      const pending2 = buildPending("create_scenario", {
+        patches: [],
+        scenario: scenario2,
+        projectId,
+        scenarioName: intent.scenarioName
+      });
+      session.pending = pending2;
+      return { reply: pending2.previewText, intent, pending: pending2, session, traces, source, confirmRequired: true };
+    }
+    if (!intent.patches.length) {
+      return {
+        reply: "\u5DF2\u8BC6\u522B\u5230\u4FEE\u6539\u610F\u56FE\uFF0C\u4F46\u672A\u89E3\u6790\u51FA\u5177\u4F53\u53C2\u6570\u503C\u3002\u8BF7\u4F8B\u5982\uFF1A\u300C\u628A\u7535\u4EF7\u6539\u62100.65\u5143\u300D\u3002",
+        intent,
+        pending: null,
+        session,
+        traces,
+        source,
+        confirmRequired: false
+      };
+    }
+    const scoped = resolveScopeFromHint(scenario2, intent);
+    if (!scoped.ok) {
+      return { reply: scoped.reply, intent, pending: null, session, traces, source, confirmRequired: false };
+    }
+    let patches = scoped.patches;
+    if (needsScopeClarification(scenario2, patches)) {
+      const pending2 = buildScopeClarifyPending(type, {
+        patches,
+        scenario: scenario2,
+        projectId,
+        scenarioName: intent.scenarioName
+      });
+      session.pending = pending2;
+      return { reply: pending2.previewText, intent, pending: pending2, session, traces, source, confirmRequired: true };
+    }
+    patches = patches.map((p) => {
+      if (fieldScopeLevel(p.field) === "vehicle") return { ...p, scope: "vehicle" };
+      if (!p.scope) return { ...p, scope: "all_routes" };
+      return p;
+    });
+    const validation = validatePatches(scenario2.inputs, patches);
+    if (validation.errors.length) {
+      return {
+        reply: `\u53C2\u6570\u975E\u6CD5\uFF0C\u5DF2\u62E6\u622A\uFF0C\u4E0D\u4F1A\u5199\u5165\u65B9\u6848\u4E5F\u4E0D\u4F1A\u8C03\u7528\u5F15\u64CE\uFF1A${validation.errors.map((e) => e.message).join("\uFF1B")}`,
+        intent,
+        pending: null,
+        session,
+        traces,
+        source,
+        confirmRequired: false
+      };
+    }
+    if (validation.warnings.length) {
+      const pending2 = buildPending(type, {
+        patches,
+        scenario: scenario2,
+        projectId,
+        scenarioName: intent.scenarioName,
+        warnings: validation.warnings.map((w) => w.message)
+      });
+      pending2.type = "await_abnormal_confirm";
+      pending2.previewText = `${validation.warnings.map((w) => w.message).join("\uFF1B")}\u3002
+${pending2.previewText}
+\u56DE\u590D\u300C\u786E\u8BA4\u300D\u7EE7\u7EED\uFF0C\u6216\u300C\u53D6\u6D88\u300D\u653E\u5F03\u3002`;
+      session.pending = pending2;
+      return { reply: pending2.previewText, intent, pending: pending2, session, traces, source, confirmRequired: true };
+    }
+    const pending = buildPending(type, {
+      patches,
+      scenario: scenario2,
+      projectId,
+      scenarioName: intent.scenarioName
+    });
+    session.pending = pending;
+    return { reply: pending.previewText, intent, pending, session, traces, source, confirmRequired: true };
+  }
   function runAssistantTurn(params) {
     const session = params.session ? { ...params.session, recentScenarioIds: [...params.session.recentScenarioIds] } : createAssistantSession();
     session.pending = params.session?.pending ? { ...params.session.pending } : null;
-    const intent = parseAssistantIntent(params.message);
+    const intent = params.parsedIntent || parseAssistantIntent(params.message);
     const traces = [];
+    const source = params.parsedIntent?.parser === "llm" ? "llm_intent" : "tools";
     const projectHit = getProjectContextTool(params.repos, params.projectId);
     traces.push(projectHit.trace);
     const project = params.project ?? projectHit.project;
@@ -5512,9 +6011,12 @@ ${changeLines}` : "",
         pending: null,
         session,
         traces,
-        source: "tools",
+        source,
         confirmRequired: false
       };
+    }
+    if (scenario2.projectId !== params.projectId) {
+      return isolationFailure(session, intent, traces);
     }
     pushRecent(session, scenario2.id);
     if (intent.kind === "confirm") {
@@ -5525,8 +6027,25 @@ ${changeLines}` : "",
           pending: null,
           session,
           traces,
-          source: "tools",
+          source,
           confirmRequired: false
+        };
+      }
+      if (session.pending.type === "await_scope") {
+        return {
+          reply: "\u8BF7\u5148\u9009\u62E9\u4F5C\u7528\u8303\u56F4\uFF08\u5168\u90E8\u8DEF\u6BB5 / \u6307\u5B9A\u7EBF\u8DEF / \u6307\u5B9A\u8DEF\u6BB5\uFF09\uFF0C\u518D\u786E\u8BA4\u6D4B\u7B97\u3002",
+          intent,
+          pending: session.pending,
+          session,
+          traces,
+          source,
+          confirmRequired: true
+        };
+      }
+      if (session.pending.type === "await_abnormal_confirm") {
+        session.pending = {
+          ...session.pending,
+          type: session.pending.createNewScenario ? "create_scenario" : "modify"
         };
       }
       return executePending(params.repos, session.pending, session);
@@ -5539,70 +6058,67 @@ ${changeLines}` : "",
         pending: null,
         session,
         traces,
-        source: "tools",
+        source,
         confirmRequired: false
       };
     }
-    if (intent.kind === "modify" || intent.kind === "create_scenario") {
-      if (!intent.patches.length && intent.kind === "create_scenario") {
-        const pending2 = buildPending("create_scenario", {
-          patches: [],
-          scenario: scenario2,
-          projectId: params.projectId,
-          scenarioName: intent.scenarioName
+    if (intent.kind === "scope_choice" && session.pending?.type === "await_scope") {
+      const basePending = session.pending;
+      let patches = basePending.patches;
+      if (intent.scopeChoice?.mode === "all_routes") {
+        patches = applyScopeToPatches(patches, "all_routes");
+      } else if (intent.scopeChoice?.mode === "route") {
+        const hint = intent.scopeChoice.routeHint || params.message;
+        const found = findRouteByHint(scenario2.inputs, hint);
+        if (!found) {
+          const routes = getRoutesTool(scenario2.inputs);
+          return {
+            reply: `\u672A\u5339\u914D\u5230\u7EBF\u8DEF\u3002\u53EF\u9009\uFF1A${routes.routes.map((r) => r.routeName).join("\u3001")}\u3002\u8BF7\u56DE\u590D\u300C\u6307\u5B9A\u7EBF\u8DEF\uFF1A\u7EBF\u8DEF\u540D\u300D\u3002`,
+            intent,
+            pending: session.pending,
+            session,
+            traces,
+            source,
+            confirmRequired: true
+          };
+        }
+        patches = applyScopeToPatches(patches, "route", { routeId: found.id });
+      } else if (intent.scopeChoice?.mode === "segment") {
+        const hint = intent.scopeChoice.segmentHint || params.message;
+        const found = findSegmentByHint(scenario2.inputs, hint);
+        if (!found) {
+          return {
+            reply: "\u672A\u5339\u914D\u5230\u8DEF\u6BB5\u3002\u8BF7\u56DE\u590D\u300C\u6307\u5B9A\u8DEF\u6BB5\uFF1A\u8DEF\u6BB5\u540D\u300D\u3002",
+            intent,
+            pending: session.pending,
+            session,
+            traces,
+            source,
+            confirmRequired: true
+          };
+        }
+        patches = applyScopeToPatches(patches, "segment", {
+          routeId: found.routeId,
+          segmentId: found.segmentId
         });
-        session.pending = pending2;
-        return {
-          reply: pending2.previewText,
-          intent,
-          pending: pending2,
-          session,
-          traces,
-          source: "tools",
-          confirmRequired: true
-        };
       }
-      if (!intent.patches.length) {
-        return {
-          reply: "\u5DF2\u8BC6\u522B\u5230\u4FEE\u6539\u610F\u56FE\uFF0C\u4F46\u672A\u89E3\u6790\u51FA\u5177\u4F53\u53C2\u6570\u503C\u3002\u8BF7\u4F8B\u5982\uFF1A\u300C\u628A\u7535\u4EF7\u6539\u62100.65\u5143\u300D\u3002",
-          intent,
-          pending: null,
-          session,
-          traces,
-          source: "tools",
-          confirmRequired: false
-        };
-      }
-      const pending = buildPending(intent.kind === "create_scenario" ? "create_scenario" : "modify", {
-        patches: intent.patches,
-        scenario: scenario2,
-        projectId: params.projectId,
-        scenarioName: intent.scenarioName
-      });
-      session.pending = pending;
-      return {
-        reply: pending.previewText,
-        intent,
-        pending,
-        session,
-        traces,
-        source: "tools",
-        confirmRequired: true
+      const nextIntent = {
+        kind: basePending.createNewScenario ? "create_scenario" : "modify",
+        title: "\u5DF2\u660E\u786E\u4F5C\u7528\u8303\u56F4",
+        patches,
+        scenarioName: basePending.scenarioName,
+        parser: intent.parser
       };
+      return prepareModifyOrCreate(nextIntent, scenario2, params.projectId, session, traces, source);
+    }
+    if (intent.kind === "modify" || intent.kind === "create_scenario") {
+      return prepareModifyOrCreate(intent, scenario2, params.projectId, session, traces, source);
     }
     if (intent.kind === "query") {
       getCalculationResultTool(scenario2);
       const count = params.repos.scenarios.listScenarios(params.projectId).length;
       const reply = formatMetricAnswer(scenario2, intent.queryTarget || "general", count);
-      return {
-        reply,
-        intent,
-        pending: session.pending,
-        session,
-        traces,
-        source: "tools",
-        confirmRequired: false
-      };
+      return { reply, intent, pending: session.pending, session, traces, source, confirmRequired: false };
     }
     if (intent.kind === "compare") {
       const pair = resolveComparePair(params.repos, params.projectId, scenario2.id, session, intent.compareHint);
@@ -5613,7 +6129,7 @@ ${changeLines}` : "",
           pending: session.pending,
           session,
           traces,
-          source: "tools",
+          source,
           confirmRequired: false
         };
       }
@@ -5622,13 +6138,13 @@ ${changeLines}` : "",
       return {
         reply: cmp.summary + (cmp.rows.length ? `
 
-${cmp.rows.map((r) => `${r.label}\uFF1A${r.a} \u2192 ${r.b}\uFF08\u0394 ${r.delta}\uFF09`).join("\n")}` : ""),
+${cmp.rows.map((r) => `${r.label}\uFF1A${r.a} \u2192 ${r.b}\uFF08\u0394 ${r.delta}\uFF0C\u53D8\u5316\u7387 ${r.changeRate}\uFF09`).join("\n")}` : ""),
         intent,
         pending: session.pending,
         session,
         compareRows: cmp.rows,
         traces,
-        source: "tools",
+        source,
         confirmRequired: false
       };
     }
@@ -5643,29 +6159,17 @@ ${lines}`,
         pending: session.pending,
         session,
         traces,
-        source: "tools",
+        source,
         confirmRequired: false
       };
     }
     if (intent.kind === "report") {
       const report = generateReportTool({ project, scenario: scenario2 });
       traces.push(report.trace);
-      return {
-        reply: report.text,
-        intent,
-        pending: session.pending,
-        session,
-        traces,
-        source: "tools",
-        confirmRequired: false
-      };
+      return { reply: report.text, intent, pending: session.pending, session, traces, source, confirmRequired: false };
     }
     if (intent.kind === "advice" || intent.kind === "diagnose") {
-      const diag = localDiagnoseTool({
-        scenario: scenario2,
-        project,
-        question: params.message
-      });
+      const diag = localDiagnoseTool({ scenario: scenario2, project, question: params.message });
       traces.push(diag.trace);
       const insight = diag.insight;
       const adviceExtra = intent.kind === "advice" ? `
@@ -5724,11 +6228,129 @@ ${insight.disclaimer}`,
         confirmRequired: false
       };
     }
-    return executePending(params.repos, params.session.pending, {
+    if (params.session.pending.type === "await_scope") {
+      return {
+        reply: "\u8BF7\u5148\u9009\u62E9\u4F5C\u7528\u8303\u56F4\u540E\u518D\u786E\u8BA4\u3002",
+        intent: { kind: "confirm", title: "\u5F85\u9009\u8303\u56F4", patches: [], parser: "rule" },
+        pending: params.session.pending,
+        session: params.session,
+        traces: [],
+        source: "tools",
+        confirmRequired: true
+      };
+    }
+    const pending = params.session.pending.type === "await_abnormal_confirm" ? {
+      ...params.session.pending,
+      type: params.session.pending.createNewScenario ? "create_scenario" : "modify"
+    } : params.session.pending;
+    return executePending(params.repos, pending, {
       ...params.session,
       recentScenarioIds: [...params.session.recentScenarioIds]
     });
   }
+
+  // src/demo/ai/llm-intent.ts
+  var KINDS = [
+    "query",
+    "diagnose",
+    "modify",
+    "create_scenario",
+    "compare",
+    "sensitivity",
+    "advice",
+    "report",
+    "confirm",
+    "cancel",
+    "scope_choice",
+    "unmatched"
+  ];
+  var PARAM_KEYS = Object.keys(FIELD_META);
+  var SCOPES = ["project", "vehicle", "all_routes", "route", "segment"];
+  var OPS = ["set", "add", "multiply"];
+  var FORBIDDEN_KPI_KEYS = [
+    "monthlyProfit",
+    "monthlyRevenue",
+    "monthlyTotalCost",
+    "profitMargin",
+    "irr",
+    "cashFlow",
+    "cumulativeCashFlow",
+    "npv",
+    "paybackPeriod"
+  ];
+  function isPlainObject(v) {
+    return Boolean(v) && typeof v === "object" && !Array.isArray(v);
+  }
+  function hasForbiddenKpi(obj, depth = 0) {
+    if (depth > 6 || obj == null) return false;
+    if (Array.isArray(obj)) return obj.some((x) => hasForbiddenKpi(x, depth + 1));
+    if (!isPlainObject(obj)) return false;
+    for (const key of Object.keys(obj)) {
+      if (FORBIDDEN_KPI_KEYS.includes(key)) return true;
+      if (hasForbiddenKpi(obj[key], depth + 1)) return true;
+    }
+    return false;
+  }
+  function parsePatch(raw) {
+    if (!isPlainObject(raw)) return null;
+    const field = String(raw.field || raw.parameter || "");
+    if (!PARAM_KEYS.includes(field)) return null;
+    const operation = String(raw.operation || "set");
+    if (!OPS.includes(operation)) return null;
+    const value = Number(raw.value);
+    if (!Number.isFinite(value)) return null;
+    const meta = FIELD_META[field];
+    const scopeRaw = raw.scope != null ? String(raw.scope) : void 0;
+    const scope = scopeRaw && SCOPES.includes(scopeRaw) ? scopeRaw : void 0;
+    return {
+      field,
+      label: meta.label,
+      operation,
+      value,
+      unit: meta.unit,
+      scope,
+      routeId: raw.routeId != null ? String(raw.routeId) : void 0,
+      segmentId: raw.segmentId != null ? String(raw.segmentId) : void 0
+    };
+  }
+  function validateLlmIntent(raw) {
+    if (!isPlainObject(raw)) return null;
+    if (hasForbiddenKpi(raw)) return null;
+    const kind = String(raw.kind || raw.intent || "");
+    if (!KINDS.includes(kind)) return null;
+    const patchesRaw = Array.isArray(raw.patches) ? raw.patches : [];
+    const patches = [];
+    for (const item of patchesRaw) {
+      const p = parsePatch(item);
+      if (!p) return null;
+      patches.push(p);
+    }
+    const requiresConfirmation = raw.requiresConfirmation !== false;
+    if ((kind === "modify" || kind === "create_scenario") && patches.length && !requiresConfirmation) {
+    }
+    const queryTarget = raw.queryTarget != null ? String(raw.queryTarget) : void 0;
+    const scenarioName = raw.scenarioName != null ? String(raw.scenarioName) : void 0;
+    return {
+      kind,
+      title: String(raw.title || kind),
+      queryTarget,
+      patches,
+      scenarioName,
+      compareHint: raw.compareHint === "last_two" || raw.compareHint === "baseline_peer" || raw.compareHint === "named" ? raw.compareHint : void 0,
+      parser: "llm"
+    };
+  }
+  var LLM_INTENT_SYSTEM_PROMPT = [
+    "\u4F60\u662F\u65B0\u80FD\u6E90\u91CD\u5361\u9879\u76EE\u6D4B\u7B97\u4E1A\u52A1\u610F\u56FE\u89E3\u6790\u5668\u3002",
+    "\u53EA\u8F93\u51FA\u4E00\u4E2A JSON \u5BF9\u8C61\uFF0C\u4E0D\u8981 Markdown\uFF0C\u4E0D\u8981\u89E3\u91CA\u3002",
+    "\u5141\u8BB8\u5B57\u6BB5\uFF1Akind, title, patches, scenarioName, queryTarget, compareHint, requiresConfirmation, scope\u3002",
+    "kind \u679A\u4E3E\uFF1Aquery|diagnose|modify|create_scenario|compare|sensitivity|advice|report|confirm|cancel|scope_choice|unmatched\u3002",
+    "patches[].field \u4EC5\u5141\u8BB8\uFF1AelectricityPrice|fleetSize|freightPrice|tripsPerVehicleMonth|distanceKm|loadTon|loadedEnergyConsumption|driverCostPerTrip|monthlyRentPerVehicle\u3002",
+    "patches[].operation \u4EC5\u5141\u8BB8\uFF1Aset|add|multiply\u3002",
+    "scope \u4EC5\u5141\u8BB8\uFF1Aproject|vehicle|all_routes|route|segment\u3002",
+    "\u4E25\u7981\u8F93\u51FA\u6216\u4FEE\u6539 monthlyProfit\u3001monthlyRevenue\u3001monthlyTotalCost\u3001profitMargin\u3001IRR\u3001cashFlow \u7B49 KPI\u3002",
+    "\u4FEE\u6539\u7C7B\u610F\u56FE\u5FC5\u987B requiresConfirmation=true\u3002"
+  ].join("");
 
   // src/demo/browser-bridge.ts
   var repos = null;
@@ -5851,20 +6473,22 @@ ${insight.disclaimer}`,
       return analyzeScenarioLocal({ scenario: scenario2, project, question });
     },
     buildAiPayload,
-    runAssistant: ({ projectId, scenarioId, message, session, project }) => runAssistantTurn({
+    runAssistant: ({ projectId, scenarioId, message, session, project, parsedIntent }) => runAssistantTurn({
       repos: ensureRepos(),
       projectId,
       scenarioId,
       message,
       session,
-      project
+      project,
+      parsedIntent
     }),
     confirmAssistantAction: (session) => confirmPendingAction({
       repos: ensureRepos(),
       session
     }),
     createAssistantSession,
-    assistantShortcuts: ASSISTANT_SHORTCUTS
+    assistantShortcuts: ASSISTANT_SHORTCUTS,
+    validateLlmIntent
   };
   if (typeof window !== "undefined") {
     window.PmCalc = PmCalc;

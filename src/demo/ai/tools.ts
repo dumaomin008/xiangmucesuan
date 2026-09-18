@@ -7,7 +7,14 @@ import type { DemoRepositories } from "../bootstrap";
 import type { DemoCalcScenario, DemoProjectContext, DemoScenarioResults } from "../types";
 import { cloneJson } from "../utils";
 import { analyzeScenarioLocal, type DemoAiInsight } from "./analyze";
-import { applyParamPatches, snapshotParams, type ParamPatch } from "./params";
+import {
+  applyParamPatches,
+  listSegmentParamLocations,
+  snapshotParams,
+  type AssistantParamKey,
+  type ParamPatch,
+  type SegmentParamLocation,
+} from "./params";
 
 export type ToolTrace = {
   tool: string;
@@ -94,6 +101,12 @@ export function calculateAndSaveTool(
     createNew?: boolean;
   },
 ): { scenario: DemoCalcScenario; liveProfit: string; trace: ToolTrace } {
+  if (!params.createNew && params.scenarioId) {
+    const existing = repos.scenarios.getScenario(params.scenarioId);
+    if (existing && existing.projectId !== params.projectId) {
+      throw new Error("跨项目写操作已拒绝：scenario.projectId 与当前 projectId 不一致");
+    }
+  }
   // 先裸调用引擎，确保数字来自 calculateProject
   const live = calculateProject(params.inputs);
   const saved = repos.scenarios.saveScenario({
@@ -122,6 +135,7 @@ export type ScenarioCompareRow = {
   a: string;
   b: string;
   delta: string;
+  changeRate: string;
 };
 
 export function compareScenariosTool(
@@ -153,15 +167,23 @@ export function compareScenariosTool(
     const na = va == null ? null : Number(va);
     const nb = vb == null ? null : Number(vb);
     let delta = "—";
+    let changeRate = "—";
     if (na != null && nb != null && Number.isFinite(na) && Number.isFinite(nb)) {
       const diff = nb - na;
       delta = d.kind === "pct" ? `${(diff * 100).toFixed(2)} ppt` : money(diff);
+      if (d.kind === "pct") {
+        changeRate = `${(diff * 100).toFixed(2)} ppt`;
+      } else if (na === 0) {
+        changeRate = nb === 0 ? "0%" : "—";
+      } else {
+        changeRate = `${((diff / Math.abs(na)) * 100).toFixed(2)}%`;
+      }
     }
     const fmt = (v: string | number | null) => {
       if (v == null) return "—";
       return d.kind === "pct" ? pct(v) : d.kind === "money" ? money(v) : String(v);
     };
-    return { key: String(d.key), label: d.label, a: fmt(va), b: fmt(vb), delta };
+    return { key: String(d.key), label: d.label, a: fmt(va), b: fmt(vb), delta, changeRate };
   });
 
   const profitA = Number(ma.monthlyProfit);
@@ -173,6 +195,47 @@ export function compareScenariosTool(
     rows,
     summary,
     trace: { tool: "compareScenarios", ok: true, detail: `${a.id} vs ${b.id}` },
+  };
+}
+
+export function getRoutesTool(inputs: SchemeCalculationInput): {
+  routes: { id: string; routeName: string; segmentCount: number }[];
+  trace: ToolTrace;
+} {
+  const routes = (inputs.routes || []).map((r) => ({
+    id: r.id,
+    routeName: r.routeName || r.routeCode || r.id,
+    segmentCount: r.segments?.length || 0,
+  }));
+  return { routes, trace: { tool: "getRoutes", ok: true, detail: String(routes.length) } };
+}
+
+export function getSegmentsTool(inputs: SchemeCalculationInput): {
+  segments: { routeId: string; routeName: string; segmentId: string; segmentName: string }[];
+  trace: ToolTrace;
+} {
+  const segments: { routeId: string; routeName: string; segmentId: string; segmentName: string }[] = [];
+  for (const route of inputs.routes || []) {
+    for (const seg of route.segments || []) {
+      segments.push({
+        routeId: route.id,
+        routeName: route.routeName || route.id,
+        segmentId: seg.id,
+        segmentName: seg.segmentName || seg.id,
+      });
+    }
+  }
+  return { segments, trace: { tool: "getSegments", ok: true, detail: String(segments.length) } };
+}
+
+export function getParameterScopeTool(
+  inputs: SchemeCalculationInput,
+  field: AssistantParamKey,
+): { locations: SegmentParamLocation[]; trace: ToolTrace } {
+  const locations = listSegmentParamLocations(inputs, field);
+  return {
+    locations,
+    trace: { tool: "getParameterScope", ok: true, detail: `${field}:${locations.length}` },
   };
 }
 
