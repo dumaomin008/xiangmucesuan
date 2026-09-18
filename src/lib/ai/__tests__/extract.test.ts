@@ -83,6 +83,10 @@ describe("P0 gate", () => {
         freight_price: null,
         freight_price_unit: "PER_TON",
         load_ton: null,
+        toll_per_trip: null,
+        loading_unloading_fee: null,
+        information_fee: null,
+        driver_cost_per_trip: null,
         status: "confirmed" as const,
         enabled: true,
       },
@@ -198,6 +202,10 @@ describe("engine mapping", () => {
           freight_price: "32",
           freight_price_unit: "PER_TON",
           load_ton: null,
+          toll_per_trip: null,
+          loading_unloading_fee: null,
+          information_fee: null,
+          driver_cost_per_trip: null,
           status: "confirmed",
           enabled: true,
         },
@@ -209,6 +217,10 @@ describe("engine mapping", () => {
     expect(mapped.routes[0].segment.loadTon).toBe("");
     expect(mapped.routes[0].segment.tripsPerVehicleMonth).toBe("");
     expect(mapped.unmappedParameters.some((p) => p.field_code === "cargo.daily_volume_ton")).toBe(true);
+    expect(mapped.routes[0].segment.tollPerTrip).toBe("0");
+    expect(mapped.assumptions.some((item) => item.field_code === "cost.toll_per_trip" && item.status === "default")).toBe(true);
+    expect(mapped.routes[0].segment.electricityPrice).toBe("");
+    expect(mapped.monthlyRentPerVehicle).toBeNull();
   });
 });
 

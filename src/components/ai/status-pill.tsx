@@ -1,6 +1,13 @@
 import { clsx } from "clsx";
 
 const MAP: Record<string, { label: string; className: string }> = {
+  default: { label: "系统默认", className: "bg-black/5 text-sn-secondary" },
+  demo_history: { label: "演示参考值", className: "bg-sn-warning/15 text-[#C47B12]" },
+  demo_vehicle: { label: "演示参考值", className: "bg-sn-warning/15 text-[#C47B12]" },
+  demo: { label: "演示参考值", className: "bg-sn-warning/15 text-[#C47B12]" },
+  heuristic: { label: "基础解析", className: "bg-sn-info/12 text-sn-info" },
+  llm: { label: "大模型解析", className: "bg-sn-success/12 text-sn-success" },
+  empty_scan: { label: "未识别正文", className: "bg-sn-warning/15 text-[#C47B12]" },
   extracted: { label: "已提取", className: "bg-sn-info/12 text-sn-info" },
   reference: { label: "AI参考", className: "bg-sn-warning/15 text-[#C47B12]" },
   missing: { label: "缺失", className: "bg-black/5 text-sn-secondary" },

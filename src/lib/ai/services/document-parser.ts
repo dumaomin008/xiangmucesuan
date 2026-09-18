@@ -1,17 +1,9 @@
 import { createHash } from "node:crypto";
+import { parseDocxBuffer } from "../parsers/docx";
+import { parsePdfBuffer } from "../parsers/pdf";
+import type { ParsedDocument } from "../parsers/types";
+import { parseXlsxBuffer } from "../parsers/xlsx";
 import type { SourceType } from "../schema/types";
-
-export const TEXT_MIME = new Set(["text/plain", "text/markdown", "text/csv"]);
-export const SUPPORTED_UPLOAD_TYPES = new Set([
-  "text/plain",
-  "text/markdown",
-  "application/pdf",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/msword",
-  "application/vnd.ms-excel",
-  "application/vnd.ms-excel.sheet.macroEnabled.12",
-]);
 
 export type ParsedSource = {
   sourceType: SourceType;
@@ -20,18 +12,83 @@ export type ParsedSource = {
   contentText: string;
   contentHash: string;
   byteSize: number;
-  parseStatus: "extracted" | "unsupported_binary" | "failed";
+  parseStatus: "extracted" | "unsupported_binary" | "failed" | "empty_scan";
   parseMessage: string | null;
+  warnings: string[];
 };
 
 export function hashContent(content: string) {
   return createHash("sha256").update(content).digest("hex");
 }
 
-/**
- * 一期文档解析：文本直接入库；xlsx/docx/pdf 仅登记元数据。
- * 表格单元格定位、分页抽取等详细 Parser 规格尚未冻结，不在此层猜测。
- */
+function fromParsed(sourceType: SourceType, parsed: ParsedDocument, byteSize: number): ParsedSource {
+  const empty = !parsed.text.trim();
+  return {
+    sourceType,
+    fileName: parsed.fileName,
+    mimeType: parsed.mimeType,
+    contentText: parsed.text,
+    contentHash: hashContent(parsed.text || parsed.fileName),
+    byteSize,
+    parseStatus: empty ? "empty_scan" : "extracted",
+    parseMessage: empty ? parsed.warnings[0] || "未识别到有效正文，可粘贴关键内容继续演示。" : null,
+    warnings: parsed.warnings,
+  };
+}
+
+export async function parseUploadedFile(input: {
+  sourceType: SourceType;
+  fileName: string;
+  mimeType?: string | null;
+  buffer: Buffer;
+}): Promise<ParsedSource> {
+  const name = input.fileName.toLowerCase();
+  try {
+    if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+      return fromParsed(input.sourceType, await parseXlsxBuffer(input.buffer, input.fileName), input.buffer.length);
+    }
+    if (name.endsWith(".docx") || name.endsWith(".doc")) {
+      return fromParsed(input.sourceType, await parseDocxBuffer(input.buffer, input.fileName), input.buffer.length);
+    }
+    if (name.endsWith(".pdf")) {
+      return fromParsed(input.sourceType, await parsePdfBuffer(input.buffer, input.fileName), input.buffer.length);
+    }
+    if (name.endsWith(".txt") || name.endsWith(".md") || (input.mimeType || "").startsWith("text/")) {
+      const text = input.buffer.toString("utf8");
+      return fromParsed(input.sourceType, {
+        sourceId: input.fileName,
+        fileName: input.fileName,
+        mimeType: input.mimeType || "text/plain",
+        text,
+        warnings: [],
+      }, input.buffer.length);
+    }
+    return {
+      sourceType: input.sourceType,
+      fileName: input.fileName,
+      mimeType: input.mimeType || null,
+      contentText: "",
+      contentHash: hashContent(input.fileName),
+      byteSize: input.buffer.length,
+      parseStatus: "unsupported_binary",
+      parseMessage: "暂不支持该文件类型。可粘贴关键内容继续演示。",
+      warnings: [],
+    };
+  } catch (err) {
+    return {
+      sourceType: input.sourceType,
+      fileName: input.fileName,
+      mimeType: input.mimeType || null,
+      contentText: "",
+      contentHash: hashContent(input.fileName),
+      byteSize: input.buffer.length,
+      parseStatus: "failed",
+      parseMessage: err instanceof Error ? err.message : "文件解析失败，可粘贴文本继续。",
+      warnings: [],
+    };
+  }
+}
+
 export function parseSourceInput(input: {
   sourceType: SourceType;
   fileName?: string | null;
@@ -39,32 +96,16 @@ export function parseSourceInput(input: {
   text?: string | null;
 }): ParsedSource {
   const text = (input.text ?? "").trim();
-  const mime = input.mimeType || (input.fileName?.endsWith(".txt") ? "text/plain" : null);
-  const isBinaryName = Boolean(input.fileName && /\.(pdf|docx?|xlsx?)$/i.test(input.fileName));
-  if (text) {
-    return {
-      sourceType: input.sourceType,
-      fileName: input.fileName ?? null,
-      mimeType: mime,
-      contentText: text,
-      contentHash: hashContent(text),
-      byteSize: Buffer.byteLength(text, "utf8"),
-      parseStatus: "extracted",
-      parseMessage: null,
-    };
-  }
-  if (isBinaryName) {
-    const name = input.fileName || "未命名文件";
-    return {
-      sourceType: input.sourceType,
-      fileName: name,
-      mimeType: mime,
-      contentText: "",
-      contentHash: hashContent(`${name}:${mime ?? ""}`),
-      byteSize: 0,
-      parseStatus: "unsupported_binary",
-      parseMessage: "该格式的正文/表格抽取规格尚未冻结。请同时粘贴关键文本，或等待后续 Parser 接入。",
-    };
-  }
-  throw new Error("请粘贴文本，或上传带正文的资料");
+  if (!text) throw new Error("请粘贴文本，或上传尽调文件");
+  return {
+    sourceType: input.sourceType,
+    fileName: input.fileName ?? null,
+    mimeType: input.mimeType || "text/plain",
+    contentText: text,
+    contentHash: hashContent(text),
+    byteSize: Buffer.byteLength(text, "utf8"),
+    parseStatus: "extracted",
+    parseMessage: null,
+    warnings: [],
+  };
 }

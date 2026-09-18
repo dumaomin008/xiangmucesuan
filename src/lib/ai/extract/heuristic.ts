@@ -67,6 +67,10 @@ function makeRoute(sort: number, origin: string, destination: string): AiRouteDr
     freight_price: null,
     freight_price_unit: null,
     load_ton: null,
+    toll_per_trip: null,
+    loading_unloading_fee: null,
+    information_fee: null,
+    driver_cost_per_trip: null,
     status: "pending",
     enabled: true,
   };

@@ -8,6 +8,7 @@ import type {
   ParameterRecord,
   QuestionRecord,
   ReferenceCandidate,
+  SourceType,
 } from "../schema/types";
 import { AI_PROJECT_EXTRACT_SCHEMA_VERSION, CALCULATION_REQUEST_SCHEMA_VERSION } from "../schema/versions";
 
@@ -29,8 +30,48 @@ function routeFieldValue(route: AiRouteDraft, fieldCode: string) {
     "vehicle.fleet_size": route.vehicle_count,
     "revenue.freight_price": route.freight_price,
     "revenue.freight_price_unit": route.freight_price_unit,
+    "cost.toll_per_trip": route.toll_per_trip,
+    "cost.loading_unloading_fee": route.loading_unloading_fee,
+    "cost.information_fee": route.information_fee,
+    "cost.driver_cost_per_trip": route.driver_cost_per_trip,
   };
   return map[fieldCode] ?? null;
+}
+
+export function parametersFromRoute(route: AiRouteDraft, sourceType: SourceType = "free_text", sourceRef = "结构化线路"): ParameterRecord[] {
+  const pairs: Array<[string, string | null, string | null]> = [
+    ["route.origin", route.origin_name, null],
+    ["route.destination", route.destination_name, null],
+    ["route.distance_km", route.distance_km, "km"],
+    ["cargo.daily_volume_ton", route.volume_value, route.volume_unit],
+    ["cargo.load_ton", route.load_ton, "吨"],
+    ["cargo.name", route.cargo_name, null],
+    ["ops.trips_per_day", route.trips_per_day, "趟/日"],
+    ["ops.trips_per_vehicle_month", route.trips_per_vehicle_month, "趟/月"],
+    ["vehicle.fleet_size", route.vehicle_count, "台"],
+    ["revenue.freight_price", route.freight_price, null],
+    ["revenue.freight_price_unit", route.freight_price_unit, null],
+    ["cost.toll_per_trip", route.toll_per_trip, "元/趟"],
+    ["cost.loading_unloading_fee", route.loading_unloading_fee, "元/趟"],
+    ["cost.information_fee", route.information_fee, "元/趟"],
+    ["cost.driver_cost_per_trip", route.driver_cost_per_trip, "元/趟"],
+  ];
+  return pairs
+    .filter(([, value]) => hasValue(value))
+    .map(([field_code, value, unit]) => ({
+      field_code,
+      value,
+      unit,
+      raw_value: value,
+      source_type: sourceType,
+      source_ref: sourceRef,
+      confidence: 0.7,
+      status: "extracted" as const,
+      editable: true,
+      reference_meta: null,
+      updated_by: "AI" as const,
+      route_id: route.id ?? null,
+    }));
 }
 
 export function mergeParameterCandidates(params: ParameterRecord[]): { parameters: ParameterRecord[]; conflicts: ConflictRecord[] } {

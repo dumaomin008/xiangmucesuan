@@ -15,6 +15,9 @@ type Workspace = {
   schemeId: string | null;
   completeness: { p0Open: number; p1Open: number; p2Open: number; extracted: number; conflict: number };
   calculation_request: { ready: boolean; blocking_p0: string[]; routes_confirmed: boolean };
+  fallbackNotice: string | null;
+  parseSummary: { routes: number; parameters: number; p0: number; conflicts: number; references: number } | null;
+  extractorKind: string | null;
   documents: Array<{
     id: string;
     sourceType: string;
@@ -95,6 +98,9 @@ export default function AiWorkspacePage() {
   const [selected, setSelected] = useState<string[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [engineErrors, setEngineErrors] = useState<string[]>([]);
+  const [parseStep, setParseStep] = useState(-1);
+
+  const PARSE_STEPS = ["正在读取文件", "正在识别项目基本信息", "正在识别运输线路", "正在提取测算参数", "正在检查缺失与冲突", "正在生成尽调建议", "解析完成"];
 
   const load = async () => {
     const next = await api<Workspace>(`/api/ai/workspaces/${workspaceId}`);
@@ -136,12 +142,21 @@ export default function AiWorkspacePage() {
         <div>
           <p className="text-[13px] font-medium tracking-[0.04em] text-sn-muted">AI PROJECT INTAKE</p>
           <h1 className="mt-2 text-[30px] font-bold tracking-[-0.01em]">{data.title}</h1>
-          <p className="mt-2 text-[15px] text-sn-secondary">AI 抽取结果可立即编辑。正式测算前必须确认线路，且 P0 不得缺失。</p>
+          <p className="mt-2 text-[15px] text-sn-secondary">AI 负责把尽调资料变成可计算参数。正式测算前必须确认线路，且 P0 不得缺失。核心数字仍由测算引擎计算。</p>
         </div>
         <StatusPill value={data.status} />
       </div>
 
       {error && <div className="mb-4 rounded-sn-md bg-sn-error/12 px-4 py-3 text-sm text-[#C44747]">{error}</div>}
+      {data.fallbackNotice && (
+        <div className="mb-4 rounded-sn-md bg-sn-warning/15 px-4 py-3 text-sm text-[#C47B12]">{data.fallbackNotice}</div>
+      )}
+      {data.parseSummary && (
+        <div className="mb-4 rounded-sn-md bg-white px-4 py-3 text-sm text-sn-secondary shadow-sn-card">
+          识别 {data.parseSummary.routes} 条线路，提取 {data.parseSummary.parameters} 个参数，{data.parseSummary.p0} 项需要确认，{data.parseSummary.conflicts} 项存在冲突，{data.parseSummary.references} 项可采用参考值。
+          {data.extractorKind && <span className="ml-2"><StatusPill value={data.extractorKind} /></span>}
+        </div>
+      )}
       {engineErrors.length > 0 && (
         <div className="mb-4 rounded-sn-md bg-sn-warning/15 px-4 py-3 text-sm text-[#C47B12]">
           输入版本已生成，但测算引擎仍缺必要字段：{engineErrors.join("；")}。请在本页补全后重试，或进入手动参数页。核心数字不会由 AI 代算。
@@ -151,7 +166,7 @@ export default function AiWorkspacePage() {
       <div className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)_320px]">
         <Card className="h-fit">
           <h2 className="text-[18px] font-semibold">资料</h2>
-          <p className="mt-1 text-[13px] text-sn-secondary">Excel/Word/PDF 正文抽取规格尚未冻结，当前请粘贴关键文本或上传 txt。</p>
+          <p className="mt-1 text-[13px] text-sn-secondary">支持粘贴文本，以及上传 XLSX / DOCX / PDF。扫描件若无正文，可继续粘贴关键内容。</p>
           <div className="mt-4 space-y-3">
             <Select value={sourceType} onChange={(e) => setSourceType(e.target.value)}>
               {SOURCE_OPTIONS.map((item) => (
@@ -166,19 +181,26 @@ export default function AiWorkspacePage() {
               accept=".txt,.md,.pdf,.doc,.docx,.xls,.xlsx"
               onChange={(e) => {
                 const file = e.target.files?.[0];
+                e.target.value = "";
                 if (!file) return;
-                if (file.type.startsWith("text") || file.name.endsWith(".txt") || file.name.endsWith(".md")) {
-                  file.text().then(setText);
-                } else {
-                  setText("");
-                  run("file", async () => {
-                    await api(`/api/ai/workspaces/${workspaceId}/sources`, {
-                      method: "POST",
-                      body: JSON.stringify({ sourceType, fileName: file.name, mimeType: file.type, text: "" }),
-                    });
-                    await load();
+                run("file", async () => {
+                  const buffer = await file.arrayBuffer();
+                  const bytes = new Uint8Array(buffer);
+                  let binary = "";
+                  bytes.forEach((b) => {
+                    binary += String.fromCharCode(b);
                   });
-                }
+                  await api(`/api/ai/workspaces/${workspaceId}/sources`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                      sourceType,
+                      fileName: file.name,
+                      mimeType: file.type,
+                      fileBase64: btoa(binary),
+                    }),
+                  });
+                  await load();
+                });
               }}
             />
             <Button
@@ -420,7 +442,15 @@ export default function AiWorkspacePage() {
 
           <Card>
             <h2 className="text-[18px] font-semibold">参考值</h2>
-            <p className="mt-1 text-[13px] text-sn-secondary">历史项目/车型规则尚未配置。当前仅展示系统默认值，且必须醒目标识。</p>
+            <p className="mt-1 text-[13px] text-sn-secondary">演示参考值 / 系统默认必须醒目标识，不能伪装成当前项目事实。</p>
+            <Button
+              variant="ghost"
+              className="mt-2 w-full"
+              disabled={busy !== ""}
+              onClick={() => run("refs", async () => setData(await api(`/api/ai/workspaces/${workspaceId}/references/adopt`, { method: "POST" })))}
+            >
+              采用全部允许参考值
+            </Button>
             <div className="mt-3 space-y-2">
               {data.reference_candidates.length === 0 && <p className="text-[13px] text-sn-muted">暂无候选。</p>}
               {data.reference_candidates.map((item) => (
@@ -450,8 +480,17 @@ export default function AiWorkspacePage() {
             })}>
               保存草稿
             </Button>
-            <Button variant="secondary" disabled={busy !== "" || data.documents.length === 0} onClick={() => run("parse", async () => setData(await api(`/api/ai/workspaces/${workspaceId}/parse`, { method: "POST" })))}>
-              {busy === "parse" ? "解析中…" : "开始 / 重新解析"}
+            <Button variant="secondary" disabled={busy !== "" || data.documents.length === 0} onClick={() => run("parse", async () => {
+              setParseStep(0);
+              const timer = window.setInterval(() => setParseStep((n) => Math.min(n + 1, PARSE_STEPS.length - 2)), 700);
+              try {
+                setData(await api(`/api/ai/workspaces/${workspaceId}/parse`, { method: "POST" }));
+                setParseStep(PARSE_STEPS.length - 1);
+              } finally {
+                window.clearInterval(timer);
+              }
+            })}>
+              {busy === "parse" ? PARSE_STEPS[Math.max(parseStep, 0)] : "开始 / 重新解析"}
             </Button>
             <Button
               disabled={busy !== "" || !canCalculate}

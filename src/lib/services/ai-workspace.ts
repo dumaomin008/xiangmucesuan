@@ -1,13 +1,18 @@
 import { prisma } from "@/lib/db";
 import { EngineError } from "@/lib/engine/decimal";
+import { calculateScheme } from "@/lib/engine/calculate";
+import { runSensitivity } from "@/lib/engine/sensitivity";
 import { validateSchemeInput } from "@/lib/engine/validate";
+import type { SchemeCalculationInput } from "@/lib/engine/types";
 import { createBlankScheme, executeCalculation, loadCalculationInput, audit } from "@/lib/services/scheme";
 import { buildCalculationRequest, buildMissingAndQuestions, completeness, freightUnitLabel } from "@/lib/ai/extract/missing";
-import { mapWorkspaceToEngineInput } from "@/lib/ai/map/to-engine";
+import { assertNoSilentZero, mapWorkspaceToEngineInput } from "@/lib/ai/map/to-engine";
 import { toCalculationResultV1 } from "@/lib/ai/map/from-engine";
-import { parseSourceInput } from "@/lib/ai/services/document-parser";
+import { parseSourceInput, parseUploadedFile } from "@/lib/ai/services/document-parser";
 import { orchestrateParse } from "@/lib/ai/services/orchestrator";
 import { evaluateRisks } from "@/lib/ai/services/risk-engine";
+import { runCopilotTurn } from "@/lib/ai/services/copilot-run";
+import { buildDueDiligence } from "@/lib/ai/due-diligence";
 import { FIELD_BY_CODE } from "@/lib/ai/schema/field-dictionary";
 import { AI_PROJECT_EXTRACT_SCHEMA_VERSION, CALCULATION_RESULT_SCHEMA_VERSION } from "@/lib/ai/schema/versions";
 import type { AiExtractResult, AiRouteDraft, CreateMode, ParameterRecord, SourceType } from "@/lib/ai/schema/types";
@@ -50,7 +55,8 @@ function toRouteDraft(route: {
   loadTon: string | null;
   status: string;
   enabled: boolean;
-}): AiRouteDraft {
+}, parameters?: ParameterRecord[]): AiRouteDraft {
+  const p = (code: string) => parameters?.find((item) => item.route_id === route.id && item.field_code === code)?.value ?? null;
   return {
     id: route.id,
     sort_no: route.sortNo,
@@ -67,9 +73,21 @@ function toRouteDraft(route: {
     freight_price: route.freightPrice,
     freight_price_unit: route.freightPriceUnit,
     load_ton: route.loadTon,
+    toll_per_trip: p("cost.toll_per_trip"),
+    loading_unloading_fee: p("cost.loading_unloading_fee"),
+    information_fee: p("cost.information_fee"),
+    driver_cost_per_trip: p("cost.driver_cost_per_trip"),
     status: route.status as AiRouteDraft["status"],
     enabled: route.enabled,
   };
+}
+
+function parseNotes(notes: string | null) {
+  try {
+    return notes ? (JSON.parse(notes) as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
 }
 
 function toParameter(row: {
@@ -105,8 +123,8 @@ function toParameter(row: {
 }
 
 export function serializeWorkspace(workspace: Awaited<ReturnType<typeof requireWorkspace>>) {
-  const routes = workspace.routes.map(toRouteDraft);
   const parameters = workspace.parameters.map(toParameter);
+  const routes = workspace.routes.map((route) => toRouteDraft(route, parameters));
   const questions = workspace.questions.map((q) => ({
     id: q.id,
     priority: q.priority as "P0" | "P1" | "P2",
@@ -164,18 +182,28 @@ export function serializeWorkspace(workspace: Awaited<ReturnType<typeof requireW
     })),
     due_diligence_next: workspace.dueDiligenceItems.map((item) => ({
       id: item.id,
-      priority: item.priority,
+      priority: item.priority as "P0" | "P1" | "P2",
       item: item.item,
       reason: item.reason,
       current_assumption: item.currentAssumption,
-      impact_metrics: JSON.parse(item.impactMetrics || "[]"),
+      impact_metrics: JSON.parse(item.impactMetrics || "[]") as string[],
       sensitivity: item.sensitivity,
       suggested_method: item.suggestedMethod,
-      completion_status: item.completionStatus,
+      completion_status: item.completionStatus as "未获取" | "已获取待确认" | "已确认",
     })),
     analysis: workspace.analysisResults[0] ?? { status: "not_configured", schemaVersion: "ai_analysis_v0", analysisJson: "{}" },
     risks: workspace.riskResults[0] ?? { status: "rules_not_configured", payloadJson: "[]" },
     latestTask: workspace.tasks[0] ?? null,
+    fallbackNotice: (parseNotes(workspace.notes).fallbackNotice as string | null) || null,
+    parseSummary: parseNotes(workspace.notes).parseSummary || null,
+    extractorKind: workspace.tasks[0]?.extractorKind ?? null,
+    modelName: workspace.tasks[0]?.modelName ?? null,
+    scenarios: workspace.scenarios.map((item) => ({
+      id: item.id,
+      kind: item.kind,
+      name: item.name,
+      createdAt: item.createdAt,
+    })),
   };
 }
 
@@ -226,10 +254,20 @@ export async function getWorkspace(id: string) {
 export async function addSource(
   workspaceId: string,
   actor: string,
-  body: { sourceType: SourceType; fileName?: string | null; mimeType?: string | null; text?: string | null },
+  body: { sourceType: SourceType; fileName?: string | null; mimeType?: string | null; text?: string | null; fileBase64?: string | null },
 ) {
   await requireWorkspace(workspaceId);
-  const parsed = parseSourceInput(body);
+  const parsed = body.fileBase64
+    ? await parseUploadedFile({
+        sourceType: body.sourceType,
+        fileName: body.fileName || "upload.bin",
+        mimeType: body.mimeType,
+        buffer: Buffer.from(body.fileBase64, "base64"),
+      })
+    : parseSourceInput(body);
+  if (parsed.parseStatus === "unsupported_binary" || parsed.parseStatus === "failed") {
+    throw new EngineError("CALC_PARAMETER_INVALID", "file", parsed.parseMessage || "文件解析失败，可粘贴文本继续。");
+  }
   const doc = await prisma.aiSourceDocument.create({
     data: {
       workspaceId,
@@ -346,8 +384,8 @@ async function persistExtract(workspaceId: string, extract: AiExtractResult, act
   }
 
   const workspace = await requireWorkspace(workspaceId);
-  const routes = workspace.routes.map(toRouteDraft);
   const parameters = workspace.parameters.map(toParameter);
+  const routes = workspace.routes.map((route) => toRouteDraft(route, parameters));
   const references = workspace.referenceCandidates.map((item) => ({
     field_code: item.fieldCode,
     suggested_value: item.suggestedValue,
@@ -433,13 +471,28 @@ export async function parseWorkspace(workspaceId: string, actor: string) {
         modelName: pipeline.modelName,
         promptVersion: pipeline.promptVersion,
         schemaVersion: pipeline.extract.schema_version,
-        rawResponseJson: JSON.stringify({ extractor: pipeline.extractorKind, note: "heuristic_v1_no_prompt" }),
+        rawResponseJson: JSON.stringify({ extractor: pipeline.extractorKind, fallbackNotice: pipeline.fallbackNotice }),
         validationResultJson: JSON.stringify(pipeline.validation),
         extractPayloadJson: JSON.stringify(pipeline.extract),
+        errorMessage: pipeline.fallbackNotice,
         finishedAt: new Date(),
       },
     });
-    await prisma.aiWorkspace.update({ where: { id: workspaceId }, data: { status: "preview", updatedBy: actor } });
+    const parseSummary = {
+      routes: pipeline.extract.routes.length,
+      parameters: pipeline.extract.parameters.length,
+      p0: pipeline.extract.questions.filter((q) => q.priority === "P0").length,
+      conflicts: pipeline.extract.conflicts.length,
+      references: pipeline.extract.reference_candidates.length,
+    };
+    await prisma.aiWorkspace.update({
+      where: { id: workspaceId },
+      data: {
+        status: "preview",
+        updatedBy: actor,
+        notes: JSON.stringify({ fallbackNotice: pipeline.fallbackNotice, parseSummary, extractorKind: pipeline.extractorKind }),
+      },
+    });
     await audit("AI_PARSE", "AiWorkspace", workspaceId, actor, { taskId: task.id });
     return getWorkspace(workspaceId);
   } catch (err) {
@@ -455,8 +508,8 @@ export async function parseWorkspace(workspaceId: string, actor: string) {
 
 async function refreshQuestions(workspaceId: string) {
   const workspace = await requireWorkspace(workspaceId);
-  const routes = workspace.routes.map(toRouteDraft);
   const parameters = workspace.parameters.map(toParameter);
+  const routes = workspace.routes.map((route) => toRouteDraft(route, parameters));
   const references = workspace.referenceCandidates.map((item) => ({
     field_code: item.fieldCode,
     suggested_value: item.suggestedValue,
@@ -736,6 +789,16 @@ async function applyRouteField(workspaceId: string, routeId: string | null, fiel
   if (Object.keys(patch).length) await prisma.aiRoute.update({ where: { id: routeId }, data: patch });
 }
 
+export async function adoptAllowedReferences(workspaceId: string, actor: string) {
+  const workspace = await requireWorkspace(workspaceId);
+  const open = workspace.questions.filter((q) => q.status === "open" && q.hasReference);
+  for (const question of open) {
+    if (FIELD_BY_CODE[question.fieldCode]?.aiCompletable === "forbidden") continue;
+    await answerQuestion(workspaceId, question.id, actor, { action: "adopt_reference" });
+  }
+  return getWorkspace(workspaceId);
+}
+
 export async function resolveConflict(workspaceId: string, conflictId: string, actor: string, value: string) {
   const conflict = await prisma.aiConflict.findFirst({ where: { id: conflictId, workspaceId } });
   if (!conflict) throw new EngineError("NOT_FOUND", "conflict", "冲突不存在");
@@ -768,6 +831,7 @@ export async function confirmAndCalculate(workspaceId: string, actor: string, mo
     parameters: serialized.parameters,
     projectFleetSize: serialized.parameters.find((item) => item.field_code === "vehicle.fleet_size")?.value ?? null,
   });
+  assertNoSilentZero(mapped);
 
   let schemeId = workspace.schemeId;
   if (schemeId) {
@@ -781,6 +845,8 @@ export async function confirmAndCalculate(workspaceId: string, actor: string, mo
       schemeName: mapped.schemeName,
       fleetSize: mapped.fleetSize,
       description: "由 AI 智能测算草稿确认生成，仅写入已映射字段",
+      monthlyRentPerVehicle: mapped.monthlyRentPerVehicle || undefined,
+      downPaymentPerVehicle: "80000",
     });
     schemeId = scheme.id;
     await prisma.aiWorkspace.update({ where: { id: workspaceId }, data: { schemeId, inputVersionNo: scheme.versionNo } });
@@ -789,7 +855,13 @@ export async function confirmAndCalculate(workspaceId: string, actor: string, mo
       where: { id: schemeId },
       data: { schemeName: mapped.schemeName, fleetSize: mapped.fleetSize, updatedBy: actor },
     });
-    await prisma.vehiclePlan.update({ where: { schemeId }, data: { fleetSize: mapped.fleetSize } });
+    await prisma.vehiclePlan.update({
+      where: { schemeId },
+      data: {
+        fleetSize: mapped.fleetSize,
+        ...(mapped.monthlyRentPerVehicle ? { monthlyRentPerVehicle: mapped.monthlyRentPerVehicle } : {}),
+      },
+    });
     await prisma.calculationRoute.deleteMany({ where: { schemeId } });
   }
 
@@ -845,16 +917,38 @@ export async function confirmAndCalculate(workspaceId: string, actor: string, mo
 
   const output = await executeCalculation(schemeId, actor);
   const latest = await prisma.calculationResult.findFirst({ where: { schemeId }, orderBy: { calculatedAt: "desc" } });
+  const calcInput = await loadCalculationInput(schemeId);
+  const engineOutput = calculateScheme(calcInput);
+  const rankedDd = buildDueDiligence({ questions: serialized.questions, parameters: serialized.parameters });
+  await prisma.aiDueDiligenceItem.deleteMany({ where: { workspaceId } });
+  if (rankedDd.length) {
+    await prisma.aiDueDiligenceItem.createMany({
+      data: rankedDd.map((item) => ({
+        workspaceId,
+        priority: item.priority,
+        item: item.item,
+        reason: item.reason,
+        currentAssumption: item.current_assumption,
+        impactMetrics: JSON.stringify(item.impact_metrics),
+        sensitivity: item.sensitivity,
+        suggestedMethod: item.suggested_method,
+        completionStatus: item.completion_status,
+      })),
+    });
+  }
   await prisma.aiAnalysisResult.create({
     data: {
       workspaceId,
       basedOnResultId: latest?.id,
       schemaVersion: "ai_analysis_v0",
-      status: "not_configured",
-      analysisJson: JSON.stringify({ message: "分析类 Prompt 尚未冻结，本轮不生成 AI 解释。" }),
+      status: "engine_ready",
+      analysisJson: JSON.stringify({
+        message: "解释基于测算引擎结果，不改写 KPI。",
+        assumptions: mapped.assumptions,
+      }),
     },
   });
-  const risk = evaluateRisks({ resultVersionId: latest?.id });
+  const risk = evaluateRisks({ calcInput, output: engineOutput, parameters: serialized.parameters });
   await prisma.aiRiskResult.create({
     data: {
       workspaceId,
@@ -863,8 +957,38 @@ export async function confirmAndCalculate(workspaceId: string, actor: string, mo
       payloadJson: JSON.stringify(risk),
     },
   });
+  await prisma.aiScenario.create({
+    data: {
+      workspaceId,
+      schemeId,
+      kind: "baseline",
+      name: "基准方案",
+      resultId: latest?.id,
+      payloadJson: JSON.stringify({ engineInput: calcInput, assumptions: mapped.assumptions, difference: null, result: latest
+        ? toCalculationResultV1({
+            ruleVersion: latest.ruleVersionId,
+            snapshotId: latest.snapshotId,
+            resultId: latest.id,
+            monthlyRevenue: latest.monthlyRevenue,
+            monthlyTotalCost: latest.monthlyTotalCost,
+            monthlyProfit: latest.monthlyProfit,
+            profitMargin: latest.profitMargin,
+            profitMarginReason: latest.profitMarginReason,
+            irr: latest.irr,
+            irrReason: latest.irrReason,
+            monthlyVolume: latest.monthlyVolume,
+            monthlyMileage: latest.monthlyMileage,
+            firstPositiveMonth: latest.firstPositiveMonth,
+            cumulativeCashFlow: latest.cumulativeCashFlow,
+            costBreakdown: JSON.parse(latest.payloadJson || "{}").costBreakdown,
+            routes: JSON.parse(latest.payloadJson || "{}").routes,
+          })
+        : null }),
+    },
+  });
   await prisma.aiWorkspace.update({ where: { id: workspaceId }, data: { status: "calculated", updatedBy: actor, schemeId } });
   await audit("AI_CALCULATE", "AiWorkspace", workspaceId, actor, { schemeId, resultId: latest?.id });
+  void output;
   return {
     workspace: await getWorkspace(workspaceId),
     schemeId,
@@ -893,13 +1017,64 @@ export async function confirmAndCalculate(workspaceId: string, actor: string, mo
 
 export async function getWorkspaceResult(workspaceId: string) {
   const workspace = await requireWorkspace(workspaceId);
-  if (!workspace.schemeId) return { result: null, schemeId: null, analysis: workspace.analysisResults[0] ?? null, risks: workspace.riskResults[0] ?? null };
+  const serialized = serializeWorkspace(workspace);
+  const empty = {
+    result: null as ReturnType<typeof toCalculationResultV1> | null,
+    schemeId: workspace.schemeId,
+    analysis: workspace.analysisResults[0] ?? null,
+    risks: workspace.riskResults[0] ?? null,
+    dueDiligence: serialized.due_diligence_next,
+    assumptions: [] as unknown[],
+    cashFlows: [] as unknown[],
+    sensitivity: [] as unknown[],
+    scenarios: [] as unknown[],
+    schema_version: CALCULATION_RESULT_SCHEMA_VERSION,
+  };
+  if (!workspace.schemeId) return empty;
   const latest = await prisma.calculationResult.findFirst({
     where: { schemeId: workspace.schemeId },
     orderBy: { calculatedAt: "desc" },
   });
-  if (!latest) return { result: null, schemeId: workspace.schemeId, analysis: workspace.analysisResults[0] ?? null, risks: workspace.riskResults[0] ?? null };
+  if (!latest) return empty;
   const payload = JSON.parse(latest.payloadJson || "{}") as { costBreakdown?: unknown[]; routes?: unknown[]; warnings?: unknown[] };
+  const cashFlows = await prisma.cashFlowResult.findMany({
+    where: { schemeId: workspace.schemeId, snapshotId: latest.snapshotId },
+    orderBy: { monthIndex: "asc" },
+  });
+  let sensitivity: unknown[] = [];
+  let assumptions: unknown[] = [];
+  try {
+    const calcInput = await loadCalculationInput(workspace.schemeId);
+    const vars = ["freight_price", "electricity_price", "trips_per_vehicle_month", "monthly_rent_per_vehicle", "loaded_energy_consumption"] as const;
+    sensitivity = vars.map((variable) => ({
+      variable,
+      rows: runSensitivity({
+        input: calcInput,
+        variable,
+        changeMode: "PERCENT",
+        minChange: "-10",
+        maxChange: "10",
+        step: "10",
+      }),
+    }));
+  } catch {
+    sensitivity = [];
+  }
+  const baselineScenario = workspace.scenarios.find((item) => item.kind === "baseline");
+  if (baselineScenario) {
+    try {
+      const parsed = JSON.parse(baselineScenario.payloadJson || "{}") as { assumptions?: unknown[] };
+      assumptions = parsed.assumptions || [];
+    } catch {
+      assumptions = [];
+    }
+  }
+  const scenarios = workspace.scenarios
+    .filter((item) => item.kind === "baseline" || item.kind === "scenario")
+    .map((item) => {
+      const parsed = JSON.parse(item.payloadJson || "{}") as { result?: unknown; difference?: unknown };
+      return { id: item.id, kind: item.kind, name: item.name, result: parsed.result ?? null, difference: parsed.difference ?? null };
+    });
   return {
     result: toCalculationResultV1({
       ruleVersion: latest.ruleVersionId,
@@ -922,9 +1097,153 @@ export async function getWorkspaceResult(workspaceId: string) {
     }),
     analysis: workspace.analysisResults[0] ?? null,
     risks: workspace.riskResults[0] ?? null,
+    dueDiligence: serialized.due_diligence_next,
+    assumptions,
+    cashFlows: cashFlows.map((row) => ({
+      monthIndex: row.monthIndex,
+      currentNetCashFlow: row.currentNetCashFlow,
+      cumulativeCashFlow: row.cumulativeCashFlow,
+    })),
+    sensitivity,
+    scenarios,
     schemeId: workspace.schemeId,
     schema_version: CALCULATION_RESULT_SCHEMA_VERSION,
   };
+}
+
+function engineInputFromScenarios(workspace: Awaited<ReturnType<typeof requireWorkspace>>) {
+  const baseline = workspace.scenarios.find((item) => item.kind === "baseline");
+  const last = [...workspace.scenarios].reverse().find((item) => item.kind === "scenario");
+  const read = (row?: { payloadJson: string }) => {
+    if (!row) return null;
+    try {
+      const parsed = JSON.parse(row.payloadJson || "{}") as { engineInput?: SchemeCalculationInput };
+      return parsed.engineInput ?? null;
+    } catch {
+      return null;
+    }
+  };
+  return { baseline: read(baseline), last: read(last) };
+}
+
+export async function runWorkspaceCopilot(
+  workspaceId: string,
+  actor: string,
+  body: { question: string; base?: "baseline" | "last_scenario" },
+) {
+  const workspace = await requireWorkspace(workspaceId);
+  if (!workspace.schemeId) throw new EngineError("CALC_PARAMETER_INVALID", "scheme", "请先完成正式测算，再进行场景模拟");
+  const stored = engineInputFromScenarios(workspace);
+  const baselineInput = stored.baseline ?? (await loadCalculationInput(workspace.schemeId));
+  const serialized = serializeWorkspace(workspace);
+  let risks: ReturnType<typeof evaluateRisks>["items"] = [];
+  try {
+    const parsed = JSON.parse(workspace.riskResults[0]?.payloadJson || "{}") as { items?: ReturnType<typeof evaluateRisks>["items"] };
+    risks = parsed.items || [];
+  } catch {
+    risks = [];
+  }
+  const turn = runCopilotTurn({
+    question: body.question,
+    baselineInput,
+    lastPatchedInput: stored.last,
+    dueDiligence: serialized.due_diligence_next,
+    risks,
+    base: body.base,
+  });
+  let scenarioRow = null;
+  if (turn.scenario) {
+    scenarioRow = await prisma.aiScenario.create({
+      data: {
+        workspaceId,
+        schemeId: workspace.schemeId,
+        kind: "scenario",
+        name: turn.intent.title,
+        payloadJson: JSON.stringify({
+          engineInput: turn.scenario.patchedInput,
+          result: turn.scenario.scenario,
+          difference: turn.scenario.difference,
+          question: body.question,
+        }),
+      },
+    });
+  }
+  await audit("AI_COPILOT", "AiWorkspace", workspaceId, actor, { title: turn.intent.title });
+  return {
+    ...turn,
+    scenarioId: scenarioRow?.id ?? null,
+    compare: turn.scenario
+      ? {
+          baseline: turn.scenario.baseline,
+          scenario: turn.scenario.scenario,
+          difference: turn.scenario.difference,
+        }
+      : null,
+  };
+}
+
+export async function saveScenarioAsScheme(workspaceId: string, scenarioId: string, actor: string) {
+  const workspace = await requireWorkspace(workspaceId);
+  const row = workspace.scenarios.find((item) => item.id === scenarioId);
+  if (!row) throw new EngineError("NOT_FOUND", "scenario", "模拟方案不存在");
+  const parsed = JSON.parse(row.payloadJson || "{}") as { engineInput?: SchemeCalculationInput };
+  if (!parsed.engineInput) throw new EngineError("CALC_PARAMETER_INVALID", "scenario", "该场景没有可保存的引擎输入");
+  const input = parsed.engineInput;
+  const scheme = await createBlankScheme(workspace.projectId, actor, {
+    schemeName: row.name,
+    fleetSize: input.fleetSize,
+    description: `由 AI 场景「${row.name}」保存为正式方案`,
+    monthlyRentPerVehicle: input.vehicle.monthlyRentPerVehicle,
+    downPaymentPerVehicle: input.vehicle.downPaymentPerVehicle,
+    installmentMonths: input.vehicle.installmentMonths,
+  });
+  await prisma.vehiclePlan.update({
+    where: { schemeId: scheme.id },
+    data: {
+      fleetSize: input.fleetSize,
+      monthlyRentPerVehicle: input.vehicle.monthlyRentPerVehicle,
+      downPaymentPerVehicle: input.vehicle.downPaymentPerVehicle,
+    },
+  });
+  for (const route of input.routes) {
+    const created = await prisma.calculationRoute.create({
+      data: {
+        schemeId: scheme.id,
+        routeName: route.routeName,
+        routeCode: route.routeCode,
+        sortNo: route.sortNo,
+        description: route.description,
+        enabled: route.enabled,
+      },
+    });
+    for (const segment of route.segments) {
+      await prisma.calculationRouteSegment.create({
+        data: {
+          routeId: created.id,
+          sortNo: segment.sortNo,
+          originName: segment.originName,
+          destinationName: segment.destinationName,
+          segmentName: segment.segmentName,
+          distanceKm: segment.distanceKm,
+          freightPrice: segment.freightPrice,
+          freightPriceUnit: segment.freightPriceUnit,
+          loadTon: segment.loadTon,
+          tripsPerVehicleMonth: segment.tripsPerVehicleMonth,
+          operatingMonthsYear: segment.operatingMonthsYear,
+          tollPerTrip: segment.tollPerTrip,
+          loadingUnloadingFee: segment.loadingUnloadingFee,
+          informationFee: segment.informationFee,
+          loadedEnergyConsumption: segment.loadedEnergyConsumption,
+          emptyEnergyConsumption: segment.emptyEnergyConsumption,
+          electricityPrice: segment.electricityPrice,
+          driverCostPerTrip: segment.driverCostPerTrip || "0",
+        },
+      });
+    }
+  }
+  const calculated = await executeCalculation(scheme.id, actor);
+  await prisma.aiScenario.update({ where: { id: scenarioId }, data: { schemeId: scheme.id, resultId: calculated.result.id } });
+  return { schemeId: scheme.id, name: row.name };
 }
 
 export { freightUnitLabel };

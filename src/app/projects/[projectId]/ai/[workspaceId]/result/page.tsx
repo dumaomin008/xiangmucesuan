@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AssistantDrawer } from "@/components/ai/assistant-drawer";
+import { StatusPill } from "@/components/ai/status-pill";
 import { Character } from "@/components/empty";
 import { Button, Card, MetricCard, PageHeader } from "@/components/ui";
 import { api } from "@/lib/client";
-import { formatMoney, formatPercent, formatQty } from "@/lib/format";
+import { formatFirstPositiveMonth, formatMoney, formatPercent, formatQty } from "@/lib/format";
 import type { CalculationResultV1 } from "@/lib/ai/schema/types";
 
 type ResultResponse = {
@@ -16,6 +17,42 @@ type ResultResponse = {
   schemeId: string | null;
   analysis: { status: string; analysisJson: string } | null;
   risks: { status: string; payloadJson: string } | null;
+  dueDiligence: Array<{
+    priority: string;
+    item: string;
+    reason: string;
+    current_assumption: string | null;
+    impact_metrics: string[];
+    sensitivity: string | null;
+    suggested_method: string | null;
+  }>;
+  assumptions: Array<{ field_code: string; value: string; label: string; status: string }>;
+  cashFlows: Array<{ monthIndex: number; currentNetCashFlow: string; cumulativeCashFlow: string }>;
+  sensitivity: Array<{ variable: string; rows: Array<{ parameterChange: string; monthlyProfit: string }> }>;
+  scenarios: Array<{
+    id: string;
+    kind: string;
+    name: string;
+    result: CalculationResultV1 | null;
+    difference: Record<string, string | null> | null;
+  }>;
+};
+
+function parseRisks(payload: string | null | undefined) {
+  try {
+    const data = JSON.parse(payload || "{}") as { items?: Array<{ risk_code: string; risk_name: string; level: string; evidence: string; recommendation: string }> };
+    return data.items || [];
+  } catch {
+    return [];
+  }
+}
+
+const SENS_LABEL: Record<string, string> = {
+  freight_price: "运价",
+  electricity_price: "电价",
+  trips_per_vehicle_month: "趟次",
+  monthly_rent_per_vehicle: "车辆月租",
+  loaded_energy_consumption: "满载电耗",
 };
 
 export default function AiResultPage() {
@@ -24,10 +61,13 @@ export default function AiResultPage() {
   const [error, setError] = useState("");
   const [assistant, setAssistant] = useState(false);
 
-  useEffect(() => {
+  const load = () =>
     api<ResultResponse>(`/api/ai/workspaces/${workspaceId}/result`)
       .then(setData)
       .catch((e) => setError(e.message));
+
+  useEffect(() => {
+    load();
   }, [workspaceId]);
 
   const result = data?.result;
@@ -35,15 +75,24 @@ export default function AiResultPage() {
     name: item.name,
     amount: Number(item.amount || 0),
   }));
+  const risks = parseRisks(data?.risks?.payloadJson);
+  const routes = (result?.routes || []) as Array<{
+    routeName?: string;
+    monthlyRevenue?: string;
+    monthlyProfit?: string;
+    profitMargin?: string | null;
+    variableCost?: string;
+    fixedCost?: string;
+  }>;
 
   return (
     <div>
       <PageHeader
         title="AI 测算结果"
-        subtitle="核心指标来自测算引擎，不是大模型生成。风险解释与对话重算待规格补齐后再接入。"
+        subtitle="核心指标、图表和敏感性全部来自测算引擎。风险等级来自规则引擎，AI 只做解释。"
         actions={
           <>
-            <Button variant="secondary" onClick={() => setAssistant(true)}>打开 AI 助手</Button>
+            <Button variant="secondary" onClick={() => setAssistant(true)}>打开 AI 测算助手</Button>
             <Link href={`/projects/${projectId}/ai/${workspaceId}`}>
               <Button variant="ghost">返回资料确认</Button>
             </Link>
@@ -53,18 +102,39 @@ export default function AiResultPage() {
       {error && <div className="mb-4 rounded-sn-md bg-sn-error/12 px-4 py-3 text-sm text-[#C44747]">{error}</div>}
       {!result ? (
         <Card>
-          <EmptyStateLike />
+          <div className="flex flex-col items-center px-8 py-16 text-center">
+            <Character mood="warn" />
+            <h3 className="mt-4 text-[22px] font-semibold">还没有引擎测算结果</h3>
+            <p className="mt-2 max-w-md text-[15px] text-sn-secondary">请先确认线路和 P0 字段，再调用测算引擎。AI 不会在引擎失败时自行填数。</p>
+          </div>
         </Card>
       ) : (
-        <>
-          <div className="mb-6 grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+        <div className="space-y-5">
+          <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-4">
             <MetricCard label="月收入" value={formatMoney(result.kpis.monthly_revenue)} hint={`规则 ${result.rule_version}`} />
             <MetricCard label="月总成本" value={formatMoney(result.kpis.monthly_total_cost)} />
             <MetricCard label="月利润" value={formatMoney(result.kpis.monthly_profit)} />
-            <MetricCard label="毛利率" value={result.kpis.profit_margin ? formatPercent(result.kpis.profit_margin) : "无法计算"} hint={result.kpis.profit_margin_reason || ""} />
-            <MetricCard label="IRR" value={result.kpis.irr ? formatPercent(result.kpis.irr) : "无法计算"} hint={result.kpis.irr_reason || ""} />
+            <MetricCard label="利润率" value={result.kpis.profit_margin ? formatPercent(result.kpis.profit_margin) : "无法计算"} hint={result.kpis.profit_margin_reason || ""} />
             <MetricCard label="月运量" value={formatQty(result.kpis.monthly_volume)} />
+            <MetricCard label="月里程" value={formatQty(result.kpis.monthly_mileage)} />
+            <MetricCard label="首次现金流转正" value={formatFirstPositiveMonth(result.kpis.first_positive_month)} />
+            <MetricCard label="IRR" value={result.kpis.irr ? formatPercent(result.kpis.irr) : "无法计算"} hint={result.kpis.irr_reason || ""} />
           </div>
+
+          {(data?.assumptions || []).length > 0 && (
+            <Card>
+              <h2 className="text-[20px] font-semibold">假设条件</h2>
+              <div className="mt-3 space-y-2">
+                {data?.assumptions.map((item) => (
+                  <div key={`${item.field_code}-${item.value}`} className="flex items-start justify-between gap-3 rounded-sn-md bg-sn-subtle px-3 py-2">
+                    <p className="text-[13px] text-sn-secondary">{item.label}</p>
+                    <StatusPill value={item.status} />
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
           <div className="grid gap-5 lg:grid-cols-2">
             <Card>
               <h2 className="text-[20px] font-semibold">成本结构</h2>
@@ -81,44 +151,138 @@ export default function AiResultPage() {
               </div>
             </Card>
             <Card>
-              <h2 className="text-[20px] font-semibold">风险评估</h2>
-              <p className="mt-3 text-[15px] leading-6 text-sn-secondary">
-                {data?.risks?.status === "rules_not_configured"
-                  ? "风险规则与阈值尚未冻结。本轮不输出风险等级，避免把自然语言当成结论。"
-                  : data?.risks?.payloadJson}
-              </p>
-            </Card>
-            <Card>
-              <h2 className="text-[20px] font-semibold">AI 分析</h2>
-              <p className="mt-3 text-[15px] leading-6 text-sn-secondary">
-                分析类 Prompt 尚未冻结。核心数字已按最新测算结果版本展示，AI 文本不会反过来改写这些数字。
-              </p>
-            </Card>
-            <Card>
-              <h2 className="text-[20px] font-semibold">继续尽调</h2>
-              <p className="mt-3 text-[15px] leading-6 text-sn-secondary">
-                尽调优先级分数依赖敏感度规则，规格补齐前请回到确认页查看 P0/P1 缺失项：要获取什么、为什么、影响什么。
-              </p>
-              {data?.schemeId && (
-                <Link className="mt-4 inline-block text-sn-info" href={`/projects/${projectId}/calculation/${data.schemeId}/results`}>
-                  查看引擎明细与公式追溯
-                </Link>
-              )}
+              <h2 className="text-[20px] font-semibold">线路贡献</h2>
+              <div className="mt-3 overflow-x-auto text-[13px]">
+                <table className="min-w-full text-left">
+                  <thead className="text-[12px] text-sn-muted">
+                    <tr>
+                      {["线路", "收入", "利润", "利润率"].map((h) => (
+                        <th key={h} className="px-2 py-2">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {routes.map((route, index) => (
+                      <tr key={route.routeName || index} className="border-t border-black/[0.04]">
+                        <td className="px-2 py-2">{route.routeName || `线路 ${index + 1}`}</td>
+                        <td className="px-2 py-2">{formatMoney(route.monthlyRevenue)}</td>
+                        <td className="px-2 py-2">{formatMoney(route.monthlyProfit)}</td>
+                        <td className="px-2 py-2">{route.profitMargin ? formatPercent(route.profitMargin) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </Card>
           </div>
-        </>
-      )}
-      <AssistantDrawer open={assistant} onClose={() => setAssistant(false)} />
-    </div>
-  );
-}
 
-function EmptyStateLike() {
-  return (
-    <div className="flex flex-col items-center px-8 py-16 text-center">
-      <Character mood="warn" />
-      <h3 className="mt-4 text-[22px] font-semibold">还没有引擎测算结果</h3>
-      <p className="mt-2 max-w-md text-[15px] text-sn-secondary">请先确认线路和 P0 字段，再调用测算引擎。AI 不会在引擎失败时自行填数。</p>
+          <Card>
+            <h2 className="text-[20px] font-semibold">现金流</h2>
+            <div className="mt-4 h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={(data?.cashFlows || []).slice(0, 36).map((row) => ({ ...row, cumulativeCashFlow: Number(row.cumulativeCashFlow) }))}>
+                  <CartesianGrid stroke="rgba(0,0,0,0.04)" />
+                  <XAxis dataKey="monthIndex" tick={{ fontSize: 12 }} />
+                  <YAxis tick={{ fontSize: 12 }} />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="cumulativeCashFlow" stroke="#667EEA" dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </Card>
+
+          <Card>
+            <h2 className="text-[20px] font-semibold">敏感性</h2>
+            <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {(data?.sensitivity || []).map((item) => (
+                <div key={item.variable} className="rounded-sn-md bg-sn-subtle p-3">
+                  <div className="text-[13px] font-medium">{SENS_LABEL[item.variable] || item.variable}</div>
+                  <div className="mt-2 h-40">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={item.rows}>
+                        <XAxis dataKey="parameterChange" tick={{ fontSize: 11 }} />
+                        <Tooltip />
+                        <Bar dataKey="monthlyProfit" fill="#82C0A8" radius={[6, 6, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          <div className="grid gap-5 lg:grid-cols-2">
+            <Card>
+              <h2 className="text-[20px] font-semibold">风险</h2>
+              <div className="mt-3 space-y-3">
+                {risks.length === 0 && <p className="text-[14px] text-sn-secondary">暂无风险结果。</p>}
+                {risks.map((item) => (
+                  <div key={item.risk_code} className="rounded-sn-md bg-sn-subtle p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[14px] font-medium">{item.risk_name}</span>
+                      <StatusPill value={item.level === "高" ? "P0" : item.level === "中" ? "P1" : "P2"} />
+                    </div>
+                    <p className="mt-1 text-[12px] text-sn-secondary">{item.evidence}</p>
+                    <p className="mt-1 text-[12px] text-sn-muted">{item.recommendation}</p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+            <Card>
+              <h2 className="text-[20px] font-semibold">下一步尽调</h2>
+              <div className="mt-3 space-y-3">
+                {(data?.dueDiligence || []).length === 0 && <p className="text-[14px] text-sn-secondary">关键字段较完整，仍建议抽查合同原件。</p>}
+                {(data?.dueDiligence || []).slice(0, 6).map((item) => (
+                  <div key={item.item} className="rounded-sn-md bg-sn-subtle p-3">
+                    <div className="flex items-center gap-2">
+                      <StatusPill value={item.priority} />
+                      <span className="text-[13px] font-medium">{item.item}</span>
+                    </div>
+                    <p className="mt-1 text-[12px] text-sn-secondary">当前：{item.current_assumption}</p>
+                    <p className="mt-1 text-[12px] text-sn-muted">影响：{item.impact_metrics.join("、")} · 建议：{item.suggested_method}</p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </div>
+
+          {(data?.scenarios || []).length > 0 && (
+            <Card>
+              <h2 className="text-[20px] font-semibold">方案对比</h2>
+              <div className="mt-3 overflow-x-auto text-[13px]">
+                <table className="min-w-full text-left">
+                  <thead className="text-[12px] text-sn-muted">
+                    <tr>
+                      {["方案", "月收入", "月成本", "月利润", "利润率", "IRR"].map((h) => (
+                        <th key={h} className="px-2 py-2">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(data?.scenarios || []).slice(0, 3).map((item) => (
+                      <tr key={item.id} className="border-t border-black/[0.04]">
+                        <td className="px-2 py-2">{item.name}</td>
+                        <td className="px-2 py-2">{formatMoney(item.result?.kpis.monthly_revenue)}</td>
+                        <td className="px-2 py-2">{formatMoney(item.result?.kpis.monthly_total_cost)}</td>
+                        <td className="px-2 py-2">{formatMoney(item.result?.kpis.monthly_profit)}</td>
+                        <td className="px-2 py-2">{item.result?.kpis.profit_margin ? formatPercent(item.result.kpis.profit_margin) : "—"}</td>
+                        <td className="px-2 py-2">{item.result?.kpis.irr ? formatPercent(item.result.kpis.irr) : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+
+          {data?.schemeId && (
+            <Link className="inline-block text-sn-info" href={`/projects/${projectId}/calculation/${data.schemeId}/results`}>
+              查看引擎明细与公式追溯
+            </Link>
+          )}
+        </div>
+      )}
+      <AssistantDrawer open={assistant} onClose={() => setAssistant(false)} workspaceId={workspaceId} onSaved={load} />
     </div>
   );
 }

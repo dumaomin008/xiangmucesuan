@@ -16,6 +16,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       fileName: body.fileName != null ? String(body.fileName) : null,
       mimeType: body.mimeType != null ? String(body.mimeType) : null,
       text: body.text != null ? String(body.text) : null,
+      fileBase64: body.fileBase64 != null ? String(body.fileBase64) : null,
     });
     return ok(doc, 201);
   } catch (err) {

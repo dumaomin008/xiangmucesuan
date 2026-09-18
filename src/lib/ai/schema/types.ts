@@ -1,6 +1,6 @@
 import { AI_PROJECT_EXTRACT_SCHEMA_VERSION, CALCULATION_REQUEST_SCHEMA_VERSION, CALCULATION_RESULT_SCHEMA_VERSION } from "./versions";
 
-export type FieldStatus = "confirmed" | "extracted" | "reference" | "missing" | "conflict";
+export type FieldStatus = "confirmed" | "extracted" | "reference" | "missing" | "conflict" | "default";
 export type SourceType = "due_diligence" | "meeting" | "chat" | "system" | "reference" | "free_text" | "user";
 export type UpdatedBy = "AI" | "用户" | "系统";
 export type QuestionPriority = "P0" | "P1" | "P2";
@@ -112,6 +112,10 @@ export type AiRouteDraft = {
   freight_price: string | null;
   freight_price_unit: string | null;
   load_ton: string | null;
+  toll_per_trip: string | null;
+  loading_unloading_fee: string | null;
+  information_fee: string | null;
+  driver_cost_per_trip: string | null;
   status: RouteConfirmStatus;
   enabled: boolean;
 };

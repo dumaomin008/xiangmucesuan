@@ -2,7 +2,7 @@ import { AI_PROJECT_EXTRACT_SCHEMA_VERSION } from "./versions";
 import { FIELD_BY_CODE } from "./field-dictionary";
 import type { AiExtractResult, ParameterRecord, ValidationResult } from "./types";
 
-const FIELD_STATUSES = new Set(["confirmed", "extracted", "reference", "missing", "conflict"]);
+const FIELD_STATUSES = new Set(["confirmed", "extracted", "reference", "missing", "conflict", "default"]);
 const SOURCE_TYPES = new Set(["due_diligence", "meeting", "chat", "system", "reference", "free_text", "user"]);
 
 export function validateAiExtractResult(input: unknown): ValidationResult {

@@ -1,0 +1,12 @@
+{
+  "routes_expected": 1,
+  "origin": "昆钢",
+  "destination": "北城",
+  "distance_km": "65",
+  "daily_volume_ton": "3000",
+  "fleet_size": "20",
+  "freight_price": "32",
+  "freight_price_unit": "PER_TON",
+  "must_not_invent": ["energy.loaded_consumption", "ops.trips_per_day"],
+  "p0_if_missing_freight": true
+}
