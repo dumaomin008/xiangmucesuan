@@ -1,3 +1,5 @@
+import { clarificationFor, wantsLastScenario, type Clarification } from "../analysis/answer-plan";
+
 export type ScenarioAction = {
   field_code: string;
   scope: "all_routes" | "project";
@@ -10,6 +12,8 @@ export type ScenarioIntent = {
   title: string;
   actions: ScenarioAction[];
   parser: "rule" | "llm" | "fallback" | "none";
+  clarify?: Clarification | null;
+  continueFromLast?: boolean;
 };
 
 function pct(question: string, keyword: string) {
@@ -18,6 +22,22 @@ function pct(question: string, keyword: string) {
 }
 
 export function parseIntentRuleBased(question: string): ScenarioIntent {
+  const clarify = clarificationFor(question);
+  const parsed = parseScenarioRules(question);
+  if (clarify && parsed.kind !== "scenario") {
+    return {
+      kind: "explain",
+      title: "需要补充参数",
+      actions: [],
+      parser: "rule",
+      clarify,
+      continueFromLast: false,
+    };
+  }
+  return { ...parsed, clarify: null, continueFromLast: wantsLastScenario(question) };
+}
+
+function parseScenarioRules(question: string): ScenarioIntent {
   const q = question.replace(/\s+/g, "");
   if (/尽调|还需要|下一步/.test(q)) {
     return { kind: "due_diligence", title: "下一步尽调", actions: [], parser: "rule" };
@@ -46,6 +66,26 @@ export function parseIntentRuleBased(question: string): ScenarioIntent {
       actions: [{ field_code: "revenue.freight_price", scope: "all_routes", operation: "multiply", value: 1 - freightPct / 100 }],
     };
   }
+  const freightUp = pct(question, "运价");
+  if (freightUp != null && /%/.test(question) && /涨|上|提高/.test(q) && !/降|下/.test(q)) {
+    return {
+      kind: "scenario",
+      title: `运价+${freightUp}%`,
+      parser: "rule",
+      actions: [{ field_code: "revenue.freight_price", scope: "all_routes", operation: "multiply", value: 1 + freightUp / 100 }],
+    };
+  }
+  const powerPct = pct(question, "电价");
+  if (powerPct != null && /%/.test(question) && /电价/.test(q) && /涨|上|降|下|提高|降低/.test(q)) {
+    const down = /降|下|降低/.test(q) && !/涨|上|提高/.test(q);
+    const signed = down ? -powerPct : powerPct;
+    return {
+      kind: "scenario",
+      title: `电价${signed > 0 ? "+" : ""}${signed}%`,
+      parser: "rule",
+      actions: [{ field_code: "energy.electricity_price", scope: "all_routes", operation: "multiply", value: 1 + signed / 100 }],
+    };
+  }
   const power = question.match(/电价[^0-9]{0,6}(\d+(?:\.\d+)?)/);
   if (power && /电价/.test(q)) {
     return {
@@ -53,6 +93,24 @@ export function parseIntentRuleBased(question: string): ScenarioIntent {
       title: `电价${power[1]}元`,
       parser: "rule",
       actions: [{ field_code: "energy.electricity_price", scope: "all_routes", operation: "set", value: Number(power[1]) }],
+    };
+  }
+  const fleetTarget = question.match(/增加到\s*(\d+)\s*台/);
+  if (fleetTarget) {
+    return {
+      kind: "scenario",
+      title: `车辆设为${fleetTarget[1]}台`,
+      parser: "rule",
+      actions: [{ field_code: "vehicle.fleet_size", scope: "project", operation: "set", value: Number(fleetTarget[1]) }],
+    };
+  }
+  const fleetAdd = question.match(/(?:增加|加)\s*(\d+)\s*台/);
+  if (fleetAdd && !/减少|少/.test(q)) {
+    return {
+      kind: "scenario",
+      title: `车辆+${fleetAdd[1]}台`,
+      parser: "rule",
+      actions: [{ field_code: "vehicle.fleet_size", scope: "project", operation: "add", value: Number(fleetAdd[1]) }],
     };
   }
   const trucks = question.match(/车辆[^0-9]{0,6}(\d+)/);

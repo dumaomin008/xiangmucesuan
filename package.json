@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
+    "check": "tsc --noEmit && vitest run src/lib/engine/__tests__ src/calculation/__tests__ src/lib/ai/__tests__/analysis-report.test.ts src/lib/ai/__tests__/answer-plan.test.ts src/lib/ai/__tests__/p0-fixes.test.ts",
     "test:watch": "vitest",
     "test:calc": "vitest run src/lib/engine/__tests__ tests/golden src/calculation/__tests__",
     "test:calc:consistency": "vitest run src/calculation/__tests__/browser-consistency.test.ts",

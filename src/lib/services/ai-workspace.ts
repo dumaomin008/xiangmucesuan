@@ -1203,6 +1203,7 @@ export async function runWorkspaceCopilot(
     question: body.question,
     baselineInput,
     lastPatchedInput: stored.last,
+    lastScenarioTitle: [...workspace.scenarios].reverse().find((item) => item.kind === "scenario")?.name ?? null,
     dueDiligence: serialized.due_diligence_next,
     risks,
     base: body.base,

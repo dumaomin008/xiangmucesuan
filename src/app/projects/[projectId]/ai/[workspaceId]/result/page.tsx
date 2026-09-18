@@ -5,7 +5,8 @@ import { useParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AssistantDrawer } from "@/components/ai/assistant-drawer";
-import { AIAnalysisResult } from "@/components/ai/analysis/ai-analysis-result";
+import { AIAnswer } from "@/components/ai/analysis/ai-answer";
+import { buildAnswerPlan, type AnswerPlan, type ScenarioDeltaView } from "@/lib/ai/analysis/answer-plan";
 import { StatusPill } from "@/components/ai/status-pill";
 import { Character } from "@/components/empty";
 import { Button, Card, MetricCard, PageHeader } from "@/components/ui";
@@ -82,6 +83,8 @@ export default function AiResultPage() {
   const { projectId, workspaceId } = useParams<{ projectId: string; workspaceId: string }>();
   const [data, setData] = useState<ResultResponse | null>(null);
   const [liveReport, setLiveReport] = useState<AIAnalysisReport | null>(null);
+  const [livePlan, setLivePlan] = useState<AnswerPlan | null>(null);
+  const [liveDelta, setLiveDelta] = useState<ScenarioDeltaView | null>(null);
   const [error, setError] = useState("");
   const [assistant, setAssistant] = useState(false);
   const seq = useRef(0);
@@ -157,7 +160,25 @@ export default function AiResultPage() {
           {data?.analysisMode === "online" && report && report.mode !== "online" && report.mode !== "fallback" && (
             <p className="text-[13px] text-sn-info">正在生成 AI 解读，图表数字已由测算引擎确定。</p>
           )}
-          {report && <AIAnalysisResult report={report} />}
+          {report && (
+            <AIAnswer
+              report={report}
+              plan={livePlan ?? buildAnswerPlan({ question: "帮我分析一下这个项目。" })}
+              delta={liveDelta}
+              onAsk={(text) => {
+                setAssistant(true);
+                void api<{ analysis?: AIAnalysisReport | null; answerPlan?: AnswerPlan | null; delta?: ScenarioDeltaView | null; scenarioId: string | null }>(
+                  `/api/ai/workspaces/${workspaceId}/copilot`,
+                  { method: "POST", body: JSON.stringify({ question: text, base: "baseline" }) },
+                ).then((payload) => {
+                  if (!payload.analysis) return;
+                  setLiveReport(payload.analysis);
+                  setLivePlan(payload.answerPlan ?? null);
+                  setLiveDelta(payload.delta ?? null);
+                }).catch((e: unknown) => setError(e instanceof Error ? e.message : "追问失败"));
+              }}
+            />
+          )}
           {!report && (
           <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-4">
             <MetricCard label="月收入" value={formatMoney(result.kpis.monthly_revenue)} hint={`规则 ${result.rule_version}`} />
@@ -398,6 +419,8 @@ export default function AiResultPage() {
         onAnalysis={(next, meta) => {
           const token = ++seq.current;
           setLiveReport(next);
+          setLivePlan(meta?.plan ?? null);
+          setLiveDelta(meta?.delta ?? null);
           if (data?.analysisMode !== "online") return;
           void api<{ report: AIAnalysisReport | null }>(`/api/ai/workspaces/${workspaceId}/analysis`, {
             method: "POST",

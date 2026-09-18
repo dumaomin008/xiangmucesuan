@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button, Card, TextArea } from "@/components/ui";
 import { AI_ASSISTANT_SHORTCUTS } from "@/lib/ai/tools";
 import { api } from "@/lib/client";
 import { formatMoney, formatPercent } from "@/lib/format";
-import { AIAnalysisResult } from "@/components/ai/analysis/ai-analysis-result";
+import { AIAnswer } from "@/components/ai/analysis/ai-answer";
+import type { AnswerPlan, ScenarioDeltaView } from "@/lib/ai/analysis/answer-plan";
+import { wantsLastScenario } from "@/lib/ai/analysis/answer-plan";
 import type { AIAnalysisReport } from "@/lib/ai/analysis/schema";
 
 type CopilotResponse = {
@@ -16,6 +18,8 @@ type CopilotResponse = {
   engineErrors: string[];
   baselineUnchanged: boolean;
   analysis?: AIAnalysisReport | null;
+  answerPlan?: AnswerPlan | null;
+  delta?: ScenarioDeltaView | null;
   compare: {
     baseline: { kpis: Record<string, string | null> };
     scenario: { kpis: Record<string, string | null> };
@@ -34,27 +38,35 @@ export function AssistantDrawer({
   onClose: () => void;
   workspaceId?: string;
   onSaved?: () => void;
-  onAnalysis?: (report: AIAnalysisReport, meta?: { scenarioId: string | null; question: string }) => void;
+  onAnalysis?: (report: AIAnalysisReport, meta?: { scenarioId: string | null; question: string; plan?: AnswerPlan | null; delta?: ScenarioDeltaView | null }) => void;
 }) {
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [base, setBase] = useState<"baseline" | "last_scenario">("baseline");
+  const [contextTitle, setContextTitle] = useState("");
   const [reply, setReply] = useState<CopilotResponse | null>(null);
 
   if (!open) return null;
 
-  const ask = async (text: string) => {
+  const ask = async (text: string, nextBase?: "baseline" | "last_scenario") => {
     if (!workspaceId) return;
+    const useBase = nextBase || (wantsLastScenario(text) ? "last_scenario" : base);
     setBusy("ask");
     setError("");
     try {
       const data = await api<CopilotResponse>(`/api/ai/workspaces/${workspaceId}/copilot`, {
         method: "POST",
-        body: JSON.stringify({ question: text, base }),
+        body: JSON.stringify({ question: text, base: useBase }),
       });
       setReply(data);
-      if (data.analysis) onAnalysis?.(data.analysis, { scenarioId: data.scenarioId, question: text });
+      if (data.answerPlan?.temporaryScenario) {
+        setContextTitle((prev) => (data.answerPlan?.continueFromLast && prev ? `${prev}，${data.intent.title}` : data.intent.title));
+        setBase("last_scenario");
+      }
+      if (data.analysis) {
+        onAnalysis?.(data.analysis, { scenarioId: data.scenarioId, question: text, plan: data.answerPlan, delta: data.delta });
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "助手请求失败");
     } finally {
@@ -75,10 +87,11 @@ export function AssistantDrawer({
           </div>
           <button className="text-sn-secondary" onClick={onClose}>关闭</button>
         </div>
-        <div className="mb-3 flex gap-2 text-[12px]">
-          <button className={base === "baseline" ? "font-semibold text-sn-primary" : "text-sn-secondary"} onClick={() => setBase("baseline")}>基于基准方案</button>
-          <button className={base === "last_scenario" ? "font-semibold text-sn-primary" : "text-sn-secondary"} onClick={() => setBase("last_scenario")}>基于当前模拟</button>
+        <div className="mb-3 flex flex-wrap gap-2 text-[12px]">
+          <button className={base === "baseline" ? "font-semibold text-sn-primary" : "text-sn-secondary"} onClick={() => { setBase("baseline"); setContextTitle(""); }}>回到基准方案</button>
+          <button className={base === "last_scenario" ? "font-semibold text-sn-primary" : "text-sn-secondary"} onClick={() => setBase("last_scenario")}>基于当前情景继续</button>
         </div>
+        {contextTitle && <p className="mb-3 text-[13px] text-[#4C64C8]">当前分析基于：{contextTitle}</p>}
         <div className="flex flex-wrap gap-2">
           {AI_ASSISTANT_SHORTCUTS.map((item) => (
             <button
@@ -160,9 +173,9 @@ export function AssistantDrawer({
             )}
           </Card>
         )}
-        {reply?.analysis && (
+        {reply?.analysis && reply.answerPlan && (
           <div className="mt-4">
-            <AIAnalysisResult report={reply.analysis} variant="compact" />
+            <AIAnswer report={reply.analysis} plan={reply.answerPlan} delta={reply.delta} onAsk={(text) => { setQuestion(text); void ask(text); }} />
           </div>
         )}
       </aside>

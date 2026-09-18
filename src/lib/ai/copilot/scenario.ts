@@ -50,6 +50,8 @@ export function runScenario(baselineInput: SchemeCalculationInput, actions: Scen
   const scenarioOutput = calculateScheme(patched);
   return {
     patchedInput: patched,
+    beforeOutput: baselineOutput,
+    afterOutput: scenarioOutput,
     baseline: summarize(baselineOutput, baselineInput.ruleSet.ruleVersionId),
     scenario: summarize(scenarioOutput, patched.ruleSet.ruleVersionId),
     difference: diff(baselineOutput, scenarioOutput),
