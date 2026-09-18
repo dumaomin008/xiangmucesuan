@@ -13,6 +13,7 @@ export async function resolveIntent(
   const runLlm = llmComplete || (isLlmConfigured() ? () => completeStructuredJson<unknown>({
     systemPrompt: INTENT_SYSTEM_PROMPT,
     userContent: buildIntentUserPrompt(question),
+    scene: "chat",
   }) : null);
 
   if (!runLlm) {

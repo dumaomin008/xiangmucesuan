@@ -108,10 +108,14 @@ describe("Phase 3：Demo 融合冒烟", () => {
     expect(calcApp).toContain("runAssistant");
     expect(calcApp).toContain("/api/demo-ai/explain");
     expect(calcApp).toContain("/api/demo-ai/intent");
-    expect(calcApp).toContain("AI 暂不可用");
+    expect(calcApp).toContain("AI智能分析");
+    expect(calcApp).toContain("本地智能分析");
+    expect(calcApp).not.toContain("AI 暂不可用");
+    expect(calcApp).not.toContain("AI代理调用失败");
     expect(server).toContain("DEMO_AI_API_KEY");
     expect(server).toContain("/api/demo-ai/explain");
     expect(server).toContain("/api/demo-ai/intent");
+    expect(server).toContain("/api/ai/health");
     expect(html).not.toMatch(/sk-[a-zA-Z0-9]/);
     expect(calcApp).not.toMatch(/DEMO_AI_API_KEY\s*=\s*['\"][^'\"]+/);
   });

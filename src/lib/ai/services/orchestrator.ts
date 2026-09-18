@@ -147,6 +147,7 @@ export async function orchestrateParse(input: {
     const raw = await completeStructuredJson<Partial<AiExtractResult>>({
       systemPrompt: EXTRACT_SYSTEM_PROMPT,
       userContent,
+      scene: "document",
     });
     const extract = hydrate(raw, input.project, references);
     return { extract, validation: validateAiExtractResult(extract) };

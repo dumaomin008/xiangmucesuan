@@ -14,6 +14,7 @@
     "test:demo": "vitest run src/demo/__tests__",
     "test:ai-eval": "vitest run src/demo/__tests__/ai-eval.test.ts",
     "test:deepseek-smoke": "tsx scripts/deepseek-smoke.ts",
+    "test:ai-preflight": "tsx scripts/ai-preflight.ts",
     "test:deepseek-online-eval": "tsx scripts/deepseek-online-eval.ts",
     "test:phase12": "vitest run src/lib/engine/__tests__ tests/golden src/calculation/__tests__ src/demo/__tests__",
     "test:phase3": "vitest run src/demo/__tests__/phase3-fusion.test.ts",

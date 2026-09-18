@@ -59,7 +59,7 @@ export async function extractExcelChunks(file: { fileId: string; fileName: strin
   const ExcelJS = (await import("exceljs")).default;
   const workbook = new ExcelJS.Workbook();
   try {
-    await workbook.xlsx.load(Buffer.from(bytes));
+    await workbook.xlsx.load(Buffer.from(bytes) as never);
   } catch (error) {
     return { ok: false, chunks: [], warnings: [], errorMessage: error instanceof Error ? error.message : "Excel 读取失败" };
   }

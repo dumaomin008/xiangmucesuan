@@ -1126,7 +1126,7 @@ table .btn.ghost:not(.danger):hover { color:var(--brand-strong); background:var(
 .calc-ai-chips { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
 .calc-ai-chip { border:0; background:var(--subtle); color:var(--text-2); border-radius:999px; padding:6px 12px; font-size:12px; cursor:pointer; }
 .calc-ai-chip:hover { background:var(--brand-soft); color:var(--brand-strong); }
-.calc-ai-degrade { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; padding:10px 12px; background:var(--subtle); border-radius:var(--r-control); color:var(--text-2); font-size:12px; }
+.calc-ai-source-quiet { margin:0; color:var(--text-3); font-size:11px; }
 .calc-ai-remote { padding:12px; border-left:3px solid var(--brand); background:var(--brand-soft); border-radius:0 var(--r-control) var(--r-control) 0; }
 .calc-ai-remote-label { font-size:11px; color:var(--brand-strong); margin-bottom:6px; font-weight:500; }
 .calc-ai-remote-text { white-space:pre-wrap; line-height:1.6; color:var(--text); font-size:12px; }

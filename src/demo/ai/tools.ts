@@ -77,7 +77,7 @@ export function updateScenarioInputTool(
   patches: ParamPatch[],
 ): {
   inputs: SchemeCalculationInput;
-  changes: { field: string; label: string; from: string; to: string; unit: string }[];
+  changes: ReturnType<typeof applyParamPatches>["changes"];
   trace: ToolTrace;
 } {
   const applied = applyParamPatches(inputs, patches);

@@ -98,8 +98,8 @@ test.describe("终审 Demo 主链路", () => {
 
     // 打开任一已测算方案看 AI
     await page.getByRole("button", { name: "打开" }).first().click();
-    await page.getByRole("button", { name: "本地解读" }).click();
-    await expect(page.locator("#calc-ai-body")).toContainText(/本地解读|大模型|AI 暂不可用|测算结果解读|业务诊断/);
+    await page.getByRole("button", { name: "刷新解读" }).click();
+    await expect(page.locator("#calc-ai-body")).toContainText(/本地智能分析|AI智能分析|测算结果解读/);
     await expect(page.locator(".calc-ai-panel")).toContainText("AI 项目测算助手");
     await page.locator("#calc-ai-open").click();
     await expect(page.locator("#calc-ai-drawer")).toBeVisible();

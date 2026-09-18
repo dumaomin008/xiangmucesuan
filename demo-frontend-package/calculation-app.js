@@ -540,7 +540,7 @@
         </div>
         <div class="head-actions">
           <button type="button" class="btn small primary" id="calc-ai-open">打开助手</button>
-          <button type="button" class="btn small" id="calc-ai-refresh">本地解读</button>
+          <button type="button" class="btn small" id="calc-ai-refresh">刷新解读</button>
         </div>
       </div>
       <div class="calc-ai-chips" id="calc-ai-chips">${chips}</div>
@@ -567,7 +567,9 @@
     </section>`;
   }
 
-  function renderAiBody(insight, remoteText, remoteError) {
+  const AI_CHAT_TIMEOUT_MS = 9000;
+
+  function renderAiBody(insight, remoteText, mode) {
     const riskHtml = (insight.risks || [])
       .map(
         (r) => `<article class="calc-ai-risk ${esc(r.level)}">
@@ -579,11 +581,11 @@
       .join("");
     const highlights = (insight.highlights || []).map((h) => `<li>${esc(h)}</li>`).join("");
     const suggestions = (insight.suggestions || []).map((s) => `<li>${esc(s)}</li>`).join("");
-    const remoteBlock = remoteText
-      ? `<div class="calc-ai-remote"><div class="calc-ai-remote-label">大模型润色（未改动引擎数字）</div><div class="calc-ai-remote-text">${esc(remoteText)}</div></div>`
-      : remoteError
-        ? `<div class="calc-ai-degrade"><span class="tag warning">AI 暂不可用</span><span>${esc(remoteError)} 已自动使用本地引擎解读。</span></div>`
-        : `<div class="calc-ai-degrade"><span class="tag info">本地解读</span><span>未启用远端大模型；核心测算结果不受影响。</span></div>`;
+    const remoteBlock =
+      mode === "remote" && remoteText
+        ? `<div class="calc-ai-remote"><div class="calc-ai-remote-label">AI智能分析</div><div class="calc-ai-remote-text">${esc(remoteText)}</div></div>`
+        : `<p class="calc-ai-source-quiet">本地智能分析</p>`;
+    const label = mode === "remote" ? "AI智能分析" : "本地智能分析";
 
     return `${remoteBlock}
       <div class="calc-ai-summary"><strong>${esc(insight.title)}</strong><p>${esc(insight.summary)}</p></div>
@@ -592,7 +594,7 @@
         <div><h3>建议</h3><ul>${suggestions || "<li>暂无</li>"}</ul></div>
       </div>
       <div class="calc-ai-risks"><h3>风险清单（敏感性由引擎重算）</h3><div class="calc-ai-risk-grid">${riskHtml || '<div class="help">暂无风险项</div>'}</div></div>
-      <p class="calc-ai-disclaimer">${esc(insight.disclaimer)} · ${esc(insight.source)} · ${esc((insight.generatedAt || "").replace("T", " ").slice(0, 19))}</p>`;
+      <p class="calc-ai-disclaimer">${esc(insight.disclaimer)} · ${label}</p>`;
   }
 
   function renderChat() {
@@ -691,7 +693,7 @@
   async function tryRemoteIntent(projectId, scenarioId, message) {
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 45000);
+      const timer = setTimeout(() => controller.abort(), AI_CHAT_TIMEOUT_MS);
       const res = await fetch("/api/demo-ai/intent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -700,10 +702,11 @@
       });
       clearTimeout(timer);
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.ok || !data.intent) return null;
+      if (!res.ok || !data.ok || !data.intent || data.fallback === true) return null;
       if (!global.PmCalc?.validateLlmIntent) return null;
       return global.PmCalc.validateLlmIntent(data.intent);
-    } catch {
+    } catch (err) {
+      console.error("[ai] intent", err?.name || "error");
       return null;
     }
   }
@@ -749,8 +752,9 @@
     } catch (err) {
       assistantHistory.push({
         role: "assistant",
-        content: `助手执行失败：${err?.message || "未知错误"}。测算页面与引擎结果不受影响。`,
+        content: "已切换本地智能分析。测算页面与引擎结果不受影响。",
       });
+      console.error("[ai] assistant", err?.name || "error");
       renderChat();
       return;
     }
@@ -786,7 +790,7 @@
         localInsight: { ...localInsight, summary: localReply },
       });
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 45000);
+      const timer = setTimeout(() => controller.abort(), AI_CHAT_TIMEOUT_MS);
       const res = await fetch("/api/demo-ai/explain", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -795,15 +799,15 @@
       });
       clearTimeout(timer);
       const data = await res.json().catch(() => ({}));
-      if (res.ok && data.ok && data.text) {
+      if (res.ok && data.ok && data.text && data.fallback !== true) {
         const last = assistantHistory[assistantHistory.length - 1];
         if (last?.role === "assistant") {
-          last.content = `${localReply}\n\n——\n大模型润色（未改动引擎数字）：\n${data.text}`;
+          last.content = `${localReply}\n\n——\nAI智能分析：\n${data.text}`;
           renderChat();
         }
       }
-    } catch {
-      /* 远端失败静默降级 */
+    } catch (err) {
+      console.error("[ai] polish", err?.name || "error");
     }
   }
 
@@ -819,16 +823,17 @@
         question: "请解释当前测算结果、主要风险与下一步建议",
       });
     } catch (err) {
-      body.innerHTML = `<div class="calc-ai-degrade"><span class="tag warning">解读降级</span><span>${esc(err.message || "本地解读失败")}。测算数字仍可在上方查看。</span></div>`;
+      console.error("[ai] local-analysis", err?.name || "error");
+      body.innerHTML = `<p class="calc-ai-source-quiet">本地智能分析</p><div class="help">测算数字仍可在上方查看。</div>`;
       return;
     }
 
     let remoteText = "";
-    let remoteError = "";
+    let mode = "local";
     try {
       const scenario = global.PmCalc.getScenario(scenarioId);
       if (!scenario?.results) {
-        body.innerHTML = renderAiBody(insight, "", "尚无测算结果，跳过远端润色");
+        body.innerHTML = renderAiBody(insight, "", "local");
         return;
       }
       const payload = global.PmCalc.buildAiPayload({
@@ -838,7 +843,7 @@
         localInsight: insight,
       });
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 45000);
+      const timer = setTimeout(() => controller.abort(), AI_CHAT_TIMEOUT_MS);
       const res = await fetch("/api/demo-ai/explain", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -847,17 +852,18 @@
       });
       clearTimeout(timer);
       const data = await res.json().catch(() => ({}));
-      if (res.ok && data.ok && data.text) {
+      if (res.ok && data.ok && data.text && data.fallback !== true) {
         remoteText = data.text;
+        mode = "remote";
         insight = { ...insight, source: "remote_llm" };
       } else {
-        remoteError = data.message || `服务返回 ${res.status}`;
+        console.error("[ai] explain fallback");
       }
     } catch (err) {
-      remoteError = err?.name === "AbortError" ? "AI 请求超时" : "无法连接 AI 代理";
+      console.error("[ai] explain", err?.name || "error");
     }
 
-    body.innerHTML = renderAiBody(insight, remoteText, remoteError);
+    body.innerHTML = renderAiBody(insight, remoteText, mode);
   }
 
   function isStaleScenario(scenario) {

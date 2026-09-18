@@ -1,3 +1,4 @@
+import { AI_CHAT_TIMEOUT_MS } from "@/demo/ai/timeouts";
 import { LlmRequestError, type LlmProvider, type LlmStructuredRequest } from "./types";
 
 function extractJson(text: string) {
@@ -16,7 +17,7 @@ export function createOpenAiCompatibleProvider(config: {
 }): LlmProvider {
   return {
     async structuredCompletion<T>(input: LlmStructuredRequest): Promise<T> {
-      const timeoutMs = input.timeoutMs ?? 45000;
+      const timeoutMs = input.timeoutMs ?? AI_CHAT_TIMEOUT_MS;
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {

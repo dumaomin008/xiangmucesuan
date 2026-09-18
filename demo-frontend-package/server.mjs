@@ -1,3 +1,4 @@
+import { AI_CHAT_TIMEOUT_MS, probeAiHealth, redactAiText, runAiProxy } from './lib/ai-resilience.mjs';
 import { randomUUID } from 'node:crypto';
 import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -209,21 +210,30 @@ async function handleImportParse(request, response) {
     });
   }
   const ai = documentAiConfig();
-  const outcome = await documentImport.parseRealDocuments(files, {
-    projects: Array.isArray(body.projects) ? body.projects : [],
-    llm: ai.configured
-      ? {
-          apiKey: ai.apiKey,
-          baseUrl: ai.baseUrl,
-          model: ai.model
-        }
-      : undefined
-  });
-  return sendJson(response, 200, {
-    ...outcome,
-    missingFileIds: missing,
-    parameters: outcome.parameters
-  });
+  try {
+    const outcome = await documentImport.parseRealDocuments(files, {
+      projects: Array.isArray(body.projects) ? body.projects : [],
+      llm: ai.configured
+        ? {
+            apiKey: ai.apiKey,
+            baseUrl: ai.baseUrl,
+            model: ai.model
+          }
+        : undefined
+    });
+    return sendJson(response, 200, {
+      ...outcome,
+      missingFileIds: missing,
+      parameters: outcome.parameters
+    });
+  } catch (error) {
+    console.error(`[import] parse ${redactAiText(error instanceof Error ? error.name : "error")}`);
+    return sendJson(response, 200, {
+      ok: false,
+      stages: ["正在解析资料"],
+      missingFileIds: missing
+    });
+  }
 }
 
 function sendJson(response, status, body) {
@@ -243,90 +253,14 @@ async function readJson(request) {
   return JSON.parse(raw);
 }
 
+function aiLog(line) {
+  console.error(redactAiText(line));
+}
+
 /**
  * 可选 AI 代理：Secret 只存在服务端环境变量，绝不下发到浏览器。
- * 未配置时返回 503，前端应降级到本地引擎解读。
+ * 对话/解读失败时返回与成功调用同结构的本地 fallback，不把上游错误给到页面。
  */
-function aiConfig() {
-  const resolved = documentAiConfig();
-  return {
-    apiKey: resolved.apiKey,
-    baseUrl: resolved.baseUrl,
-    model: resolved.model
-  };
-}
-
-async function callChatCompletions({ system, user, temperature = 0.2 }) {
-  const { apiKey, baseUrl, model } = aiConfig();
-  if (!apiKey) {
-    return {
-      ok: false,
-      status: 503,
-      body: {
-        ok: false,
-        code: 'AI_NOT_CONFIGURED',
-        message: '未配置 DEMO_AI_API_KEY。请使用本地引擎解读，测算结果不受影响。'
-      }
-    };
-  }
-
-  try {
-    const upstream = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model,
-        temperature,
-        thinking: { type: 'disabled' },
-        messages: [
-          { role: 'system', content: system },
-          { role: 'user', content: user }
-        ]
-      })
-    });
-
-    if (!upstream.ok) {
-      const text = await upstream.text();
-      return {
-        ok: false,
-        status: 502,
-        body: {
-          ok: false,
-          code: 'AI_UPSTREAM_ERROR',
-          message: '大模型服务暂时不可用，已保留本地解读。',
-          detail: text.slice(0, 300)
-        }
-      };
-    }
-
-    const data = await upstream.json();
-    const text = data?.choices?.[0]?.message?.content?.trim();
-    if (!text) {
-      return {
-        ok: false,
-        status: 502,
-        body: { ok: false, code: 'AI_EMPTY', message: '大模型未返回内容，请使用本地解读。' }
-      };
-    }
-
-    return { ok: true, text, model };
-  } catch (error) {
-    return {
-      ok: false,
-      status: 502,
-      body: {
-        ok: false,
-        code: 'AI_PROXY_FAILED',
-        message: 'AI 代理调用失败，测算结果不受影响。',
-        detail: error instanceof Error ? error.message : String(error)
-      }
-    };
-  }
-}
-
 async function handleAiExplain(request, response) {
   let body;
   try {
@@ -346,24 +280,24 @@ async function handleAiExplain(request, response) {
   const system = [
     '你是新能源重卡「AI项目测算助手」。',
     '你只能解释用户提供的引擎测算结果与本地洞察，禁止重新计算或编造数字。',
-    '若本地解读已给出风险与建议，可在其基础上润色，不得推翻引擎 KPI。',
+    '若本地分析已给出风险与建议，可在其基础上润色，不得推翻引擎 KPI。',
     '输出简体中文，结构：结论 / 风险 / 建议。'
   ].join('');
 
-  const result = await callChatCompletions({
+  const ai = documentAiConfig();
+  const result = await runAiProxy({
+    kind: 'explain',
+    scene: 'explain',
+    apiKey: ai.apiKey,
+    baseUrl: ai.baseUrl,
+    model: ai.model,
     system,
-    user: JSON.stringify(body, null, 2),
-    temperature: 0.2
+    user: JSON.stringify(body),
+    temperature: 0.2,
+    timeoutMs: AI_CHAT_TIMEOUT_MS,
+    log: aiLog
   });
-
-  if (!result.ok) return sendJson(response, result.status, result.body);
-
-  return sendJson(response, 200, {
-    ok: true,
-    source: 'remote_llm',
-    text: result.text,
-    model: result.model
-  });
+  return sendJson(response, 200, result.body);
 }
 
 /**
@@ -413,30 +347,20 @@ async function handleAiIntent(request, response) {
     note: '不要计算或返回任何利润/收入/成本/IRR/现金流数字。'
   });
 
-  const result = await callChatCompletions({ system, user, temperature: 0 });
-  if (!result.ok) return sendJson(response, result.status, result.body);
-
-  let intent = null;
-  try {
-    const trimmed = result.text.trim();
-    const start = trimmed.indexOf('{');
-    const end = trimmed.lastIndexOf('}');
-    intent = JSON.parse(start >= 0 && end > start ? trimmed.slice(start, end + 1) : trimmed);
-  } catch {
-    return sendJson(response, 502, {
-      ok: false,
-      code: 'AI_INVALID_JSON',
-      message: '大模型未返回合法 JSON，已回退本地规则。',
-      raw: result.text.slice(0, 400)
-    });
-  }
-
-  return sendJson(response, 200, {
-    ok: true,
-    source: 'remote_llm_intent',
-    intent,
-    model: result.model
+  const ai = documentAiConfig();
+  const result = await runAiProxy({
+    kind: 'intent',
+    scene: 'intent',
+    apiKey: ai.apiKey,
+    baseUrl: ai.baseUrl,
+    model: ai.model,
+    system,
+    user,
+    temperature: 0,
+    timeoutMs: AI_CHAT_TIMEOUT_MS,
+    log: aiLog
   });
+  return sendJson(response, 200, result.body);
 }
 
 const server = createServer(async (request, response) => {
@@ -446,6 +370,18 @@ const server = createServer(async (request, response) => {
   }
   if (request.method === 'POST' && url.pathname === '/api/demo-ai/intent') {
     return handleAiIntent(request, response);
+  }
+  if (request.method === 'GET' && url.pathname === '/api/ai/health') {
+    const ai = documentAiConfig();
+    const health = await probeAiHealth({
+      apiKey: ai.apiKey,
+      baseUrl: ai.baseUrl,
+      model: ai.model,
+      provider: ai.provider,
+      fetchImpl: fetch,
+      log: aiLog
+    });
+    return sendJson(response, 200, health);
   }
   if (request.method === 'GET' && url.pathname === '/api/demo-ai/status') {
     return sendJson(response, 200, {

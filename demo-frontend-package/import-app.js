@@ -415,7 +415,7 @@
         parseBtn.disabled = true;
         const stages = $("#calc-import-stages");
         if (parserMode === "real") {
-          if (stages) stages.textContent = "正在读取文件正文";
+          if (stages) stages.textContent = "正在解析资料";
           const session = api.getSession(sessionId);
           const projects = (global.PmCalc.listAllProjects?.() || []).map((p) => ({
             projectId: p.projectId,
@@ -423,20 +423,34 @@
             customer: p.customer,
             region: p.region,
           }));
-          const res = await fetch("/api/demo-import/parse", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ fileIds: (session?.files || []).map((f) => f.id), projects }),
-          });
-          const data = await res.json().catch(() => null);
-          if (!data?.parameters) {
-            notify(data?.message || "解析失败，可改为手动录入", "error");
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 60000);
+          try {
+            const res = await fetch("/api/demo-import/parse", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ fileIds: (session?.files || []).map((f) => f.id), projects }),
+              signal: controller.signal,
+            });
+            const data = await res.json().catch(() => null);
+            if (!data?.parameters) {
+              console.error("[import] parse", res.status);
+              if (stages) stages.textContent = "";
+              notify("资料暂未能自动识别，可手动确认参数后继续测算");
+              parseBtn.disabled = false;
+              return;
+            }
+            if (stages) stages.textContent = (data.stages || []).join(" → ") || "正在解析资料";
+            api.applyServerParse(sessionId, data);
+            goTo(`/calculation/import/${sessionId}`);
+          } catch (err) {
+            console.error("[import] parse", err?.name || "error");
+            if (stages) stages.textContent = "";
+            notify("资料暂未能自动识别，可手动确认参数后继续测算");
             parseBtn.disabled = false;
-            return;
+          } finally {
+            clearTimeout(timer);
           }
-          if (stages) stages.textContent = (data.stages || []).join(" → ");
-          api.applyServerParse(sessionId, data);
-          goTo(`/calculation/import/${sessionId}`);
           return;
         }
         const result = api.parseFiles(sessionId);
