@@ -58,7 +58,7 @@ test.describe("AI 对话式项目测算中心", () => {
     await expect(page.locator(".ai-rail")).toBeVisible();
     await expect(page.locator("#ai-input")).toBeEnabled();
     await expect(page.getByRole("button", { name: "传统列表视图" })).toBeVisible();
-    await expect(page.locator("[data-ai-service='ready']")).toContainText("AI服务：就绪");
+    await expect(page.locator("[data-ai-service='ready']")).toContainText("AI 服务正常");
     await expect(page.locator("#ai-thread")).toContainText("分析一下最近的测算项目经营情况，并给我关键结论");
   });
 
@@ -298,6 +298,7 @@ test.describe("AI 对话式项目测算中心", () => {
       localStorage.setItem("pm-ai-force-fail", "1");
     });
     await ask(page, "帮我测算一个新的运输项目");
+    await page.locator(".ai-more summary").click();
     await page.getByRole("button", { name: "重置演示" }).click();
     await page.getByRole("button", { name: "确认恢复" }).click();
     await expect(page.locator("h1", { hasText: "项目测算中心" })).toBeVisible();

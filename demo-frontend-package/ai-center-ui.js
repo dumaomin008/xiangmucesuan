@@ -12,9 +12,32 @@
   let generation = 0;
   let loading = false;
   let collapsed = {
-    left: typeof matchMedia === "function" && matchMedia("(max-width: 860px)").matches,
-    right: typeof matchMedia === "function" && matchMedia("(max-width: 1180px)").matches,
+    left: typeof matchMedia === "function" && matchMedia("(max-width: 1023px)").matches,
+    right: typeof matchMedia === "function" && matchMedia("(max-width: 1279px)").matches,
   };
+  let attachments = [];
+  let openMenuId = "";
+  let showDropzone = false;
+  let filePickIntent = "stage";
+  let drawer = null;
+
+  const KEY_FIELDS = [
+    { key: "fleetSize", label: "车辆数量", unit: "台", group: "项目运营", kind: "fleet" },
+    { key: "tripsPerVehicleMonth", label: "单车月趟次", unit: "趟", group: "项目运营", kind: "segment" },
+    { key: "distanceKm", label: "运输距离", unit: "km", group: "项目运营", kind: "segment" },
+    { key: "electricityPrice", label: "能源单价", unit: "元/kWh", group: "成本", kind: "segment" },
+    { key: "freightPrice", label: "运价", unit: "元", group: "成本", kind: "segment" },
+    { key: "monthlyRentPerVehicle", label: "单车月租", unit: "元", group: "成本", kind: "rent" },
+    { key: "loadedEnergyConsumption", label: "重载能耗", unit: "kWh/km", group: "成本", kind: "segment" },
+    { key: "driverCostPerTrip", label: "司机单趟成本", unit: "元/趟", group: "成本", kind: "segment" },
+  ];
+
+  const WELCOME_SCENES = [
+    { icon: "✦", title: "帮我测算一个新项目", desc: "从项目资料开始测算", ask: "帮我测算一个新的运输项目" },
+    { icon: "▣", title: "分析已有项目经营情况", desc: "收入、成本与利润分析", ask: "分析最近测算项目经营情况" },
+    { icon: "⇄", title: "对比两个测算方案", desc: "找出关键差异", ask: "对比两个项目的盈利能力" },
+    { icon: "!", title: "识别项目经营风险", desc: "找出敏感因素和风险点", ask: "哪些项目存在较大风险，原因是什么？" },
+  ];
 
   function esc(value) {
     return String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[ch]));
@@ -219,14 +242,63 @@
     return `${String(date.getMonth() + 1).padStart(2, "0")}/${String(date.getDate()).padStart(2, "0")}`;
   }
 
+  function readField(inputs, field) {
+    if (!inputs || !field) return null;
+    if (field.kind === "fleet") {
+      const value = inputs.fleetSize ?? inputs.vehicle?.fleetSize;
+      return value == null || value === "" ? null : value;
+    }
+    if (field.kind === "rent") {
+      const value = inputs.vehicle?.monthlyRentPerVehicle;
+      return value == null || value === "" ? null : value;
+    }
+    const segment = inputs.routes?.[0]?.segments?.[0];
+    if (!segment) return null;
+    const value = segment[field.key];
+    return value == null || value === "" ? null : value;
+  }
+
+  function writeField(inputs, field, value) {
+    if (field.kind === "fleet") {
+      const count = Math.max(1, Math.round(Number(value)));
+      inputs.fleetSize = count;
+      if (inputs.vehicle) inputs.vehicle.fleetSize = count;
+      return;
+    }
+    if (field.kind === "rent") {
+      if (!inputs.vehicle) inputs.vehicle = {};
+      inputs.vehicle.monthlyRentPerVehicle = String(value);
+      return;
+    }
+    for (const route of inputs.routes || []) {
+      for (const segment of route.segments || []) segment[field.key] = String(value);
+    }
+  }
+
+  function latestOf(project) {
+    if (!project) return null;
+    const calculated = (project.scenarios || []).filter((item) => item.metrics && item.calculatedAt);
+    if (calculated.length) return [...calculated].sort((a, b) => String(b.calculatedAt).localeCompare(String(a.calculatedAt)))[0];
+    return (project.scenarios || []).find((item) => item.metrics) || project.scenarios?.[0] || null;
+  }
+
+  function focusedBundle(conv) {
+    const projects = collectProjects();
+    const project = conv?.context?.projectId ? projects.find((item) => item.projectId === conv.context.projectId) : null;
+    const scenario = project
+      ? project.scenarios.find((item) => item.id === conv.context?.schemeId) || latestOf(project)
+      : null;
+    const sessionId = conv?.context?.importSessionId;
+    const session = sessionId && global.PmCalc?.importApi?.getSession ? global.PmCalc.importApi.getSession(sessionId) : null;
+    return { project, scenario, session };
+  }
+
   function sidebarHtml(list) {
     const api = core();
-    const groups = api
-      ? api.groupConversations(list)
-      : { today: list, recent: [], earlier: [] };
+    const groups = api ? api.groupConversations(list) : { today: list, recent: [], earlier: [] };
     const sections = [
       ["今天", groups.today],
-      ["最近7天", groups.recent],
+      ["最近 7 天", groups.recent],
       ["更早", groups.earlier],
     ];
     const body = sections
@@ -235,42 +307,72 @@
         const rows = items
           .map((item) => {
             const active = item.id === (activeId() || list[0]?.id) ? " is-active" : "";
-            return `<button type="button" class="ai-history-item${active}" data-ai-open="${esc(item.id)}"><span>${esc(item.title)}</span><time>${esc(timeLabel(item.updatedAt))}</time></button>`;
+            const menu = openMenuId === item.id ? " is-menu" : "";
+            const title = item.title && item.title !== "新对话" ? item.title : "新测算";
+            const pop = openMenuId === item.id
+              ? `<div class="ai-history-pop" role="menu"><button type="button" data-ai-rename="${esc(item.id)}">重命名</button><button type="button" data-ai-delete="${esc(item.id)}">删除</button></div>`
+              : "";
+            return `<div class="ai-history-item${active}${menu}" data-ai-open="${esc(item.id)}" role="button" tabindex="0"><div class="ai-history-main"><span>${esc(title)}</span><time>${esc(timeLabel(item.updatedAt))}</time></div><button type="button" class="ai-history-more" data-ai-menu="${esc(item.id)}" aria-label="会话操作">⋯</button>${pop}</div>`;
           })
           .join("");
         return `<div class="ai-history-group"><div class="ai-history-label">${label}</div>${rows}</div>`;
       })
       .join("");
-    return `<aside class="ai-side" aria-label="我的对话"><div class="ai-side-head"><strong>我的对话</strong><button type="button" class="btn small primary" data-ai-new>+ 新建对话</button></div><div class="ai-history">${body || '<p class="help">还没有对话</p>'}</div></aside>`;
-  }
-
-  function questionsFor(conv) {
-    const api = core();
-    if (!api) return [];
-    return api.suggestedQuestions(conv?.context?.projectId ? conv.context : undefined);
+    return `<aside class="ai-side" aria-label="测算会话"><div class="ai-side-head"><strong>测算会话</strong></div><button type="button" class="btn primary ai-new" data-ai-new>+ 新建测算</button><div class="ai-history">${body || '<p class="help">还没有测算</p>'}</div></aside>`;
   }
 
   function railHtml(conv) {
-    const questions = questionsFor(conv)
-      .map((q) => `<button type="button" class="ai-suggest" data-ai-send="${esc(q)}">${esc(q)}</button>`)
-      .join("");
-    return `<aside class="ai-rail" aria-label="你可以这样问"><section><div class="ai-rail-title">你可以这样问</div><div class="ai-suggests">${questions}</div></section><section><div class="ai-rail-title">快捷操作</div><div class="ai-quick"><button type="button" class="btn" data-ai-send="帮我测算一个新的运输项目">新建测算项目</button><button type="button" class="btn" data-ai-picker="compare">项目对比分析</button><button type="button" class="btn" data-ai-send="哪些项目存在较大风险，原因是什么？">风险方案评估</button><button type="button" class="btn" data-ai-export>导出数据报表</button></div></section><section class="ai-cap"><div class="ai-rail-title">AI 助手能力</div><p>理解问题、读取已保存测算、在需要时调用测算引擎，再用图表和结论解释结果。月收入、成本、利润、利润率和车辆数不由模型估算。</p></section></aside>`;
+    const { project, scenario, session } = focusedBundle(conv);
+    if (!project && !session) {
+      return `<aside class="ai-rail" aria-label="当前测算"><div class="ai-rail-title">当前测算</div><div class="ai-context-empty"><strong>当前暂无测算项目</strong><p>创建项目或导入资料后，这里会展示 AI 已理解的项目参数。</p></div></aside>`;
+    }
+    const params = session?.parameters || [];
+    const recognized = params.filter((item) => item.status !== "MISSING" && item.normalizedValue != null && item.normalizedValue !== "");
+    const pending = params.filter((item) => item.status === "MISSING" || item.status === "CONFLICT" || item.status === "NEED_CONFIRMATION" || item.status === "INFERRED");
+    const missing = params.filter((item) => item.status === "MISSING");
+    const inputs = scenario ? global.PmCalc?.getScenario?.(scenario.id)?.inputs : null;
+    const keyRows = KEY_FIELDS.map((field) => ({ field, value: readField(inputs, field) })).filter((row) => row.value != null).slice(0, 8);
+    const missingInputs = inputs ? KEY_FIELDS.filter((field) => readField(inputs, field) == null).slice(0, 6) : [];
+    const status = session && pending.length
+      ? "参数确认中"
+      : scenario?.metrics
+        ? "已测算"
+        : "待测算";
+    const tone = status === "已测算" ? "ok" : status === "参数确认中" ? "warn" : "muted";
+    const name = project?.projectName || session?.files?.[0]?.name || "资料测算";
+    const versions = conv?.versions?.length
+      ? conv.versions
+            : scenario
+              ? [{ label: "V1 当前方案" }]
+        : [];
+    const versionHtml = versions.length
+      ? `<div class="ai-context-block"><div class="ai-context-label">测算版本</div><ol class="ai-versions">${versions.map((item) => `<li>${esc(item.label)}</li>`).join("")}</ol></div>`
+      : "";
+    const fileCount = session?.files?.length || 0;
+    const progress = session
+      ? `<div class="ai-context-block"><div class="ai-context-label">资料</div><p>${fileCount} 个文件</p><div class="ai-context-label">参数识别</div><dl class="ai-progress"><div><dt>已识别</dt><dd>${recognized.length}</dd></div><div><dt>待确认</dt><dd>${pending.length}</dd></div><div><dt>缺失</dt><dd>${missing.length}</dd></div></dl></div>`
+      : "";
+    const keys = keyRows.length
+      ? `<div class="ai-context-block"><div class="ai-context-label">关键参数</div><dl class="ai-keys">${keyRows.map((row) => `<div><dt>${esc(row.field.label)}</dt><dd>${esc(row.value)} ${esc(row.field.unit)}</dd></div>`).join("")}</dl></div>`
+      : "";
+    const missSource = missing.length ? missing.map((item) => item.label) : missingInputs.map((item) => item.label);
+    const miss = missSource.length
+      ? `<div class="ai-missing" role="status"><strong>还需要确认 ${missSource.length} 项信息</strong><ul>${missSource.map((label) => `<li>${esc(label)}</li>`).join("")}</ul><button type="button" class="btn small" data-ai-fill>去补充</button></div>`
+      : "";
+    const open = project && scenario
+      ? `<button type="button" class="btn small" data-ai-go="/projects/${esc(project.projectId)}/calculation/${esc(scenario.id)}">查看全部参数</button>`
+      : session
+        ? `<button type="button" class="btn small" data-ai-import-edit>查看全部参数</button>`
+        : "";
+    return `<aside class="ai-rail" aria-label="当前测算"><div class="ai-rail-title">当前测算</div><h2 class="ai-context-name">${esc(name)}</h2><p class="ai-context-status is-${tone}"><i></i>${status}</p>${progress}${keys}${miss}${versionHtml}<div class="ai-context-actions">${open}<button type="button" class="btn small" data-ai-adjust>调整参数</button></div></aside>`;
   }
 
   function welcomeHtml() {
-    const api = core();
-    const items = [
-      "从资料中提取项目参数",
-      "新建项目测算",
-      "分析项目盈利能力",
-      "对比不同测算方案",
-      "识别经营风险",
-      "做敏感性分析",
-      "解释测算结果",
-      "生成经营分析结论",
-    ];
-    const chips = (api ? api.WELCOME_QUESTIONS : []).map((q) => `<button type="button" class="ai-suggest" data-ai-send="${esc(q)}">${esc(q)}</button>`).join("");
-    return `<div class="ai-welcome"><div class="ai-avatar" aria-hidden="true">AI</div><div><h2>你好，我是项目测算 AI 助手</h2><p>我可以帮你：</p><ul>${items.map((item) => `<li>${item}</li>`).join("")}</ul><div class="ai-suggests">${chips}</div></div></div>`;
+    const scenes = WELCOME_SCENES.map((item) => `<button type="button" class="ai-scene" data-ai-send="${esc(item.ask)}"><span aria-hidden="true">${esc(item.icon)}</span><strong>${esc(item.title)}</strong><em>${esc(item.desc)}</em></button>`).join("");
+    const drop = showDropzone
+      ? `<div class="ai-drop" data-ai-drop tabindex="0"><strong>拖入项目资料，或点击选择文件</strong><p>支持 Excel / Word / PDF 等已接入格式</p></div>`
+      : "";
+    return `<div class="ai-welcome"><div class="ai-avatar" aria-hidden="true">AI</div><div class="ai-welcome-copy"><h2>今天想测算什么项目？</h2><p>直接描述项目情况，或者上传已有项目资料，我会帮助你识别参数、完成测算并分析经营结果。</p><div class="ai-welcome-actions"><button type="button" class="btn primary" data-ai-import>导入项目资料</button><button type="button" class="btn" data-ai-send="帮我测算一个新的运输项目">新建空白测算</button></div>${drop}<div class="ai-scenes">${scenes}</div></div></div>`;
   }
 
   function chartSvg(block) {
@@ -463,9 +565,24 @@
     return "";
   }
 
-  function actionsHtml(actions) {
-    if (!actions?.length) return "";
-    return `<div class="ai-actions">${actions
+  function resultActions(response) {
+    const ctx = response?.context || {};
+    if (!ctx.projectId || !ctx.schemeId) return null;
+    if (response.intent === "CREATE_CALCULATION" || response.intent === "IMPORT_CALCULATION") return null;
+    return [
+      { kind: "navigate", label: "查看完整测算", href: `/projects/${ctx.projectId}/calculation/${ctx.schemeId}` },
+      { kind: "adjust", label: "调整参数" },
+      { kind: "recalc", label: "重新测算" },
+      { kind: "ask", label: "风险分析", ask: "哪些项目存在较大风险，原因是什么？" },
+      { kind: "picker", label: "方案对比", picker: "compare" },
+    ];
+  }
+
+  function actionsHtml(actions, response) {
+    const preferred = resultActions(response);
+    const list = preferred || actions || [];
+    if (!list.length) return "";
+    return `<div class="ai-actions">${list
       .map((action) => {
         if (action.kind === "navigate") return `<button type="button" class="btn small" data-ai-go="${esc(action.href || "")}">${esc(action.label)}</button>`;
         if (action.kind === "ask") return `<button type="button" class="btn small" data-ai-send="${esc(action.ask || action.label)}">${esc(action.label)}</button>`;
@@ -474,29 +591,52 @@
         if (action.kind === "import") return `<button type="button" class="btn small" data-ai-import>${esc(action.label)}</button>`;
         if (action.kind === "import-confirm") return `<button type="button" class="btn small primary" data-ai-import-confirm>${esc(action.label)}</button>`;
         if (action.kind === "import-edit") return `<button type="button" class="btn small" data-ai-import-edit>${esc(action.label)}</button>`;
+        if (action.kind === "adjust") return `<button type="button" class="btn small" data-ai-adjust>${esc(action.label)}</button>`;
+        if (action.kind === "recalc") return `<button type="button" class="btn small" data-ai-recalc>${esc(action.label)}</button>`;
         return "";
       })
       .join("")}</div>`;
+  }
+
+  function loadingHtml(message) {
+    const done = message.done || [];
+    const items = [
+      ...done.map((item) => `<li class="is-done">✓ ${esc(item)}</li>`),
+      `<li class="is-current">● ${esc(message.stage || "正在理解你的问题")}</li>`,
+    ];
+    return `<article class="ai-msg"><div class="ai-avatar" aria-hidden="true">AI</div><div class="ai-loading" role="status"><ul class="ai-steps">${items.join("")}</ul><span class="ai-loading-bar"></span></div></article>`;
   }
 
   function messageHtml(message) {
     if (message.role === "user") {
       return `<article class="ai-msg is-user"><div class="ai-bubble">${esc(message.text || "")}</div></article>`;
     }
-    if (message.pending) {
-      return `<article class="ai-msg"><div class="ai-avatar" aria-hidden="true">AI</div><div class="ai-loading" role="status"><strong>${esc(message.stage || "正在理解你的问题...")}</strong><span class="ai-loading-bar"></span></div></article>`;
-    }
+    if (message.pending) return loadingHtml(message);
     const response = message.response || { message: message.text || "", blocks: [], actions: [] };
     const error = message.error
-      ? `<div class="ai-error" role="status" data-ai-fallback="1"><p>${esc(FALLBACK_COPY)}</p><div><button type="button" class="btn small" data-ai-retry>重新生成</button><button type="button" class="btn small" data-ai-view="list">进入传统测算</button></div></div>`
+      ? `<div class="ai-error" role="status" data-ai-fallback="1"><strong>AI 服务暂时未响应</strong><p>你的项目数据和已完成测算不会丢失。</p><p>${esc(FALLBACK_COPY)}</p><div><button type="button" class="btn small" data-ai-retry>重新尝试</button><button type="button" class="btn small" data-ai-view="list">继续使用传统测算</button></div></div>`
       : "";
     const stopped = message.stopped ? `<p class="help">已停止生成。</p>` : "";
-    return `<article class="ai-msg"><div class="ai-avatar" aria-hidden="true">AI</div><div class="ai-answer">${error}${stopped}<p class="ai-lead">${esc(response.message || "")}</p>${(response.blocks || []).map(blockHtml).join("")}${actionsHtml(response.actions)}</div></article>`;
+    const failed = message.calcFailed
+      ? `<div class="ai-error is-calc" role="status"><strong>本次测算未成功完成。</strong><p>原因：${esc(message.calcReason || "测算引擎没有返回结果")}</p></div>`
+      : "";
+    return `<article class="ai-msg"><div class="ai-avatar" aria-hidden="true">AI</div><div class="ai-answer">${error}${failed}${stopped}<p class="ai-lead">${esc(response.message || "")}</p>${(response.blocks || []).map(blockHtml).join("")}${actionsHtml(response.actions, response)}</div></article>`;
   }
 
   function threadHtml(conv) {
     if (!conv || !conv.messages?.length) return welcomeHtml();
-    return conv.messages.map(messageHtml).join("");
+    return `<div class="ai-feed">${conv.messages.map(messageHtml).join("")}</div>`;
+  }
+
+  function modelLabel() {
+    return aiMode() === "deepseek" ? "DeepSeek" : "本地分析";
+  }
+
+  function filesHtml() {
+    if (!attachments.length) return "";
+    return `<div class="ai-file-row">${attachments
+      .map((item) => `<span class="ai-file-chip"><em>文档</em>${esc(item.name)}<button type="button" data-ai-file-remove="${esc(item.id)}" aria-label="移除${esc(item.name)}">×</button></span>`)
+      .join("")}</div>`;
   }
 
   function render(options) {
@@ -507,31 +647,43 @@
     if (!api) {
       return `${options.breadcrumbHtml || ""}<div class="page-head"><div><h1>项目测算中心</h1><p>AI 工作台未加载，传统测算仍可使用。</p></div><div class="head-actions"><button type="button" class="btn primary" data-calc-view="list">传统列表视图</button></div></div>`;
     }
+    const empty = !conv?.messages?.length ? " is-empty" : "";
     return `${options.breadcrumbHtml || ""}
-      <div class="page-head ai-page-head"><div><h1>项目测算中心</h1><p>和 AI 一起，快速完成项目测算、方案对比与经营分析</p></div>
-        <div class="head-actions"><div class="ai-view-toggle" role="tablist"><button type="button" class="btn small primary" data-ai-view="ai">AI对话测算</button><button type="button" class="btn small" data-ai-view="list">传统列表视图</button></div>${options.demoToolsHtml || ""}</div>
+      <div class="page-head ai-page-head"><div><h1>项目测算中心</h1><p class="ai-subtitle">和 AI 一起，快速完成项目测算、方案对比与经营分析</p></div>
+        <div class="head-actions"><div class="ai-view-toggle" role="tablist"><button type="button" class="btn small primary" data-ai-view="ai">AI 对话测算</button><button type="button" class="btn small" data-ai-view="list">传统列表视图</button></div>${options.demoToolsHtml || ""}</div>
       </div>
       <div class="ai-center ${collapsed.left ? "is-left-collapsed" : ""} ${collapsed.right ? "is-right-collapsed" : ""}" id="ai-center" data-ai-mode="${esc(mode)}">
-        <div class="ai-fold"><button type="button" class="btn ghost small" data-ai-collapse="left">${collapsed.left ? "展开对话" : "收起对话"}</button><button type="button" class="btn ghost small" data-ai-collapse="right">${collapsed.right ? "展开推荐" : "收起推荐"}</button></div>
+        <div class="ai-fold"><button type="button" class="btn ghost small" data-ai-collapse="left">${collapsed.left ? "展开会话" : "收起会话"}</button><button type="button" class="btn ghost small" data-ai-collapse="right">${collapsed.right ? "展开上下文" : "收起上下文"}</button></div>
         ${sidebarHtml(list)}
-        <section class="ai-main" aria-label="AI 对话"><div class="ai-thread" id="ai-thread">${threadHtml(conv)}</div>
-          <form class="ai-composer" id="ai-form">
-            <button type="button" class="btn ghost" id="ai-attach" aria-label="上传附件">附件</button>
-            <input id="ai-file" type="file" hidden accept=".xlsx,.xls,.pdf,.doc,.docx,.png,.jpg,.jpeg,application/pdf">
-            <textarea id="ai-input" rows="1" maxlength="2000" placeholder="请输入您的问题，例如：&quot;帮我对比杭州和临港项目的盈利能力&quot;"></textarea>
-            <button type="submit" class="btn primary" id="ai-send">发送</button>
-          </form>
+        <section class="ai-main" aria-label="AI 测算工作区"><div class="ai-thread${empty}" id="ai-thread">${threadHtml(conv)}</div>
+          <div class="ai-compose" id="ai-compose">
+            <div id="ai-file-slot">${filesHtml()}</div>
+            <form class="ai-composer" id="ai-form">
+              <button type="button" class="ai-clip" id="ai-attach" aria-label="上传附件"><span aria-hidden="true">📎</span></button>
+              <input id="ai-file" type="file" hidden multiple accept=".xlsx,.xls,.pdf,.doc,.docx,.png,.jpg,.jpeg,application/pdf">
+              <textarea id="ai-input" rows="1" maxlength="2000" placeholder="输入项目情况，也可以直接拖入项目资料..."></textarea>
+              <div class="ai-composer-side"><span class="ai-model">${esc(modelLabel())}</span><button type="submit" class="btn primary" id="ai-send" data-mode="send">发送</button></div>
+            </form>
+          </div>
         </section>
         ${railHtml(conv)}
         <div class="ai-picker" id="ai-picker" hidden></div>
+        <aside class="ai-drawer" id="ai-drawer" hidden></aside>
       </div>`;
   }
 
   function paintThread() {
     const node = $("#ai-thread");
     if (!node) return;
-    node.innerHTML = threadHtml(currentConversation());
-    node.scrollTop = node.scrollHeight;
+    const conv = currentConversation();
+    node.classList.toggle("is-empty", !conv?.messages?.length);
+    node.innerHTML = threadHtml(conv);
+    node.scrollTop = conv?.messages?.length ? node.scrollHeight : 0;
+  }
+
+  function paintFiles() {
+    const slot = $("#ai-file-slot");
+    if (slot) slot.innerHTML = filesHtml();
   }
 
   function paintChrome() {
@@ -543,12 +695,29 @@
     if (side) side.outerHTML = sidebarHtml(list);
     if (rail) rail.outerHTML = railHtml(currentConversation());
     paintThread();
+    paintFiles();
+    paintDrawer();
   }
 
   function stagesFor(intent) {
-    if (intent === "SENSITIVITY_ANALYSIS") return ["正在理解你的问题...", "正在读取项目数据...", "正在执行测算...", "正在生成分析..."];
-    if (intent === "CREATE_CALCULATION" || intent === "GENERAL_CHAT") return ["正在理解你的问题...", "正在生成分析..."];
-    return ["正在理解你的问题...", "正在读取项目数据...", "正在生成分析..."];
+    if (intent === "SENSITIVITY_ANALYSIS") return ["正在读取项目数据", "正在执行项目测算", "正在整理测算结果"];
+    if (intent === "IMPORT_CALCULATION") return ["正在读取项目资料", "正在识别测算参数"];
+    if (intent === "CREATE_CALCULATION" || intent === "GENERAL_CHAT") return ["正在理解你的问题"];
+    return ["正在读取已保存测算", "正在整理经营结论"];
+  }
+
+  function doneLabel(stage) {
+    const map = {
+      "正在读取项目数据": "已读取项目数据",
+      "正在执行项目测算": "已调用测算引擎",
+      "正在整理测算结果": "已整理测算结果",
+      "正在理解你的问题": "已理解问题",
+      "正在读取项目资料": "已读取项目资料",
+      "正在识别测算参数": "已识别测算参数",
+      "正在读取已保存测算": "已读取已保存测算",
+      "正在整理经营结论": "已整理经营结论",
+    };
+    return map[stage] || stage;
   }
 
   function updateConversation(conv) {
@@ -606,7 +775,7 @@
     const now = new Date().toISOString();
     const conv = existing || {
       id: uid(),
-      title: "新对话",
+      title: "新测算",
       createdAt: now,
       updatedAt: now,
       context: {},
@@ -615,7 +784,7 @@
     if (!conv.messages.length) conv.title = core().conversationTitle(question);
     else if (conv.messages.filter((item) => item.role === "user").length === 0) conv.title = core().conversationTitle(question);
     conv.messages.push({ id: uid(), role: "user", text: question, createdAt: now });
-    const pending = { id: uid(), role: "assistant", pending: true, stage: "正在理解你的问题...", createdAt: now };
+    const pending = { id: uid(), role: "assistant", pending: true, stage: "正在理解你的问题", done: [], createdAt: now };
     conv.messages.push(pending);
     conv.updatedAt = new Date().toISOString();
     updateConversation(conv);
@@ -631,9 +800,11 @@
         return;
       }
       const intent = core().detectIntent(question);
-      for (const stage of stagesFor(intent)) {
+      const stages = stagesFor(intent);
+      for (let index = 0; index < stages.length; index += 1) {
         if (token !== generation) break;
-        pending.stage = stage;
+        pending.done = stages.slice(0, index).map(doneLabel);
+        pending.stage = stages[index];
         paintThread();
         await sleep(global.__AI_CENTER_FAST ? 0 : 280);
       }
@@ -691,19 +862,23 @@
     }));
   }
 
-  async function runImport({ sample, file, conv, pending, token }) {
+  async function runImport({ sample, file, files, conv, pending, token }) {
     const api = global.PmCalc?.importApi;
-    pending.stage = sample ? "正在识别项目参数..." : "正在识别项目参数...";
+    const batch = files || (file ? [file] : []);
+    pending.done = [];
+    pending.stage = "正在读取项目资料";
     paintThread();
-    await sleep(global.__AI_CENTER_FAST ? 0 : 300);
+    await sleep(global.__AI_CENTER_FAST ? 0 : 280);
     if (!api || token !== generation) {
       pending.pending = false;
-      pending.error = true;
       pending.response = {
         intent: "IMPORT_CALCULATION",
-        message: "资料识别没有完成。",
-        blocks: [],
-        actions: [{ id: "list", label: "进入传统测算", kind: "navigate", href: "view:list" }],
+        message: "未能完整读取该文件。",
+        blocks: [{ type: "text", text: "你可以重新上传，或者直接告诉我项目的关键参数。" }],
+        actions: [
+          { id: "retry", label: "重新上传", kind: "import" },
+          { id: "list", label: "继续使用传统测算", kind: "navigate", href: "view:list" },
+        ],
       };
       updateConversation(conv);
       loading = false;
@@ -715,32 +890,42 @@
       const session = api.createSession({ source: "ai-center" });
       if (sample) api.loadDemoSamples(session.id);
       else {
-        const added = api.addFiles(session.id, [{ name: file.name, mimeType: file.type || "", size: file.size || 0 }]);
+        const added = api.addFiles(session.id, batch.map((item) => ({ name: item.name, mimeType: item.type || "", size: item.size || 0 })));
         if (!added?.trace?.ok) throw new Error(added?.trace?.detail || "文件未能加入解析");
       }
+      pending.done = ["已读取项目资料"];
+      pending.stage = "正在识别测算参数";
+      paintThread();
       const parsed = api.parseFiles(session.id);
       const ready = parsed.session || api.getSession(session.id);
-      const response = core().buildImportPreview(sample ? (ready?.files?.[0]?.name || "演示测算资料") : file.name, mapParams(ready?.parameters));
+      const mapped = mapParams(ready?.parameters);
+      const recognized = mapped.filter((item) => item.value != null && item.value !== "" && item.status !== "MISSING").length;
+      const needConfirm = mapped.filter((item) => item.status === "MISSING" || item.status === "CONFLICT" || item.status === "NEED_CONFIRMATION" || item.status === "INFERRED").length;
+      pending.done = ["已读取项目资料", `已提取 ${recognized} 个测算参数`];
+      pending.stage = needConfirm ? `发现 ${needConfirm} 个参数需要确认` : "测算参数已识别";
+      paintThread();
+      await sleep(global.__AI_CENTER_FAST ? 0 : 220);
+      if (token !== generation) return;
+      const fileName = sample ? (ready?.files?.[0]?.name || "演示测算资料") : batch.map((item) => item.name).join("、");
+      const response = core().buildImportPreview(fileName, mapped);
       response.context = { importSessionId: session.id };
       pending.pending = false;
       pending.response = response;
       conv.context = { ...conv.context, importSessionId: session.id };
+      if (conv.title === "新测算" || conv.title === "新对话") conv.title = fileName.replace(/\.[^.]+$/, "") || "新测算";
       conv.updatedAt = new Date().toISOString();
       updateConversation(conv);
     } catch (err) {
       pending.pending = false;
-      pending.error = true;
       const raw = String(err?.message || "");
-      const friendly = raw.length > 80 || /stack|TypeError|at\s+\w+/.test(raw)
-        ? "资料识别暂时不可用，可改用演示资料或手动填写。项目测算不受影响。"
-        : raw || "资料识别暂时不可用，可改用演示资料或手动填写。项目测算不受影响。";
+      const friendly = raw.length > 80 || /stack|TypeError|at\s+\w+/.test(raw) ? "文件内容无法按当前解析规则读取" : raw || "文件内容无法按当前解析规则读取";
       pending.response = {
         intent: "IMPORT_CALCULATION",
-        message: friendly,
-        blocks: [],
+        message: "未能完整读取该文件。",
+        blocks: [{ type: "text", text: `${friendly}。你可以重新上传，或者直接告诉我项目的关键参数。` }],
         actions: [
-          { id: "retry", label: "重新生成", kind: "import" },
-          { id: "list", label: "进入传统测算", kind: "navigate", href: "view:list" },
+          { id: "retry", label: "重新上传", kind: "import" },
+          { id: "list", label: "继续使用传统测算", kind: "navigate", href: "view:list" },
         ],
       };
       updateConversation(conv);
@@ -751,24 +936,47 @@
     }
   }
 
-  async function attachFile(file) {
-    if (!file || loading) return;
-    const allowed = /\.(xlsx|xls|pdf|docx?|png|jpe?g)$/i;
-    if (!allowed.test(file.name)) {
+  const FILE_PATTERN = /\.(xlsx|xls|pdf|docx?|png|jpe?g)$/i;
+
+  function addAttachments(fileList, intent) {
+    const files = [...fileList].filter(Boolean);
+    const accepted = files.filter((file) => FILE_PATTERN.test(file.name));
+    if (!accepted.length) {
       notify("请上传 Excel、PDF、Word 或图片", "error");
       return;
     }
+    if (intent === "start") {
+      void startImport(accepted, "");
+      return;
+    }
+    accepted.forEach((file) => attachments.push({ id: uid(), name: file.name, file }));
+    paintFiles();
+  }
+
+  async function startImport(files, note) {
+    if (!files?.length || loading) return;
+    showDropzone = false;
     const now = new Date().toISOString();
-    const conv = currentConversation() || { id: uid(), title: "导入资料测算", createdAt: now, updatedAt: now, context: {}, messages: [] };
-    conv.messages.push({ id: uid(), role: "user", text: `已上传：${file.name}`, createdAt: now });
-    const pending = { id: uid(), role: "assistant", pending: true, stage: "AI 正在识别项目参数...", createdAt: now };
+    const names = files.map((file) => file.name).join("、");
+    const conv = currentConversation() || { id: uid(), title: "新测算", createdAt: now, updatedAt: now, context: {}, messages: [] };
+    const text = [String(note || "").trim(), `已上传：${names}`].filter(Boolean).join("\n");
+    conv.messages.push({ id: uid(), role: "user", text, createdAt: now });
+    const pending = { id: uid(), role: "assistant", pending: true, stage: "正在读取项目资料", done: [], createdAt: now };
     conv.messages.push(pending);
     updateConversation(conv);
     loading = true;
     const token = ++generation;
+    attachments = [];
     paintChrome();
     syncSendButton();
-    await runImport({ file, conv, pending, token });
+    const input = $("#ai-input");
+    if (input) input.value = "";
+    await runImport({ files, conv, pending, token });
+  }
+
+  async function attachFile(file) {
+    if (!file) return;
+    await startImport([file], "");
   }
 
   function confirmImport() {
@@ -884,7 +1092,7 @@
 
   function newConversation() {
     const now = new Date().toISOString();
-    const conv = { id: uid(), title: "新对话", createdAt: now, updatedAt: now, context: {}, messages: [] };
+    const conv = { id: uid(), title: "新测算", createdAt: now, updatedAt: now, context: {}, messages: [] };
     const list = loadAll();
     list.unshift(conv);
     saveAll(list);
@@ -906,6 +1114,263 @@
     void submit(lastUser.text.startsWith("已上传：") ? "请用演示资料识别项目参数" : lastUser.text);
   }
 
+  function paintDrawer() {
+    const host = $("#ai-drawer");
+    if (!host) return;
+    if (!drawer) {
+      host.hidden = true;
+      host.innerHTML = "";
+      return;
+    }
+    const stored = global.PmCalc?.getScenario?.(drawer.scenarioId);
+    const groups = ["项目运营", "成本"];
+    const body = groups
+      .map((group) => {
+        const fields = KEY_FIELDS.filter((field) => field.group === group)
+          .map((field) => {
+            const value = readField(stored?.inputs, field);
+            return `<label class="ai-drawer-field"><span>${esc(field.label)}</span><input class="input" data-ai-param="${esc(field.key)}" value="${esc(value ?? "")}" inputmode="decimal"><em>${esc(field.unit)}</em></label>`;
+          })
+          .join("");
+        return `<fieldset><legend>${group}</legend>${fields}</fieldset>`;
+      })
+      .join("");
+    host.hidden = false;
+    host.innerHTML = `<div class="ai-drawer-card" role="dialog" aria-modal="true" aria-labelledby="ai-drawer-title"><h3 id="ai-drawer-title">调整测算参数</h3><p class="help">提交后调用测算引擎重算。利润、收入和成本只使用引擎结果。</p>${body}<div class="ai-actions"><button type="button" class="btn" data-ai-drawer-close>取消</button><button type="button" class="btn primary" data-ai-drawer-save>重新测算</button></div></div>`;
+  }
+
+  function openDrawer() {
+    const conv = currentConversation();
+    const bundle = focusedBundle(conv);
+    const scenarioId = bundle.scenario?.id || conv?.context?.schemeId;
+    const stored = scenarioId ? global.PmCalc?.getScenario?.(scenarioId) : null;
+    if (!stored?.inputs) {
+      notify("还没有可调整的测算方案。请先确认参数并完成测算。", "error");
+      return;
+    }
+    drawer = { scenarioId, projectId: bundle.project?.projectId || conv?.context?.projectId };
+    paintDrawer();
+  }
+
+  function metricDelta(before, after) {
+    const left = Number(before);
+    const right = Number(after);
+    if (!Number.isFinite(left) || !Number.isFinite(right)) return { text: "—", raw: null };
+    const delta = right - left;
+    const text = global.PmCalc.formatMoney(delta);
+    return { text: delta > 0 ? `+${text}` : text, raw: delta };
+  }
+
+  function buildRecalcResponse(before, after, labels, projectId, schemeId) {
+    const money = global.PmCalc.formatMoney;
+    const pct = global.PmCalc.formatPercent;
+    const rows = [
+      ["月收入", "monthlyRevenue", false],
+      ["月成本", "monthlyTotalCost", false],
+      ["月利润", "monthlyProfit", false],
+      ["利润率", "profitMargin", true],
+    ].map(([label, key, isPercent]) => {
+      const delta = isPercent
+        ? {
+            text: before ? `${((Number(after[key]) - Number(before[key])) * 100 >= 0 ? "+" : "")}${((Number(after[key]) - Number(before[key])) * 100).toFixed(2)} pt` : "—",
+            raw: before ? Number(after[key]) - Number(before[key]) : null,
+          }
+        : metricDelta(before?.[key], after[key]);
+      return {
+        label,
+        before: before ? (isPercent ? pct(before[key]) : money(before[key])) : "—",
+        after: isPercent ? pct(after[key]) : money(after[key]),
+        delta: delta.text,
+        afterRaw: Number(after[key]),
+        deltaRaw: delta.raw,
+      };
+    });
+    const profit = rows.find((item) => item.label === "月利润");
+    const margin = rows.find((item) => item.label === "利润率");
+    const reason = labels.length ? labels.join("、") : "当前参数";
+    return {
+      intent: "CALCULATION_EXPLAIN",
+      message: `已根据${reason}重新测算。`,
+      blocks: [
+        {
+          type: "text",
+          text: `月利润：${profit.before} → ${profit.after}。利润率：${margin.before} → ${margin.after}。变化来自测算引擎对同一方案的重算。`,
+        },
+        {
+          type: "kpi",
+          data: [
+            { key: "revenue", label: "月收入", value: money(after.monthlyRevenue), raw: Number(after.monthlyRevenue), unit: "元", trend: "none" },
+            { key: "cost", label: "月成本", value: money(after.monthlyTotalCost), raw: Number(after.monthlyTotalCost), unit: "元", trend: "none" },
+            { key: "profit", label: "月利润", value: money(after.monthlyProfit), raw: Number(after.monthlyProfit), unit: "元", trend: Number(after.monthlyProfit) >= 0 ? "up" : "down" },
+            { key: "margin", label: "利润率", value: pct(after.profitMargin), raw: Number(after.profitMargin), trend: "none" },
+          ],
+        },
+        { type: "calculation", title: "参数调整前后", beforeLabel: "调整前", afterLabel: "调整后", items: rows },
+      ],
+      actions: [],
+      context: { projectId, schemeId },
+    };
+  }
+
+  async function recalculate(patches) {
+    if (loading || !global.PmCalc?.saveScenario) return;
+    const conv = currentConversation();
+    const bundle = focusedBundle(conv);
+    const scenarioId = bundle.scenario?.id || conv?.context?.schemeId;
+    const stored = scenarioId ? global.PmCalc.getScenario(scenarioId) : null;
+    if (!stored?.inputs) {
+      notify("还没有可重算的方案。请先确认参数并完成测算。", "error");
+      return;
+    }
+    const inputs = JSON.parse(JSON.stringify(stored.inputs));
+    const changed = [];
+    for (const patch of patches || []) {
+      const field = KEY_FIELDS.find((item) => item.key === patch.key);
+      if (!field || patch.value === "" || patch.value == null) continue;
+      const numeric = Number(patch.value);
+      if (!Number.isFinite(numeric)) {
+        notify(`${field.label}需要填写数字`, "error");
+        return;
+      }
+      if (field.kind === "fleet" && numeric <= 0) {
+        notify("车辆数量必须大于 0", "error");
+        return;
+      }
+      if (numeric < 0) {
+        notify(`${field.label}不能为负数`, "error");
+        return;
+      }
+      const prev = readField(inputs, field);
+      if (String(prev ?? "") === String(patch.value) || Number(prev) === numeric) continue;
+      writeField(inputs, field, patch.value);
+      changed.push(field.label);
+    }
+    const now = new Date().toISOString();
+    const projectId = stored.projectId;
+    const host = conv || { id: uid(), title: bundle.project?.projectName || "新测算", createdAt: now, updatedAt: now, context: {}, messages: [] };
+    host.messages.push({ id: uid(), role: "user", text: changed.length ? `请按新的${changed.join("、")}重新测算` : "请重新测算当前方案", createdAt: now });
+    const pending = { id: uid(), role: "assistant", pending: true, stage: "正在执行项目测算", done: ["已读取当前参数"], createdAt: now };
+    host.messages.push(pending);
+    host.updatedAt = now;
+    updateConversation(host);
+    loading = true;
+    const token = ++generation;
+    drawer = null;
+    paintChrome();
+    syncSendButton();
+    try {
+      await sleep(global.__AI_CENTER_FAST ? 0 : 280);
+      if (token !== generation) return;
+      const saved = global.PmCalc.saveScenario({
+        id: stored.id,
+        projectId: stored.projectId,
+        name: stored.name,
+        version: stored.version,
+        status: stored.status,
+        inputs,
+        notes: stored.notes,
+        inputsSource: stored.inputsSource,
+      });
+      if (!saved?.results?.metrics) throw new Error("测算引擎没有返回结果");
+      pending.pending = false;
+      pending.response = buildRecalcResponse(stored.results?.metrics || null, saved.results.metrics, changed, saved.projectId, saved.id);
+      host.context = { ...(host.context || {}), projectId: saved.projectId, schemeId: saved.id };
+      host.versions = host.versions || [];
+      const index = host.versions.length + 1;
+      host.versions.push({
+        id: `v${index}`,
+        label: `V${index} ${changed[0] ? `调整${changed[0]}` : "重新测算"}`,
+        scenarioId: saved.id,
+        at: new Date().toISOString(),
+      });
+      const projectName = collectProjects().find((item) => item.projectId === saved.projectId)?.projectName;
+      if (projectName && (host.title === "新测算" || host.title === "新对话")) host.title = projectName;
+      host.updatedAt = new Date().toISOString();
+      updateConversation(host);
+    } catch (err) {
+      const raw = String(err?.message || "测算引擎没有返回结果");
+      pending.pending = false;
+      pending.calcFailed = true;
+      pending.calcReason = raw.length > 80 ? "测算引擎没有返回可用结果" : raw;
+      pending.response = {
+        intent: "CALCULATION_EXPLAIN",
+        message: "本次测算未成功完成。",
+        blocks: [],
+        actions: [],
+        context: { projectId, schemeId: scenarioId },
+      };
+      updateConversation(host);
+    } finally {
+      loading = false;
+      paintChrome();
+      syncSendButton();
+    }
+  }
+
+  function renameConversation(id) {
+    const conv = loadAll().find((item) => item.id === id);
+    if (!conv || typeof modal !== "function") return;
+    openMenuId = "";
+    modal("重命名测算", `<div class="field"><label for="ai-rename-input">名称</label><input id="ai-rename-input" class="input" value="${esc(conv.title === "新对话" ? "新测算" : conv.title)}"></div>`, "保存", () => {
+      const value = $("#ai-rename-input")?.value.trim();
+      if (!value) return false;
+      conv.title = value;
+      updateConversation(conv);
+      paintChrome();
+    });
+  }
+
+  function deleteConversation(id) {
+    if (typeof modal !== "function") return;
+    openMenuId = "";
+    modal("删除测算会话", "只删除这条对话记录。已保存的测算方案仍可在传统列表中查看。", "删除", () => {
+      const list = loadAll().filter((item) => item.id !== id);
+      saveAll(list);
+      if (activeId() === id) setActive(list[0]?.id || "");
+      paintChrome();
+    });
+  }
+
+  function clearCurrentThread() {
+    const conv = currentConversation();
+    if (!conv) {
+      newConversation();
+      return;
+    }
+    conv.messages = [];
+    conv.title = "新测算";
+    conv.context = {};
+    conv.versions = [];
+    conv.updatedAt = new Date().toISOString();
+    updateConversation(conv);
+    showDropzone = false;
+    paintChrome();
+  }
+
+  function openProjectAnalysis(projectId, projectName, schemeId) {
+    setView("ai");
+    const now = new Date().toISOString();
+    const conv = {
+      id: uid(),
+      title: projectName || "新测算",
+      createdAt: now,
+      updatedAt: now,
+      context: { projectId, schemeId: schemeId || undefined },
+      messages: [],
+      versions: schemeId ? [{ id: "v1", label: "V1 当前方案", scenarioId: schemeId, at: now }] : [],
+    };
+    const list = loadAll();
+    list.unshift(conv);
+    saveAll(list);
+    setActive(conv.id);
+    generation += 1;
+    loading = false;
+    rerenderApp();
+    setTimeout(() => {
+      void submit("帮我分析一下这个项目的经营情况");
+    }, 40);
+  }
+
   function bind() {
     const root = $("#ai-center");
     if (!root || root.dataset.bound === "1") return;
@@ -924,10 +1389,66 @@
       if (next === "1") setMode("deepseek");
       if (modeSelect) modeSelect.value = aiMode();
       notify(next === "1" ? "下一次对话将模拟 DeepSeek 超时" : "已取消模拟超时");
+      if (typeof global.render === "function") global.render();
     });
+    $("#ai-clear-thread")?.addEventListener("click", () => clearCurrentThread());
     root.addEventListener("click", (event) => {
-      const target = event.target.closest("[data-ai-new],[data-ai-open],[data-ai-send],[data-ai-go],[data-ai-view],[data-ai-export],[data-ai-picker],[data-ai-import],[data-ai-import-confirm],[data-ai-import-edit],[data-ai-retry],[data-ai-collapse],[data-ai-scroll],[data-ai-picker-close],[data-ai-picker-ok]");
+      const target = event.target.closest("[data-ai-new],[data-ai-open],[data-ai-send],[data-ai-go],[data-ai-view],[data-ai-export],[data-ai-picker],[data-ai-import],[data-ai-import-confirm],[data-ai-import-edit],[data-ai-retry],[data-ai-collapse],[data-ai-scroll],[data-ai-picker-close],[data-ai-picker-ok],[data-ai-menu],[data-ai-rename],[data-ai-delete],[data-ai-file-remove],[data-ai-adjust],[data-ai-recalc],[data-ai-fill],[data-ai-drop],[data-ai-drawer-close],[data-ai-drawer-save]");
       if (!target || !root.contains(target)) return;
+      if (target.dataset.aiMenu) {
+        openMenuId = openMenuId === target.dataset.aiMenu ? "" : target.dataset.aiMenu;
+        paintChrome();
+        return;
+      }
+      if (target.dataset.aiRename) {
+        renameConversation(target.dataset.aiRename);
+        return;
+      }
+      if (target.dataset.aiDelete) {
+        deleteConversation(target.dataset.aiDelete);
+        return;
+      }
+      if (target.dataset.aiFileRemove) {
+        attachments = attachments.filter((item) => item.id !== target.dataset.aiFileRemove);
+        paintFiles();
+        return;
+      }
+      if (target.dataset.aiDrawerClose != null) {
+        drawer = null;
+        paintDrawer();
+        return;
+      }
+      if (target.dataset.aiDrawerSave != null) {
+        const patches = [...root.querySelectorAll("[data-ai-param]")].map((input) => ({ key: input.dataset.aiParam, value: input.value.trim() }));
+        drawer = null;
+        paintDrawer();
+        void recalculate(patches);
+        return;
+      }
+      if (target.dataset.aiAdjust != null) {
+        openDrawer();
+        return;
+      }
+      if (target.dataset.aiRecalc != null) {
+        void recalculate([]);
+        return;
+      }
+      if (target.dataset.aiFill != null) {
+        const conv = currentConversation();
+        if (conv?.context?.importSessionId) navigate(`/calculation/import/${conv.context.importSessionId}`);
+        else openDrawer();
+        return;
+      }
+      if (target.closest("[data-ai-drop]")) {
+        filePickIntent = "start";
+        showDropzone = true;
+        $("#ai-file")?.click();
+        return;
+      }
+      if (openMenuId) {
+        openMenuId = "";
+        paintChrome();
+      }
       if (target.dataset.aiNew != null) {
         newConversation();
         return;
@@ -968,6 +1489,9 @@
         return;
       }
       if (target.dataset.aiImport != null) {
+        filePickIntent = "start";
+        showDropzone = true;
+        paintThread();
         $("#ai-file")?.click();
         return;
       }
@@ -1004,6 +1528,14 @@
         syncSendButton();
         return;
       }
+      if (attachments.length) {
+        const files = attachments.map((item) => item.file);
+        const note = $("#ai-input")?.value || "";
+        attachments = [];
+        paintFiles();
+        void startImport(files, note);
+        return;
+      }
       void submit($("#ai-input")?.value || "");
     });
     $("#ai-input")?.addEventListener("keydown", (event) => {
@@ -1017,11 +1549,31 @@
       input.style.height = "auto";
       input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
     });
-    $("#ai-attach")?.addEventListener("click", () => $("#ai-file")?.click());
+    $("#ai-attach")?.addEventListener("click", () => {
+      filePickIntent = "stage";
+      $("#ai-file")?.click();
+    });
     $("#ai-file")?.addEventListener("change", (event) => {
-      const file = event.target.files?.[0];
+      const files = [...(event.target.files || [])];
       event.target.value = "";
-      if (file) void attachFile(file);
+      if (files.length) addAttachments(files, filePickIntent);
+      filePickIntent = "stage";
+    });
+    root.addEventListener("dragover", (event) => {
+      if (!event.target.closest("#ai-compose, [data-ai-drop]")) return;
+      event.preventDefault();
+      $("#ai-compose")?.classList.add("is-drag");
+    });
+    root.addEventListener("dragleave", (event) => {
+      if (event.target.closest("#ai-compose")) $("#ai-compose")?.classList.remove("is-drag");
+    });
+    root.addEventListener("drop", (event) => {
+      const dropzone = event.target.closest("[data-ai-drop]");
+      const compose = event.target.closest("#ai-compose");
+      if (!dropzone && !compose) return;
+      event.preventDefault();
+      $("#ai-compose")?.classList.remove("is-drag");
+      if (event.dataTransfer?.files?.length) addAttachments(event.dataTransfer.files, dropzone ? "start" : "stage");
     });
     const thread = $("#ai-thread");
     if (thread) thread.scrollTop = thread.scrollHeight;
@@ -1042,6 +1594,10 @@
         if (projects[i]?.source === "AI导入" || projects[i]?.type === "临时测算") projects.splice(i, 1);
       }
     }
+    attachments = [];
+    drawer = null;
+    openMenuId = "";
+    showDropzone = false;
     generation += 1;
     loading = false;
     global.PmCalc?.resetDemoData?.();
@@ -1052,5 +1608,5 @@
     }
   }
 
-  global.AiCenter = { render, bind, getView, setView, resetLeadershipDemo };
+  global.AiCenter = { render, bind, getView, setView, resetLeadershipDemo, openProjectAnalysis };
 })(window);

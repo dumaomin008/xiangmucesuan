@@ -204,7 +204,31 @@
   }
 
   function resetDemoButton() {
-    return `<button type="button" class="btn small" id="calc-reset-seed" title="一键恢复演示数据">重置演示</button>`;
+    return `<button type="button" class="btn small ghost" id="calc-reset-seed" aria-label="重置演示">重置当前演示数据</button>`;
+  }
+
+  function aiServiceStatusHtml() {
+    let tone = "ok";
+    let label = "AI 服务正常";
+    let state = "ready";
+    try {
+      if (!global.PmCalc?.calculateProject) {
+        tone = "bad";
+        label = "AI 服务不可用";
+        state = "down";
+      } else if (localStorage.getItem("pm-ai-force-fail") === "1") {
+        tone = "warn";
+        label = "AI 服务降级";
+        state = "degraded";
+      }
+    } catch {
+      /* ignore */
+    }
+    return `<span class="ai-service-pill is-${tone}" data-ai-service="${state}"><i aria-hidden="true"></i>${label}</span>`;
+  }
+
+  function moreMenu(inner) {
+    return `<details class="ai-more"><summary>更多</summary><div class="ai-more-panel">${inner}</div></details>`;
   }
 
   function demoToolsEnabled() {
@@ -218,14 +242,16 @@
   }
 
   function demoStatusChrome(withAiControls) {
-    const status = `<span class="ai-service-ready" data-ai-service="ready">AI服务：就绪</span>`;
+    const status = aiServiceStatusHtml();
     const reset = resetDemoButton();
-    if (!demoToolsEnabled()) return `${status}${reset}`;
+    const clear = withAiControls ? `<button type="button" class="btn small ghost" id="ai-clear-thread">清空当前对话</button>` : "";
+    const more = moreMenu(`${reset}${clear}`);
+    if (!demoToolsEnabled()) return `${status}${more}`;
     const readiness = `<details class="calc-demo-readiness"><summary>演示自检</summary><pre id="demo-readiness">正在检查…</pre></details>`;
     const ai = withAiControls
       ? `<label class="ai-mode-label">AI 模式<select id="ai-mode-select" class="select" aria-label="AI 模式"><option value="mock">mock</option><option value="deepseek">deepseek</option></select></label><button type="button" class="btn small" id="ai-force-fail">模拟 AI 超时</button>`
       : "";
-    return `${status}${readiness}<details class="calc-demo-tools"><summary>演示工具</summary><div class="calc-demo-tools-body">${typeof stateControl === "function" ? stateControl() : ""}${reset}${ai}<p class="help">引擎 ${esc(global.PmCalc.engineVersion)} · 密钥只在服务端 · 数字来自 Calculation Engine</p></div></details>`;
+    return `${status}${readiness}<details class="calc-demo-tools"><summary>演示工具</summary><div class="calc-demo-tools-body">${typeof stateControl === "function" ? stateControl() : ""}${ai}<p class="help">引擎 ${esc(global.PmCalc.engineVersion)} · 密钥只在服务端 · 数字来自 Calculation Engine</p></div></details>${more}`;
   }
 
   function calcBizStatus(scenarios) {
@@ -241,7 +267,7 @@
   }
 
   function viewToggle(active) {
-    return `<div class="ai-view-toggle" role="tablist" aria-label="测算中心视图"><button type="button" class="btn small ${active === "ai" ? "primary" : ""}" data-calc-view="ai">AI对话测算</button><button type="button" class="btn small ${active === "list" ? "primary" : ""}" data-calc-view="list">传统列表视图</button></div>`;
+    return `<div class="ai-view-toggle" role="tablist" aria-label="测算中心视图"><button type="button" class="btn small ${active === "ai" ? "primary" : ""}" data-calc-view="ai">AI 对话测算</button><button type="button" class="btn small ${active === "list" ? "primary" : ""}" data-calc-view="list">传统列表视图</button></div>`;
   }
 
   function calcCenterPage() {
@@ -302,6 +328,7 @@
           <td><div class="table-actions">
             <button class="btn ghost small text-action" data-go="/projects/${esc(s.projectId)}/calculation/${esc(s.id)}">继续测算</button>
             <button class="btn ghost small text-action" data-go="/projects/${esc(s.projectId)}/calculation/${esc(s.id)}">查看结果</button>
+            <button type="button" class="btn ghost small text-action" data-ai-analyze="${esc(s.projectId)}" data-ai-analyze-name="${esc(p?.name || "")}" data-ai-analyze-scheme="${esc(s.id)}">让 AI 分析</button>
           </div></td>
         </tr>`;
       })
@@ -327,7 +354,10 @@
           <td class="num">${m ? pct(m.profitMargin) : "—"}</td>
           <td><span class="tag ${st.cls}">${st.label}</span></td>
           <td>${latest?.results?.calculatedAt ? esc(String(latest.results.calculatedAt).replace("T", " ").slice(0, 16)) : "待测算"}</td>
-          <td><button class="btn ghost small text-action" data-go="/projects/${esc(projectId)}/calculation">进入测算</button></td>
+          <td><div class="table-actions">
+            <button class="btn ghost small text-action" data-go="/projects/${esc(projectId)}/calculation">进入测算</button>
+            <button type="button" class="btn ghost small text-action" data-ai-analyze="${esc(projectId)}" data-ai-analyze-name="${esc(p?.name || "")}" data-ai-analyze-scheme="${esc(latest?.id || "")}">让 AI 分析</button>
+          </div></td>
         </tr>`;
       })
       .join("");
@@ -1106,6 +1136,7 @@
           </div>
           <div class="head-actions">
             ${canEdit() ? `<button class="btn primary" id="calc-rerun">${esc(actionLabel)}</button><button class="btn" data-calc-dup="${esc(scenario.id)}">复制方案</button>` : '<span class="tag">只读视图</span>'}
+            <button type="button" class="btn" data-ai-analyze="${esc(projectId)}" data-ai-analyze-name="${esc(p.name)}" data-ai-analyze-scheme="${esc(scenario.id)}">让 AI 分析</button>
             <button class="btn" data-go="/projects/${esc(projectId)}">返回项目详情</button>
           </div>
         </div>
@@ -1329,6 +1360,11 @@
     $("#calc-center-new")?.addEventListener("click", () => global.ImportApp?.openCreateCalcModal?.());
     $$("#calc-center-ai-import").forEach((btn) => {
       btn.onclick = () => go("/calculation/import");
+    });
+    $$("[data-ai-analyze]").forEach((btn) => {
+      btn.onclick = () => {
+        global.AiCenter?.openProjectAnalysis?.(btn.dataset.aiAnalyze, btn.dataset.aiAnalyzeName || "", btn.dataset.aiAnalyzeScheme || "");
+      };
     });
     $("#calc-center-filter")?.addEventListener("input", (e) => {
       const q = (e.target.value || "").trim().toLowerCase();
