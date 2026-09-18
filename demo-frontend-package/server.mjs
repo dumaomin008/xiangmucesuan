@@ -1,4 +1,6 @@
-import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { createServer } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,6 +32,187 @@ function loadEnvFile() {
 }
 
 loadEnvFile();
+
+const documentImport = await import('./lib/document-import.server.mjs').catch((error) => {
+  console.warn(`document-import bundle unavailable: ${error instanceof Error ? error.message : error}`);
+  return null;
+});
+
+const uploadRoot = join(tmpdir(), 'pm-calc-import');
+
+function sweepUploads() {
+  if (!existsSync(uploadRoot) || !documentImport) return;
+  const ttl = documentImport.UPLOAD_LIMITS.ttlMs;
+  for (const id of readdirSync(uploadRoot)) {
+    if (!documentImport.safeFileId(id)) continue;
+    const dir = join(uploadRoot, id);
+    try {
+      if (Date.now() - statSync(dir).mtimeMs > ttl) rmSync(dir, { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+async function readRaw(request, limit) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > limit) {
+      const error = new Error('TOO_LARGE');
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+function parseMultipart(buffer, boundary) {
+  const delim = Buffer.from(`--${boundary}`);
+  const parts = [];
+  let start = buffer.indexOf(delim);
+  while (start !== -1) {
+    const next = buffer.indexOf(delim, start + delim.length);
+    if (next === -1) break;
+    let part = buffer.subarray(start + delim.length, next);
+    if (part[0] === 13 && part[1] === 10) part = part.subarray(2);
+    if (part.length >= 2 && part[part.length - 2] === 13 && part[part.length - 1] === 10) {
+      part = part.subarray(0, part.length - 2);
+    }
+    const headerEnd = part.indexOf('\r\n\r\n');
+    if (headerEnd !== -1) {
+      const headerText = part.subarray(0, headerEnd).toString('utf8');
+      const body = part.subarray(headerEnd + 4);
+      const name = /name="([^"]*)"/.exec(headerText)?.[1] || '';
+      const filename = /filename="([^"]*)"/.exec(headerText)?.[1] || '';
+      const mime = /Content-Type:\s*([^\r\n]+)/i.exec(headerText)?.[1]?.trim() || '';
+      parts.push({ name, filename, mime, body });
+    }
+    start = next;
+  }
+  return parts;
+}
+
+async function handleImportConfig(_request, response) {
+  const mode = documentImport ? documentImport.getDocumentParserMode() : 'demo';
+  const limits = documentImport?.UPLOAD_LIMITS || { maxFiles: 8, maxFileBytes: 10 * 1024 * 1024, maxTotalBytes: 25 * 1024 * 1024 };
+  return sendJson(response, 200, {
+    ok: true,
+    mode,
+    maxFiles: limits.maxFiles,
+    maxFileBytes: limits.maxFileBytes,
+    maxTotalBytes: limits.maxTotalBytes,
+    aiConfigured: Boolean(process.env.DEMO_AI_API_KEY),
+    bundleReady: Boolean(documentImport)
+  });
+}
+
+async function handleImportUpload(request, response) {
+  if (!documentImport) return sendJson(response, 503, { ok: false, message: '真实解析模块未构建' });
+  if (documentImport.getDocumentParserMode() !== 'real') {
+    return sendJson(response, 409, { ok: false, message: '当前服务端为 demo 模式，不接收二进制上传' });
+  }
+  sweepUploads();
+  const ctype = request.headers['content-type'] || '';
+  const boundary = /boundary=(?:"([^"]+)"|([^;]+))/i.exec(ctype)?.[1] || /boundary=(?:"([^"]+)"|([^;]+))/i.exec(ctype)?.[2];
+  if (!boundary) return sendJson(response, 400, { ok: false, message: '需要 multipart/form-data' });
+  let raw;
+  try {
+    raw = await readRaw(request, documentImport.UPLOAD_LIMITS.maxTotalBytes + 1024 * 1024);
+  } catch {
+    return sendJson(response, 413, { ok: false, message: '上传超过总大小上限' });
+  }
+  const parts = parseMultipart(raw, boundary.trim());
+  const files = parts.filter((p) => p.filename);
+  if (!files.length) return sendJson(response, 400, { ok: false, message: '没有文件' });
+  if (files.length > documentImport.UPLOAD_LIMITS.maxFiles) {
+    return sendJson(response, 400, { ok: false, message: '超过文件数量上限' });
+  }
+  mkdirSync(uploadRoot, { recursive: true });
+  const saved = [];
+  const errors = [];
+  let total = 0;
+  for (const part of files) {
+    const check = documentImport.validateIncomingFile({
+      name: part.filename,
+      mimeType: part.mime,
+      size: part.body.length
+    });
+    if (!check.ok) {
+      errors.push(check.message);
+      continue;
+    }
+    total += part.body.length;
+    if (total > documentImport.UPLOAD_LIMITS.maxTotalBytes) {
+      errors.push('超过总大小上限');
+      break;
+    }
+    const fileId = randomUUID();
+    const dir = join(uploadRoot, fileId);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'blob'), part.body);
+    writeFileSync(
+      join(dir, 'meta.json'),
+      JSON.stringify({ fileId, name: part.filename, mimeType: part.mime, size: part.body.length })
+    );
+    saved.push({ fileId, name: part.filename, mimeType: part.mime, size: part.body.length });
+  }
+  return sendJson(response, 200, { ok: saved.length > 0, files: saved, errors });
+}
+
+async function handleImportParse(request, response) {
+  if (!documentImport) return sendJson(response, 503, { ok: false, message: '真实解析模块未构建' });
+  if (documentImport.getDocumentParserMode() !== 'real') {
+    return sendJson(response, 409, { ok: false, message: '当前不是 real 模式' });
+  }
+  let body;
+  try {
+    body = await readJson(request);
+  } catch {
+    return sendJson(response, 400, { ok: false, message: '请求体必须是 JSON' });
+  }
+  const fileIds = Array.isArray(body.fileIds) ? body.fileIds.map(String) : [];
+  if (!fileIds.length) return sendJson(response, 400, { ok: false, message: '缺少 fileIds' });
+  const files = [];
+  const missing = [];
+  for (const fileId of fileIds) {
+    if (!documentImport.safeFileId(fileId)) {
+      missing.push(fileId);
+      continue;
+    }
+    const dir = join(uploadRoot, fileId);
+    const metaPath = join(dir, 'meta.json');
+    const blobPath = join(dir, 'blob');
+    if (!existsSync(metaPath) || !existsSync(blobPath)) {
+      missing.push(fileId);
+      continue;
+    }
+    const meta = JSON.parse(readFileSync(metaPath, 'utf8'));
+    files.push({
+      fileId,
+      fileName: meta.name,
+      mimeType: meta.mimeType,
+      bytes: readFileSync(blobPath)
+    });
+  }
+  const aiKey = process.env.DEMO_AI_API_KEY || '';
+  const outcome = await documentImport.parseRealDocuments(files, {
+    projects: Array.isArray(body.projects) ? body.projects : [],
+    llm: aiKey
+      ? {
+          apiKey: aiKey,
+          baseUrl: process.env.DEMO_AI_BASE_URL || 'https://api.openai.com/v1',
+          model: process.env.DEMO_AI_MODEL || 'gpt-4o-mini'
+        }
+      : undefined
+  });
+  return sendJson(response, 200, {
+    ...outcome,
+    missingFileIds: missing,
+    parameters: outcome.parameters
+  });
+}
 
 function sendJson(response, status, body) {
   const payload = JSON.stringify(body);
@@ -256,6 +439,15 @@ const server = createServer(async (request, response) => {
       configured: Boolean(process.env.DEMO_AI_API_KEY),
       model: process.env.DEMO_AI_MODEL || 'gpt-4o-mini'
     });
+  }
+  if (request.method === 'GET' && url.pathname === '/api/demo-import/config') {
+    return handleImportConfig(request, response);
+  }
+  if (request.method === 'POST' && url.pathname === '/api/demo-import/upload') {
+    return handleImportUpload(request, response);
+  }
+  if (request.method === 'POST' && url.pathname === '/api/demo-import/parse') {
+    return handleImportParse(request, response);
   }
 
   const pathname = decodeURIComponent(url.pathname);

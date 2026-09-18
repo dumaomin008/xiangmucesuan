@@ -16,6 +16,8 @@ export type ParameterSource = {
   sheetName?: string;
   page?: number;
   cellRange?: string;
+  paragraph?: number;
+  table?: number;
   originalText?: string;
 };
 
@@ -47,6 +49,13 @@ export type ExtractedParameter = {
     | "cost"
     | "finance";
   inferReason?: string;
+  /** 单位无法确定性换算时为 true，确认前禁止测算 */
+  unitUnresolved?: boolean;
+  /** 资料缺失但系统有默认值：必须人工点选后才可采用 */
+  offerSystemDefault?: boolean;
+  systemDefault?: string | number;
+  confirmedByUser?: boolean;
+  valueOrigin?: "DOCUMENT" | "INFERRED" | "MANUAL" | "SYSTEM_DEFAULT";
 };
 
 export type ImportFile = {
@@ -56,7 +65,7 @@ export type ImportFile = {
   size: number;
   status: ImportFileStatus;
   errorMessage?: string;
-  parserMode: "demo" | "live";
+  parserMode: "demo" | "real";
   addedAt: string;
 };
 

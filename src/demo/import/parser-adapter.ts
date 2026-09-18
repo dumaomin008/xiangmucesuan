@@ -17,7 +17,7 @@ import {
 export type ParseFileResult = {
   fileId: string;
   ok: boolean;
-  mode: "demo" | "live";
+  mode: "demo" | "real";
   errorMessage?: string;
   parameters: ExtractedParameter[];
   suggestedProjectName?: string;
@@ -289,17 +289,19 @@ export function mergeExtractedParameters(batches: ParseFileResult[]): ExtractedP
 }
 
 export function createImportFileMeta(input: {
+  id?: string;
   name: string;
   mimeType?: string;
   size?: number;
+  parserMode?: "demo" | "real";
 }): ImportFile {
   return {
-    id: createId("FILE"),
+    id: input.id || createId("FILE"),
     name: input.name,
     mimeType: input.mimeType || guessMime(input.name),
     size: input.size ?? 0,
     status: "UPLOADED",
-    parserMode: "demo",
+    parserMode: input.parserMode || "demo",
     addedAt: nowIso(),
   };
 }
@@ -313,6 +315,12 @@ function guessMime(name: string) {
   if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg";
   return "application/octet-stream";
 }
+
+/** 保留的文件名演示解析器。Real 模式禁止调用。 */
+export const DemoDocumentParserAdapter = {
+  mode: "demo" as const,
+  parse: parseImportFileDemo,
+};
 
 /** 演示资料清单（UI 可一键加载，不写死解析结果） */
 export const DEMO_IMPORT_SAMPLE_FILES = [

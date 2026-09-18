@@ -237,8 +237,8 @@
     ).length;
 
     const recent = [...all]
-      .filter((s) => s.results)
-      .sort((a, b) => (b.results?.calculatedAt || b.updatedAt || "").localeCompare(a.results?.calculatedAt || a.updatedAt || ""))
+      .filter((s) => s.results?.calculatedAt)
+      .sort((a, b) => String(b.results.calculatedAt).localeCompare(String(a.results.calculatedAt)))
       .slice(0, 6);
 
     const recentRows = recent
@@ -267,9 +267,9 @@
       .map(([projectId, scenarios]) => {
         const p = projects.find((x) => x.id === projectId);
         const latest =
-          [...scenarios].sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""))[0] ||
-          scenarios.find((s) => s.status === "baseline") ||
-          scenarios[0];
+          [...scenarios]
+            .filter((s) => s.results?.calculatedAt)
+            .sort((a, b) => String(b.results.calculatedAt).localeCompare(String(a.results.calculatedAt)))[0] || null;
         const m = latest?.results?.metrics;
         const profit = m ? Number(m.monthlyProfit) : null;
         const st = calcBizStatus(scenarios);
@@ -277,12 +277,12 @@
           <td class="object-cell"><div class="object-name" data-go="/projects/${esc(projectId)}/calculation">${esc(p?.name || projectId)}</div><div class="object-meta">${esc(projectId)}</div></td>
           <td>${esc(p?.customer || "—")}</td>
           <td class="num">${scenarios.length}</td>
-          <td>${esc(latest?.name || "—")}</td>
+          <td>${esc(latest?.name || "待测算")}</td>
           <td class="num">${m ? money(m.monthlyRevenue) : "—"}</td>
           <td class="num ${profit === null || !Number.isFinite(profit) ? "" : profit >= 0 ? "is-positive" : "is-negative"}">${m ? money(m.monthlyProfit) : "—"}</td>
           <td class="num">${m ? pct(m.profitMargin) : "—"}</td>
           <td><span class="tag ${st.cls}">${st.label}</span></td>
-          <td>${esc((latest?.results?.calculatedAt || latest?.updatedAt || "").replace("T", " ").slice(0, 16) || "—")}</td>
+          <td>${latest?.results?.calculatedAt ? esc(String(latest.results.calculatedAt).replace("T", " ").slice(0, 16)) : "待测算"}</td>
           <td><button class="btn ghost small text-action" data-go="/projects/${esc(projectId)}/calculation">进入测算</button></td>
         </tr>`;
       })
@@ -875,7 +875,29 @@
   function scenarioWorkspacePage(projectId, scenarioId) {
     const blocked = requireCalc();
     if (blocked) return shell(blocked);
-    const p = projects.find((x) => x.id === projectId);
+    global.PmCalc.ensureRepos();
+    let p = projects.find((x) => x.id === projectId);
+    if (!p) {
+      const rec = global.PmCalc.listAllProjects?.().find((item) => item.projectId === projectId);
+      if (rec) {
+        p = {
+          id: rec.projectId,
+          name: rec.projectName,
+          customer: rec.customer,
+          region: rec.region,
+          owner: rec.owner,
+          members: rec.members || [],
+          stage: rec.stage || "方案测算",
+          status: rec.status || "进行中",
+          type: rec.projectType || "临时测算",
+          place: rec.place || "",
+          tractor: rec.tractorDemand || 0,
+          trailer: rec.trailerDemand || 0,
+          source: rec.source || "AI导入",
+        };
+        projects.push(p);
+      }
+    }
     if (!p) return errorPage("404");
     if (!permittedProjects().includes(p)) return errorPage("403");
     global.PmCalc.syncProjectFromShell(p);

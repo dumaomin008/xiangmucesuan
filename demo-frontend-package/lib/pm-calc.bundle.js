@@ -6415,6 +6415,10 @@ ${insight.disclaimer}`,
     for (const p of byField.values()) {
       if (p.status === "CONFLICT") errors.push(`${p.label} \u4ECD\u6709\u51B2\u7A81\u672A\u5904\u7406`);
       if (p.status === "INFERRED") errors.push(`${p.label} \u4E3A AI \u63A8\u65AD\uFF0C\u9700\u4EBA\u5DE5\u786E\u8BA4`);
+      if (p.unitUnresolved) errors.push(`${p.label} \u5355\u4F4D\u65E0\u6CD5\u6362\u7B97`);
+      if (p.offerSystemDefault && p.status === "MISSING" && !p.confirmedByUser) {
+        errors.push(`${p.label} \u9700\u786E\u8BA4\u662F\u5426\u91C7\u7528\u7CFB\u7EDF\u9ED8\u8BA4\u503C`);
+      }
       if (p.required && (p.status === "MISSING" || p.normalizedValue == null || p.normalizedValue === "")) {
         errors.push(`${p.label} \u4E3A\u5FC5\u586B\u4F46\u5C1A\u672A\u586B\u5199`);
       }
@@ -6502,6 +6506,10 @@ ${insight.disclaimer}`,
     for (const p of parameters) {
       if (p.status === "CONFLICT") reasons.push(`${p.label}\uFF1A\u51B2\u7A81\u672A\u89E3\u51B3`);
       if (p.status === "INFERRED") reasons.push(`${p.label}\uFF1A\u63A8\u65AD\u672A\u786E\u8BA4`);
+      if (p.unitUnresolved) reasons.push(`${p.label}\uFF1A\u5355\u4F4D\u65E0\u6CD5\u6362\u7B97`);
+      if (p.offerSystemDefault && p.status === "MISSING" && !p.confirmedByUser) {
+        reasons.push(`${p.label}\uFF1A\u8BF7\u786E\u8BA4\u662F\u5426\u91C7\u7528\u7CFB\u7EDF\u9ED8\u8BA4\u503C`);
+      }
       if (p.required && (p.normalizedValue == null || p.normalizedValue === "" || p.status === "MISSING")) {
         reasons.push(`${p.label}\uFF1A\u5FC5\u586B\u7F3A\u5931`);
       }
@@ -6810,12 +6818,12 @@ ${insight.disclaimer}`,
   }
   function createImportFileMeta(input) {
     return {
-      id: createId("FILE"),
+      id: input.id || createId("FILE"),
       name: input.name,
       mimeType: input.mimeType || guessMime(input.name),
       size: input.size ?? 0,
       status: "UPLOADED",
-      parserMode: "demo",
+      parserMode: input.parserMode || "demo",
       addedAt: nowIso()
     };
   }
@@ -6862,7 +6870,15 @@ ${insight.disclaimer}`,
         continue;
       }
       const safeName = f.name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_");
-      added.push(createImportFileMeta({ name: safeName, mimeType: f.mimeType, size: f.size }));
+      added.push(
+        createImportFileMeta({
+          id: f.id,
+          name: safeName,
+          mimeType: f.mimeType,
+          size: f.size,
+          parserMode: f.parserMode
+        })
+      );
     }
     const nextFiles = [...session.files, ...added];
     const saved = repos2.imports.updateFiles(sessionId, nextFiles);
@@ -6917,6 +6933,27 @@ ${insight.disclaimer}`,
       trace: { tool: "parseImportFiles", ok: true, detail: `params=${parameters.length}` }
     };
   }
+  function applyServerParseResultTool(repos2, sessionId, result) {
+    const session = repos2.imports.getSession(sessionId);
+    if (!session) return { session: null, trace: { tool: "applyServerParse", ok: false } };
+    if (result.files) {
+      for (const file of session.files) {
+        const hit = result.files.find((f) => f.fileId === file.id);
+        if (!hit) continue;
+        file.status = hit.status;
+        file.errorMessage = hit.errorMessage;
+        file.parserMode = hit.parserMode || "real";
+      }
+    }
+    if (result.parameters) session.parameters = result.parameters;
+    if (result.suggestedProjectName) session.suggestedProjectName = result.suggestedProjectName;
+    const only = result.projectCandidates?.length === 1 ? result.projectCandidates[0] : void 0;
+    session.suggestedProjectId = only?.projectId;
+    session.status = "review";
+    session.updatedAt = nowIso();
+    const saved = repos2.imports.saveSession(session);
+    return { session: saved, trace: { tool: "applyServerParse", ok: true } };
+  }
   function retryImportFileTool(repos2, sessionId, fileId) {
     const session = repos2.imports.getSession(sessionId);
     if (!session) return { session: null, trace: { tool: "retryImportFile", ok: false } };
@@ -6927,7 +6964,7 @@ ${insight.disclaimer}`,
     repos2.imports.saveSession(session);
     return parseImportFilesTool(repos2, sessionId);
   }
-  function confirmExtractedParameterTool(repos2, sessionId, field, value, status = "CONFIRMED") {
+  function confirmExtractedParameterTool(repos2, sessionId, field, value, status = "CONFIRMED", meta) {
     const session = repos2.imports.getSession(sessionId);
     if (!session) return { session: null, trace: { tool: "confirmExtractedParameter", ok: false } };
     const p = session.parameters.find((x) => x.field === field);
@@ -6935,6 +6972,12 @@ ${insight.disclaimer}`,
     p.value = value;
     p.normalizedValue = value;
     p.status = status;
+    if (meta?.valueOrigin) p.valueOrigin = meta.valueOrigin;
+    if (meta?.confirmedByUser) {
+      p.confirmedByUser = true;
+      p.offerSystemDefault = false;
+      p.unitUnresolved = false;
+    }
     const saved = repos2.imports.saveSession(session);
     return { session: saved, trace: { tool: "confirmExtractedParameter", ok: true, detail: field } };
   }
@@ -7079,7 +7122,7 @@ ${insight.disclaimer}`,
         projectName: opts?.tempName || mapped.projectPatch.projectName || session.tempProjectName || "\u4E34\u65F6\u6D4B\u7B97\u9879\u76EE",
         customer: mapped.projectPatch.customer || "\u5F85\u8865\u5BA2\u6237",
         region: mapped.projectPatch.region || "\u5F85\u5B9A",
-        owner: mapped.projectPatch.owner || "\u672A\u6307\u5B9A",
+        owner: opts?.ownerName || mapped.projectPatch.owner || "\u672A\u6307\u5B9A",
         projectType: mapped.projectPatch.projectType || "\u4E34\u65F6\u6D4B\u7B97",
         place: "",
         tractorDemand: null,
@@ -7110,7 +7153,7 @@ ${insight.disclaimer}`,
       name: mapped.inputs.schemeName || "AI\u5BFC\u5165\u6D4B\u7B97\u65B9\u6848",
       status: "calculated",
       inputs: mapped.inputs,
-      notes: `\u6765\u81EA\u5BFC\u5165\u4F1A\u8BDD ${session.id}\uFF1Bmode=demo parser`,
+      notes: `\u6765\u81EA\u5BFC\u5165\u4F1A\u8BDD ${session.id}`,
       inputsSource: "user"
     });
     session.status = "completed";
@@ -7409,10 +7452,11 @@ ${insight.disclaimer}`,
       addFiles: (sessionId, files) => addImportFilesTool(ensureRepos(), sessionId, files),
       loadDemoSamples: (sessionId) => loadDemoSampleFilesTool(ensureRepos(), sessionId),
       parseFiles: (sessionId) => parseImportFilesTool(ensureRepos(), sessionId),
+      applyServerParse: (sessionId, result) => applyServerParseResultTool(ensureRepos(), sessionId, result),
       retryFile: (sessionId, fileId) => retryImportFileTool(ensureRepos(), sessionId, fileId),
       resolveConflict: (sessionId, field, choice) => resolveConflictTool(ensureRepos(), sessionId, field, choice),
       confirmInferred: (sessionId, field, accept, manualValue) => confirmInferredParameterTool(ensureRepos(), sessionId, field, accept, manualValue),
-      confirmParameter: (sessionId, field, value) => confirmExtractedParameterTool(ensureRepos(), sessionId, field, value),
+      confirmParameter: (sessionId, field, value, status, meta) => confirmExtractedParameterTool(ensureRepos(), sessionId, field, value, status, meta),
       previewSupplement: (sessionId, message) => {
         const session = ensureRepos().imports.getSession(sessionId);
         const patches = parseImportSupplementIntent(message);

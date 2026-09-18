@@ -133,7 +133,9 @@
           <button type="button" class="btn primary" id="calc-import-parse" disabled>开始AI解析</button>
         </div>
         <ul class="calc-import-files" id="calc-import-files"><li class="help">尚未添加文件。建议先「加载演示资料」。</li></ul>
-        <p class="help">解析由 DocumentParserAdapter（mode=demo）完成；API Key 不进浏览器。AI 失败时可改用关联项目 / 手动创建。</p>
+        <p id="calc-import-mode" class="help">正在读取服务端解析模式…</p>
+        <p id="calc-import-stages" class="help"></p>
+        <p class="help">解析模式由服务端决定。API Key 不进浏览器。AI 失败时可改用关联项目 / 手动创建。</p>
       </section>
     </div>`;
   }
@@ -192,8 +194,11 @@
                 <button type="button" class="btn small" data-reject-infer="${esc(p.field)}">改为缺失</button></div>`;
             }
             if (p.status === "MISSING") {
-              actions = `<div class="calc-missing-box"><input class="input" data-manual-field="${esc(p.field)}" placeholder="补充${esc(p.label)}">
-                <button type="button" class="btn small" data-manual-save="${esc(p.field)}">保存</button></div>`;
+              const defBtn = p.offerSystemDefault
+                ? `<button type="button" class="btn small" data-accept-default="${esc(p.field)}" data-accept-default-value="${esc(p.systemDefault)}">采用系统默认值 ${esc(p.systemDefault)}</button>`
+                : "";
+              actions = `<div class="calc-missing-box">${defBtn}<input class="input" data-manual-field="${esc(p.field)}" placeholder="手动填写${esc(p.label)}">
+                <button type="button" class="btn small" data-manual-save="${esc(p.field)}">手动填写</button></div>`;
             }
             const sourceBtn =
               p.sources?.length && p.status !== "MISSING"
@@ -293,23 +298,64 @@
       const fileInput = $("#calc-import-file");
       const list = $("#calc-import-files");
       const parseBtn = $("#calc-import-parse");
+      let parserMode = "";
 
       const refresh = () => {
         const s = api.getSession(sessionId);
         if (list) list.innerHTML = renderFileList(s);
-        if (parseBtn) parseBtn.disabled = !(s?.files?.length);
+        if (parseBtn) parseBtn.disabled = !(s?.files?.length) || !parserMode;
       };
 
-      const addFiles = (fileList) => {
-        const files = [...fileList].map((f) => ({ name: f.name, mimeType: f.type, size: f.size }));
-        api.addFiles(sessionId, files);
+      const setMode = (mode) => {
+        parserMode = mode === "real" ? "real" : mode === "demo" ? "demo" : "";
+        const badge = $("#calc-import-mode");
+        if (badge) badge.textContent = parserMode ? `服务端解析模式：${parserMode}` : "未能取得服务端解析模式";
+        const demoBtn = $("#calc-import-demo");
+        if (demoBtn) demoBtn.disabled = parserMode === "real";
+        refresh();
+      };
+
+      fetch("/api/demo-import/config")
+        .then((r) => r.json())
+        .then((cfg) => setMode(cfg.mode))
+        .catch(() => setMode(""));
+
+      const addFiles = async (fileList) => {
+        if (!parserMode) {
+          notify("尚未取得服务端解析模式", "error");
+          return;
+        }
+        if (parserMode === "real") {
+          const body = new FormData();
+          for (const file of fileList) body.append("files", file, file.name);
+          const res = await fetch("/api/demo-import/upload", { method: "POST", body });
+          const data = await res.json().catch(() => ({}));
+          if (!data.files?.length) {
+            notify(data.message || data.errors?.[0] || "上传失败", "error");
+            return;
+          }
+          api.addFiles(
+            sessionId,
+            data.files.map((f) => ({
+              id: f.fileId,
+              name: f.name,
+              mimeType: f.mimeType,
+              size: f.size,
+              parserMode: "real",
+            })),
+          );
+          if (data.errors?.length) notify(data.errors.join("；"), "error");
+        } else {
+          const files = [...fileList].map((f) => ({ name: f.name, mimeType: f.type, size: f.size, parserMode: "demo" }));
+          api.addFiles(sessionId, files);
+        }
         refresh();
       };
 
       $("#calc-import-pick")?.addEventListener("click", () => fileInput?.click());
       $("#calc-import-add-more")?.addEventListener("click", () => fileInput?.click());
       fileInput?.addEventListener("change", () => {
-        if (fileInput.files?.length) addFiles(fileInput.files);
+        if (fileInput.files?.length) void addFiles(fileInput.files);
         fileInput.value = "";
       });
       const drop = $("#calc-import-dropzone");
@@ -321,30 +367,61 @@
       drop?.addEventListener("drop", (e) => {
         e.preventDefault();
         drop.classList.remove("is-drag");
-        if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
+        if (e.dataTransfer?.files?.length) void addFiles(e.dataTransfer.files);
       });
       $("#calc-import-demo")?.addEventListener("click", () => {
+        if (parserMode !== "demo") {
+          notify("真实模式请上传资料，演示样本仅在 demo 模式可用", "error");
+          return;
+        }
         api.loadDemoSamples(sessionId);
         refresh();
-        notify("已加载演示资料（解析仍走 Adapter）");
+        notify("已加载演示资料（解析仍走 Demo Adapter）");
       });
-      parseBtn?.addEventListener("click", () => {
+      parseBtn?.addEventListener("click", async () => {
         parseBtn.disabled = true;
-        parseBtn.textContent = "AI解析中…";
-        setTimeout(() => {
-          const result = api.parseFiles(sessionId);
-          if (!result.session) {
-            notify("解析失败", "error");
+        const stages = $("#calc-import-stages");
+        if (parserMode === "real") {
+          if (stages) stages.textContent = "正在读取文件正文";
+          const session = api.getSession(sessionId);
+          const projects = (global.PmCalc.listAllProjects?.() || []).map((p) => ({
+            projectId: p.projectId,
+            projectName: p.projectName,
+            customer: p.customer,
+            region: p.region,
+          }));
+          const res = await fetch("/api/demo-import/parse", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ fileIds: (session?.files || []).map((f) => f.id), projects }),
+          });
+          const data = await res.json().catch(() => null);
+          if (!data?.parameters) {
+            notify(data?.message || "解析失败，可改为手动录入", "error");
             parseBtn.disabled = false;
-            parseBtn.textContent = "开始AI解析";
             return;
           }
+          if (stages) stages.textContent = (data.stages || []).join(" → ");
+          api.applyServerParse(sessionId, data);
           goTo(`/calculation/import/${sessionId}`);
-        }, 600);
+          return;
+        }
+        const result = api.parseFiles(sessionId);
+        if (!result.session) {
+          notify("解析失败", "error");
+          parseBtn.disabled = false;
+          return;
+        }
+        if (stages) stages.textContent = "Demo Adapter 解析完成";
+        goTo(`/calculation/import/${sessionId}`);
       });
       list?.addEventListener("click", (e) => {
         const btn = e.target.closest("[data-import-retry]");
         if (!btn) return;
+        if (parserMode === "real") {
+          parseBtn?.click();
+          return;
+        }
         api.retryFile(sessionId, btn.dataset.importRetry);
         refresh();
       });
@@ -401,7 +478,18 @@
             return;
           }
           const value = Number.isFinite(Number(raw)) ? Number(raw) : raw;
-          api.confirmParameter(sessionId, field, value);
+          api.confirmParameter(sessionId, field, value, "MANUAL", { valueOrigin: "MANUAL", confirmedByUser: true });
+          reload();
+        };
+      });
+      $$("[data-accept-default]").forEach((btn) => {
+        btn.onclick = () => {
+          const raw = btn.dataset.acceptDefaultValue;
+          const value = Number.isFinite(Number(raw)) ? Number(raw) : raw;
+          api.confirmParameter(sessionId, btn.dataset.acceptDefault, value, "CONFIRMED", {
+            valueOrigin: "SYSTEM_DEFAULT",
+            confirmedByUser: true,
+          });
           reload();
         };
       });
@@ -413,7 +501,7 @@
           const text = p.sources
             .map(
               (s) =>
-                `${s.fileName}${s.sheetName ? ` / Sheet:${s.sheetName}` : ""}${s.page ? ` / 第${s.page}页` : ""}${s.cellRange ? ` / ${s.cellRange}` : ""}\n原文：${s.originalText || "—"}`,
+                `${s.fileName}${s.sheetName ? ` / Sheet:${s.sheetName}` : ""}${s.page ? ` / 第${s.page}页` : ""}${s.cellRange ? ` / ${s.cellRange}` : ""}${s.paragraph ? ` / 段落${s.paragraph}` : ""}${s.table ? ` / 表格${s.table}` : ""}\n原文：${s.originalText || "—"}`,
             )
             .join("\n\n");
           alert(`${p.label} 来源：\n\n${text}`);
@@ -479,10 +567,34 @@
           createTempProject: mode === "temp",
           projectId: mode === "link" ? session?.suggestedProjectId : undefined,
           tempName: session?.suggestedProjectName || "临时测算项目",
+          ownerName: typeof state !== "undefined" && state.user ? state.user.name : undefined,
+          region: typeof state !== "undefined" && state.user ? state.user.region : undefined,
         });
         if (!result.scenario) {
           notify(result.errors?.[0] || "无法开始测算", "error");
           return;
+        }
+        const shellProject = result.project;
+        if (shellProject && typeof projects !== "undefined" && !projects.some((p) => p.id === shellProject.projectId)) {
+          const userName = typeof state !== "undefined" && state.user ? state.user.name : shellProject.owner;
+          const userRegion = typeof state !== "undefined" && state.user ? state.user.region : shellProject.region;
+          projects.push({
+            id: shellProject.projectId,
+            name: shellProject.projectName,
+            customer: shellProject.customer,
+            region: userRegion || shellProject.region,
+            owner: userName || shellProject.owner,
+            members: [],
+            stage: "方案测算",
+            status: "进行中",
+            eco: "评估中",
+            tractor: 0,
+            trailer: 0,
+            updated: "",
+            type: shellProject.projectType || "临时测算",
+            source: "AI导入",
+            place: "",
+          });
         }
         notify("已调用 Calculation Engine 完成测算");
         goTo(`/projects/${result.scenario.projectId}/calculation/${result.scenario.id}`);

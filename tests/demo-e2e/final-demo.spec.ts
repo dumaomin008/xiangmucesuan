@@ -236,6 +236,7 @@ test.describe("终审 Demo 主链路", () => {
 
     await page.locator("#calc-center-ai-import").first().click();
     await expect(page).toHaveURL(/#\/calculation\/import/);
+    await expect(page.locator("#calc-import-mode")).toContainText("demo");
     await expect(page.locator(".calc-import-page")).toContainText(/AI 导入|导入资料/);
     await page.locator("#calc-import-demo").click();
     await expect(page.locator("#calc-import-files")).toContainText("项目运输需求");

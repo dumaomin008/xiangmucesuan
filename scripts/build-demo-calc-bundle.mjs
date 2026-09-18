@@ -31,4 +31,25 @@ await esbuild.build({
   },
 });
 
+const serverOut = path.join(root, "demo-frontend-package/lib/document-import.server.mjs");
+await esbuild.build({
+  entryPoints: [path.join(root, "src/demo/import/real/node-entry.ts")],
+  bundle: true,
+  format: "esm",
+  platform: "node",
+  target: ["node20"],
+  outfile: serverOut,
+  sourcemap: true,
+  minify: false,
+  logLevel: "info",
+  packages: "external",
+  alias: {
+    "@": path.join(root, "src"),
+  },
+  banner: {
+    js: "/* document import server — generated; do not edit */",
+  },
+});
+
 console.log(`built ${outfile}`);
+console.log(`built ${serverOut}`);

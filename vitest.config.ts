@@ -7,8 +7,11 @@ export default defineConfig({
   include: ["src/**/*.test.ts", "tests/golden/**/*.test.ts"],
   },
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
+  alias: {
+    "@": path.resolve(__dirname, "./src"),
+  },
+  ssr: {
+    external: ["exceljs", "pdf-parse", "mammoth"],
+  },
   },
 });

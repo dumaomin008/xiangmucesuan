@@ -51,6 +51,10 @@ export function mapToSchemeCalculationInput(parameters: ExtractedParameter[]): M
   for (const p of byField.values()) {
     if (p.status === "CONFLICT") errors.push(`${p.label} 仍有冲突未处理`);
     if (p.status === "INFERRED") errors.push(`${p.label} 为 AI 推断，需人工确认`);
+    if (p.unitUnresolved) errors.push(`${p.label} 单位无法换算`);
+    if (p.offerSystemDefault && p.status === "MISSING" && !p.confirmedByUser) {
+      errors.push(`${p.label} 需确认是否采用系统默认值`);
+    }
     if (p.required && (p.status === "MISSING" || p.normalizedValue == null || p.normalizedValue === "")) {
       errors.push(`${p.label} 为必填但尚未填写`);
     }
@@ -160,6 +164,10 @@ export function canStartCalculation(parameters: ExtractedParameter[]): { ok: boo
   for (const p of parameters) {
     if (p.status === "CONFLICT") reasons.push(`${p.label}：冲突未解决`);
     if (p.status === "INFERRED") reasons.push(`${p.label}：推断未确认`);
+    if (p.unitUnresolved) reasons.push(`${p.label}：单位无法换算`);
+    if (p.offerSystemDefault && p.status === "MISSING" && !p.confirmedByUser) {
+      reasons.push(`${p.label}：请确认是否采用系统默认值`);
+    }
     if (p.required && (p.normalizedValue == null || p.normalizedValue === "" || p.status === "MISSING")) {
       reasons.push(`${p.label}：必填缺失`);
     }

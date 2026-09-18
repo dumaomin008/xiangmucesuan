@@ -31,7 +31,7 @@ export function createImportSessionTool(
 export function addImportFilesTool(
   repos: DemoRepositories,
   sessionId: string,
-  files: { name: string; mimeType?: string; size?: number }[],
+  files: { id?: string; name: string; mimeType?: string; size?: number; parserMode?: "demo" | "real" }[],
 ): { session: ImportSession | null; added: ImportFile[]; trace: ImportToolTrace } {
   const session = repos.imports.getSession(sessionId);
   if (!session) return { session: null, added: [], trace: { tool: "addImportFiles", ok: false, detail: "session missing" } };
@@ -56,7 +56,15 @@ export function addImportFilesTool(
       continue;
     }
     const safeName = f.name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_");
-    added.push(createImportFileMeta({ name: safeName, mimeType: f.mimeType, size: f.size }));
+    added.push(
+      createImportFileMeta({
+        id: f.id,
+        name: safeName,
+        mimeType: f.mimeType,
+        size: f.size,
+        parserMode: f.parserMode,
+      }),
+    );
   }
 
   const nextFiles = [...session.files, ...added];
@@ -129,6 +137,37 @@ export function parseImportFilesTool(
   };
 }
 
+export function applyServerParseResultTool(
+  repos: DemoRepositories,
+  sessionId: string,
+  result: {
+    parameters?: ExtractedParameter[];
+    files?: { fileId: string; status: ImportFile["status"]; errorMessage?: string; parserMode?: "real" }[];
+    suggestedProjectName?: string;
+    projectCandidates?: { projectId: string; projectName: string }[];
+  },
+): { session: ImportSession | null; trace: ImportToolTrace } {
+  const session = repos.imports.getSession(sessionId);
+  if (!session) return { session: null, trace: { tool: "applyServerParse", ok: false } };
+  if (result.files) {
+    for (const file of session.files) {
+      const hit = result.files.find((f) => f.fileId === file.id);
+      if (!hit) continue;
+      file.status = hit.status;
+      file.errorMessage = hit.errorMessage;
+      file.parserMode = hit.parserMode || "real";
+    }
+  }
+  if (result.parameters) session.parameters = result.parameters;
+  if (result.suggestedProjectName) session.suggestedProjectName = result.suggestedProjectName;
+  const only = result.projectCandidates?.length === 1 ? result.projectCandidates[0] : undefined;
+  session.suggestedProjectId = only?.projectId;
+  session.status = "review";
+  session.updatedAt = nowIso();
+  const saved = repos.imports.saveSession(session);
+  return { session: saved, trace: { tool: "applyServerParse", ok: true } };
+}
+
 export function retryImportFileTool(
   repos: DemoRepositories,
   sessionId: string,
@@ -150,6 +189,7 @@ export function confirmExtractedParameterTool(
   field: string,
   value: string | number,
   status: ExtractedParameter["status"] = "CONFIRMED",
+  meta?: { valueOrigin?: ExtractedParameter["valueOrigin"]; confirmedByUser?: boolean },
 ): { session: ImportSession | null; trace: ImportToolTrace } {
   const session = repos.imports.getSession(sessionId);
   if (!session) return { session: null, trace: { tool: "confirmExtractedParameter", ok: false } };
@@ -158,6 +198,12 @@ export function confirmExtractedParameterTool(
   p.value = value;
   p.normalizedValue = value;
   p.status = status;
+  if (meta?.valueOrigin) p.valueOrigin = meta.valueOrigin;
+  if (meta?.confirmedByUser) {
+    p.confirmedByUser = true;
+    p.offerSystemDefault = false;
+    p.unitUnresolved = false;
+  }
   const saved = repos.imports.saveSession(session);
   return { session: saved, trace: { tool: "confirmExtractedParameter", ok: true, detail: field } };
 }
@@ -290,6 +336,8 @@ export function createScenarioFromImportTool(
     linkSuggested?: boolean;
     createTempProject?: boolean;
     tempName?: string;
+    ownerName?: string;
+    region?: string;
   },
 ): {
   session: ImportSession | null;
@@ -351,7 +399,7 @@ export function createScenarioFromImportTool(
       projectName: opts?.tempName || mapped.projectPatch.projectName || session.tempProjectName || "临时测算项目",
       customer: mapped.projectPatch.customer || "待补客户",
       region: mapped.projectPatch.region || "待定",
-      owner: mapped.projectPatch.owner || "未指定",
+      owner: opts?.ownerName || mapped.projectPatch.owner || "未指定",
       projectType: mapped.projectPatch.projectType || "临时测算",
       place: "",
       tractorDemand: null,
@@ -384,7 +432,7 @@ export function createScenarioFromImportTool(
     name: mapped.inputs.schemeName || "AI导入测算方案",
     status: "calculated",
     inputs: mapped.inputs,
-    notes: `来自导入会话 ${session.id}；mode=demo parser`,
+    notes: `来自导入会话 ${session.id}`,
     inputsSource: "user",
   });
 

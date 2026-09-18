@@ -36,6 +36,7 @@ import { excelExampleInput } from "../lib/engine/__tests__/fixture";
 import {
   addImportFilesTool,
   applyImportParamPatchesTool,
+  applyServerParseResultTool,
   confirmExtractedParameterTool,
   confirmInferredParameterTool,
   createImportSessionTool,
@@ -114,9 +115,10 @@ export type PmCalcBridge = {
     createSession: (partial?: Partial<ImportSession>) => ImportSession;
     getSession: (id: string) => ImportSession | null;
     listSessions: () => ImportSession[];
-    addFiles: (sessionId: string, files: { name: string; mimeType?: string; size?: number }[]) => ReturnType<typeof addImportFilesTool>;
+    addFiles: (sessionId: string, files: { id?: string; name: string; mimeType?: string; size?: number; parserMode?: "demo" | "real" }[]) => ReturnType<typeof addImportFilesTool>;
     loadDemoSamples: (sessionId: string) => ReturnType<typeof loadDemoSampleFilesTool>;
     parseFiles: (sessionId: string) => ReturnType<typeof parseImportFilesTool>;
+    applyServerParse: (sessionId: string, result: Parameters<typeof applyServerParseResultTool>[2]) => ReturnType<typeof applyServerParseResultTool>;
     retryFile: (sessionId: string, fileId: string) => ReturnType<typeof retryImportFileTool>;
     resolveConflict: (
       sessionId: string,
@@ -133,6 +135,8 @@ export type PmCalcBridge = {
       sessionId: string,
       field: string,
       value: string | number,
+      status?: "CONFIRMED" | "MANUAL",
+      meta?: { valueOrigin?: "DOCUMENT" | "INFERRED" | "MANUAL" | "SYSTEM_DEFAULT"; confirmedByUser?: boolean },
     ) => ReturnType<typeof confirmExtractedParameterTool>;
     previewSupplement: (sessionId: string, message: string) => { patches: ImportParamPatch[]; changes: { field: string; label: string; from: string; to: string; unit: string }[] };
     applySupplement: (sessionId: string, patches: ImportParamPatch[]) => ReturnType<typeof applyImportParamPatchesTool>;
@@ -299,12 +303,13 @@ export const PmCalc: PmCalcBridge = {
     addFiles: (sessionId, files) => addImportFilesTool(ensureRepos(), sessionId, files),
     loadDemoSamples: (sessionId) => loadDemoSampleFilesTool(ensureRepos(), sessionId),
     parseFiles: (sessionId) => parseImportFilesTool(ensureRepos(), sessionId),
+    applyServerParse: (sessionId, result) => applyServerParseResultTool(ensureRepos(), sessionId, result),
     retryFile: (sessionId, fileId) => retryImportFileTool(ensureRepos(), sessionId, fileId),
     resolveConflict: (sessionId, field, choice) => resolveConflictTool(ensureRepos(), sessionId, field, choice),
     confirmInferred: (sessionId, field, accept, manualValue) =>
       confirmInferredParameterTool(ensureRepos(), sessionId, field, accept, manualValue),
-    confirmParameter: (sessionId, field, value) =>
-      confirmExtractedParameterTool(ensureRepos(), sessionId, field, value),
+    confirmParameter: (sessionId, field, value, status, meta) =>
+      confirmExtractedParameterTool(ensureRepos(), sessionId, field, value, status, meta),
     previewSupplement: (sessionId, message) => {
       const session = ensureRepos().imports.getSession(sessionId);
       const patches = parseImportSupplementIntent(message);
