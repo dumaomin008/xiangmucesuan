@@ -32,6 +32,7 @@ export default defineConfig({
         HOST: "127.0.0.1",
         DOCUMENT_PARSER_MODE: "demo",
         DEMO_AI_API_KEY: "",
+        AI_API_KEY: "",
       },
     },
     {
@@ -45,6 +46,7 @@ export default defineConfig({
         HOST: "127.0.0.1",
         DOCUMENT_PARSER_MODE: "real",
         DEMO_AI_API_KEY: "",
+        AI_API_KEY: "",
       },
     },
   ],

@@ -306,6 +306,40 @@ export async function parseRealDocuments(
   return outcome;
 }
 
+/** 验收用：把已合并的候选物化成与正式导入相同的参数状态。 */
+export function parametersFromMergedItems(
+  files: { fileId: string; fileName: string }[],
+  items: ExtractItem[],
+  chunks: DocumentChunk[],
+): ExtractedParameter[] {
+  const chunkById = new Map(chunks.map((chunk) => [chunk.id, chunk]));
+  const batches: ParseFileResult[] = files.map((file) => {
+    const owned = new Set(chunks.filter((chunk) => chunk.fileId === file.fileId).map((chunk) => chunk.id));
+    const parameters: ExtractedParameter[] = [];
+    for (const item of items) {
+      if (!item.chunkId || !owned.has(item.chunkId)) continue;
+      const chunk = chunkById.get(item.chunkId);
+      const param = toParameter(item, chunk, file.fileId, file.fileName);
+      if (param) parameters.push(param);
+      if (item.freightPriceUnit) {
+        parameters.push({
+          field: "freightPriceUnit",
+          label: FIELD_LABELS.freightPriceUnit,
+          value: item.freightPriceUnit,
+          normalizedValue: item.freightPriceUnit,
+          status: "EXTRACTED",
+          sources: [sourceFrom(chunk, file.fileName, file.fileId, item.rawUnit)],
+          required: false,
+          group: "revenue",
+          valueOrigin: "DOCUMENT",
+        });
+      }
+    }
+    return { fileId: file.fileId, ok: true, mode: "real", parameters };
+  });
+  return offerDefaults(mergeExtractedParameters(batches));
+}
+
 /** 验收用：同一套规则 + 模型合并，输入为已分块的纯文本，不走文件解析。 */
 export async function parseTextDocuments(
   files: { fileId: string; fileName: string; text: string }[],

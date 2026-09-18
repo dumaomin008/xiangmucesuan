@@ -59,6 +59,21 @@ export function mergeRuleAndLlm(ruleItems: ExtractItem[], llmItems: ExtractItem[
       rejected.push("distanceKm:round-trip");
       continue;
     }
+    if (raw.field === "tripsPerVehicleMonth") {
+      const daily = /每(?:天|日)(?:[^0-9趟]{0,12})?(\d+(?:\.\d+)?)\s*趟/.exec(raw.evidenceText || "");
+      if (daily && Math.abs(Number(raw.normalizedValue) - Number(daily[1])) < 0.001) {
+        rejected.push("tripsPerVehicleMonth:daily-as-month");
+        continue;
+      }
+    }
+    if (!raw.valueRange && raw.evidenceText) {
+      const ranged = raw.evidenceText.match(/(\d+(?:\.\d+)?)\s*[~～]\s*(\d+(?:\.\d+)?)/);
+      const picked = Number(raw.normalizedValue);
+      if (ranged && (picked === Number(ranged[1]) || picked === Number(ranged[2]))) {
+        rejected.push(`${raw.field}:range-endpoint`);
+        continue;
+      }
+    }
     if (raw.valueRange && raw.normalizedValue != null && raw.normalizedValue !== "") {
       rejected.push(`${raw.field}:range-collapsed`);
       raw.normalizedValue = null;

@@ -46,6 +46,10 @@ export type ExtractResponse = {
   unresolved?: string[];
   degraded?: boolean;
   usage?: ExtractUsage;
+  /** 被 Schema / 白名单拒绝的字段，供验收统计，不进入候选 */
+  rejected?: string[];
+  /** 验收诊断。不得包含密钥。 */
+  debug?: { error?: string; preview?: string };
 };
 
 export interface AiDocumentExtractor {
@@ -72,12 +76,12 @@ function findExplicit(text: string, alias: string): { value: number; unit?: stri
 }
 
 function findString(text: string, alias: string): string | null {
-  const re = new RegExp(`${escapeReg(alias)}\\s*[:：]?\\s*([^\\n,，;；]{2,40})`);
+  const re = new RegExp(`${escapeReg(alias)}(?:\\s*[:：]\\s*|\\s+)([^\\n,，;；]{2,40})`);
   const matched = re.exec(text);
   const value = matched?.[1]?.trim();
   if (!value || /^-?\d+(?:\.\d+)?/.test(value)) return null;
   const cleaned = value.split(/\s{2,}/)[0]?.trim() || null;
-  if (!cleaned || /^(不变|同上|同前|待定|未知|暂无|见上|按之前|之前方案)/.test(cleaned)) return null;
+  if (!cleaned || /不变|之前方案|原计划|按之前|维持原|同前方案|同上|待定|未知|暂无/.test(cleaned)) return null;
   return cleaned;
 }
 
@@ -201,6 +205,10 @@ export function validateExtractItems(items: ExtractItem[], chunks: DocumentChunk
     }
     if (item.fact === "INFERRED" && (item.normalizedValue == null || item.normalizedValue === "")) {
       rejected.push(`${item.field}:empty-infer`);
+      continue;
+    }
+    if (typeof item.normalizedValue === "string" && /不变|之前方案|原计划|按原计划/.test(String(item.normalizedValue))) {
+      rejected.push(`${item.field}:non-value`);
       continue;
     }
     kept.push(item);

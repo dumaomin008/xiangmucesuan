@@ -700,9 +700,11 @@ function extractSemanticCandidates(chunks, allowed) {
     if (allowed.has("fleetSize")) {
       const fleetPatterns = [
         { re: /首批(?:计划)?(?:投入)?\s*(\d+(?:\.\d+)?)\s*(?:辆|台)/g, qualifier: "\u9996\u6279\u8BA1\u5212", timeContext: "current" },
-        { re: /(?:后续|而后)(?:根据货量)?(?:增加|扩充)至\s*(\d+(?:\.\d+)?)\s*(?:辆|台)/g, qualifier: "\u540E\u7EED\u89C4\u5212", timeContext: "planned" },
+        { re: /(?:后续|而后)[\s\S]{0,48}?(?:增加|扩充)至\s*(\d+(?:\.\d+)?)\s*(?:辆|台)/g, qualifier: "\u540E\u7EED\u89C4\u5212", timeContext: "planned" },
         { re: /规划(?:至|为|投入)?\s*(\d+(?:\.\d+)?)\s*(?:辆|台)/g, qualifier: "\u89C4\u5212", timeContext: "planned" },
-        { re: /最大可投入\s*(\d+(?:\.\d+)?)\s*(?:辆|台)/g, qualifier: "\u6700\u5927\u53EF\u6295\u5165", timeContext: "planned" }
+        { re: /最大可投入\s*(\d+(?:\.\d+)?)\s*(?:辆|台)/g, qualifier: "\u6700\u5927\u53EF\u6295\u5165", timeContext: "planned" },
+        { re: /计划投入\s*(\d+(?:\.\d+)?)\s*(?:辆|台)/g, qualifier: "\u8BA1\u5212\u6295\u5165", timeContext: "current" },
+        { re: /车辆配置调整为\s*(\d+(?:\.\d+)?)\s*(?:辆|台)/g, qualifier: "\u914D\u7F6E\u8C03\u6574", timeContext: "current" }
       ];
       for (const pattern of fleetPatterns) {
         for (const matched of text.matchAll(pattern.re)) {
@@ -756,15 +758,41 @@ function extractSemanticCandidates(chunks, allowed) {
         });
         if (item) pushUnique(items, item);
       }
-      for (const matched of text.matchAll(/往返(?:约|大约)?\s*(\d+(?:\.\d+)?)\s*(?:公里|km|千米)/g)) {
+      for (const matched of text.matchAll(/导航距离(?:约|大约)?\s*(\d+(?:\.\d+)?)\s*(?:公里|km|千米)?/g)) {
+        const evidence = sentenceOf(text, matched.index ?? 0);
+        const item = numericItem(chunk2, "distanceKm", Number(matched[1]), "\u516C\u91CC", evidence, {
+          qualifier: "\u5BFC\u822A",
+          reason: "\u5BFC\u822A\u8DDD\u79BB\u6309\u5355\u7A0B\u7406\u89E3\uFF0C\u5F80\u8FD4\u4E0D\u5199\u5165"
+        });
+        if (item) pushUnique(items, item);
+      }
+      for (const matched of text.matchAll(/建议按\s*(\d+(?:\.\d+)?)\s*(?:公里|km|千米)/g)) {
+        const evidence = sentenceOf(text, matched.index ?? 0);
+        if (/往返/.test(evidence)) continue;
+        const item = numericItem(chunk2, "distanceKm", Number(matched[1]), "\u516C\u91CC", evidence, {
+          qualifier: "\u4E1A\u52A1\u5EFA\u8BAE",
+          reason: "\u4E1A\u52A1\u5EFA\u8BAE\u91CC\u7A0B\uFF0C\u9700\u4E0E\u5BFC\u822A\u786E\u8BA4"
+        });
+        if (item) pushUnique(items, item);
+      }
+      for (const matched of text.matchAll(/线路(?:约|大约)?\s*(\d+(?:\.\d+)?)\s*(?:公里|km|千米)/g)) {
+        const evidence = sentenceOf(text, matched.index ?? 0);
+        if (/往返|不变|之前方案|原计划/.test(evidence)) continue;
+        const item = numericItem(chunk2, "distanceKm", Number(matched[1]), "\u516C\u91CC", evidence, {
+          qualifier: "\u7EBF\u8DEF",
+          reason: "\u672A\u6807\u660E\u5F80\u8FD4\u65F6\uFF0C\u7EBF\u8DEF\u516C\u91CC\u6570\u6309\u5355\u7A0B\u5019\u9009"
+        });
+        if (item) pushUnique(items, item);
+      }
+      for (const matched of text.matchAll(/往返(?:里程)?(?:约|大约)?\s*(\d+(?:\.\d+)?)\s*(?:公里|km|千米)/g)) {
         unresolved.push(`\u5F80\u8FD4${matched[1]}\u516C\u91CC\u4E0D\u5199\u5165\u5355\u7A0B\u91CC\u7A0B`);
       }
     }
     if (allowed.has("electricityPrice")) {
       const pricePatterns = [
-        { re: /谷(?:段|电)(?:约|大约)?\s*(\d+(?:\.\d+)?)\s*元/g, qualifier: "\u8C37\u7535" },
-        { re: /峰(?:段|电)(?:约|大约)?\s*(\d+(?:\.\d+)?)\s*元/g, qualifier: "\u5CF0\u7535" },
-        { re: /综合电价预计\s*(\d+(?:\.\d+)?)\s*元/g, qualifier: "\u7EFC\u5408\u9884\u8BA1" },
+        { re: /谷(?:段|电)[^。\n]{0,16}?(\d+(?:\.\d+)?)\s*元/g, qualifier: "\u8C37\u7535" },
+        { re: /峰(?:段|电)[^。\n]{0,16}?(\d+(?:\.\d+)?)\s*元/g, qualifier: "\u5CF0\u7535" },
+        { re: /综合电价(?:预计|暂按)[^。\n]{0,10}?(\d+(?:\.\d+)?)\s*元/g, qualifier: "\u7EFC\u5408\u9884\u8BA1" },
         { re: /电价调整为\s*(\d+(?:\.\d+)?)/g, qualifier: "\u8C03\u6574\u540E" }
       ];
       for (const pattern of pricePatterns) {
@@ -781,17 +809,22 @@ function extractSemanticCandidates(chunks, allowed) {
     }
     if (allowed.has("freightPrice")) {
       const freightPatterns = [
-        { re: /原合同按\s*(\d+(?:\.\d+)?)\s*元\s*\/\s*吨/g, qualifier: "\u539F\u5408\u540C", timeContext: "historical" },
+        { re: /原合同[^。\n]{0,24}?(\d+(?:\.\d+)?)\s*元\s*\/\s*吨/g, qualifier: "\u539F\u5408\u540C", timeContext: "historical" },
         { re: /暂按\s*(\d+(?:\.\d+)?)\s*元\s*\/\s*吨/g, qualifier: "\u5F53\u524D\u6682\u6309", timeContext: "current" },
         { re: /目标谈判价\s*(\d+(?:\.\d+)?)\s*元/g, qualifier: "\u76EE\u6807\u8C08\u5224\u4EF7", timeContext: "planned" }
       ];
       for (const pattern of freightPatterns) {
         for (const matched of text.matchAll(pattern.re)) {
-          const evidence = sentenceOf(text, matched.index ?? 0);
+          let evidence = sentenceOf(text, matched.index ?? 0);
+          const lineAt = text.indexOf("\n", matched.index ?? 0);
+          const nextLine = lineAt >= 0 ? text.slice(lineAt + 1).split(/[。\n]/)[0]?.trim() || "" : "";
+          if (nextLine && nextLine.length <= 40 && /审批|补充协议|尚未签署|未完成/.test(nextLine) && !evidence.includes(nextLine)) {
+            evidence = `${evidence} ${nextLine}`.trim();
+          }
           const item = numericItem(chunk2, "freightPrice", Number(matched[1]), "\u5143/\u5428", evidence, {
             qualifier: pattern.qualifier,
             timeContext: pattern.timeContext,
-            reason: "\u8FD0\u4EF7\u5B58\u5728\u5386\u53F2/\u5F53\u524D/\u76EE\u6807\u53E3\u5F84\uFF0C\u4E0D\u5F97\u9759\u9ED8\u8986\u76D6"
+            reason: /口头确认|补充协议|审批/.test(text) ? "\u53E3\u5934\u786E\u8BA4\u6216\u534F\u8BAE\u5C1A\u672A\u5B8C\u6210\uFF0C\u6682\u5B9A\u8FD0\u4EF7\u4E0D\u5F97\u9759\u9ED8\u5F53\u4F5C\u6B63\u5F0F\u4EF7" : "\u8FD0\u4EF7\u5B58\u5728\u5386\u53F2/\u5F53\u524D/\u76EE\u6807\u53E3\u5F84\uFF0C\u4E0D\u5F97\u9759\u9ED8\u8986\u76D6"
           });
           if (item) pushUnique(items, item);
         }
@@ -806,7 +839,15 @@ function extractSemanticCandidates(chunks, allowed) {
         });
         if (item) pushUnique(items, item);
       }
-      for (const matched of text.matchAll(/不含税(?:价格|报价)?\s*(\d+(?:\.\d+)?)\s*元/g)) {
+      for (const matched of text.matchAll(/(\d+(?:\.\d+)?)\s*元\/车\/月\s*[（(]\s*含税/g)) {
+        const evidence = sentenceOf(text, matched.index ?? 0);
+        const item = numericItem(chunk2, "monthlyRentPerVehicle", Number(matched[1]), "\u5143/\u8F66/\u6708", evidence, {
+          qualifier: "\u542B\u7A0E",
+          reason: "\u542B\u7A0E\u4E0E\u672A\u7A0E\u5E76\u5B58\uFF0C\u65E0\u89C4\u5219\u65F6\u4E0D\u5F97\u4EE3\u9009"
+        });
+        if (item) pushUnique(items, item);
+      }
+      for (const matched of text.matchAll(/(?:不含税|未税)(?:价格|报价)?(?:约|大约)?\s*(\d+(?:\.\d+)?)\s*元/g)) {
         const evidence = sentenceOf(text, matched.index ?? 0);
         const item = numericItem(chunk2, "monthlyRentPerVehicle", Number(matched[1]), "\u5143/\u8F66/\u6708", evidence, {
           qualifier: "\u672A\u7A0E",
@@ -816,7 +857,7 @@ function extractSemanticCandidates(chunks, allowed) {
       }
     }
     if (allowed.has("loadTon")) {
-      for (const matched of text.matchAll(/通常(?:装|载重|装载)?\s*(\d+(?:\.\d+)?)\s*吨/g)) {
+      for (const matched of text.matchAll(/通常[^吨。\n]{0,12}?(\d+(?:\.\d+)?)\s*吨/g)) {
         const evidence = sentenceOf(text, matched.index ?? 0);
         const item = numericItem(chunk2, "loadTon", Number(matched[1]), "\u5428", evidence, {
           qualifier: "\u901A\u5E38",
@@ -825,18 +866,18 @@ function extractSemanticCandidates(chunks, allowed) {
         });
         if (item) pushUnique(items, item);
       }
-      for (const matched of text.matchAll(/极端(?:情况下)?(?:可以|可)?(?:到|达)\s*(\d+(?:\.\d+)?)\s*吨/g)) {
+      for (const matched of text.matchAll(/(?:极端|极限|最大)[^吨。\n]{0,16}?(\d+(?:\.\d+)?)\s*吨/g)) {
         const evidence = sentenceOf(text, matched.index ?? 0);
         const item = numericItem(chunk2, "loadTon", Number(matched[1]), "\u5428", evidence, {
-          qualifier: "\u6781\u7AEF",
-          reason: "\u6781\u7AEF\u8F7D\u91CD\u4EC5\u4F5C\u5019\u9009"
+          qualifier: matched[0].startsWith("\u6781\u7AEF") ? "\u6781\u7AEF" : "\u6781\u9650",
+          reason: "\u6781\u9650\u8F7D\u91CD\u4EC5\u4F5C\u5019\u9009\uFF0C\u4E0D\u5F97\u8986\u76D6\u901A\u5E38\u503C"
         });
         if (item) pushUnique(items, item);
       }
     }
     if (allowed.has("tripsPerVehicleMonth")) {
-      const daily = /每(?:天|日)\s*(\d+(?:\.\d+)?)\s*趟/.exec(text);
-      const days = /每月(?:预计)?运营\s*(\d+(?:\.\d+)?)\s*天/.exec(text);
+      const daily = /每(?:天|日)(?:[^0-9趟\n]{0,12})?(\d+(?:\.\d+)?)\s*趟/.exec(text);
+      const days = /每月(?:预计|实际)?运营\s*(\d+(?:\.\d+)?)\s*天/.exec(text);
       if (daily && days) {
         const perDay = Number(daily[1]);
         const operateDays = Number(days[1]);
@@ -872,12 +913,12 @@ function findExplicit(text, alias) {
   return { value, unit: unit || void 0 };
 }
 function findString(text, alias) {
-  const re = new RegExp(`${escapeReg(alias)}\\s*[:\uFF1A]?\\s*([^\\n,\uFF0C;\uFF1B]{2,40})`);
+  const re = new RegExp(`${escapeReg(alias)}(?:\\s*[:\uFF1A]\\s*|\\s+)([^\\n,\uFF0C;\uFF1B]{2,40})`);
   const matched = re.exec(text);
   const value = matched?.[1]?.trim();
   if (!value || /^-?\d+(?:\.\d+)?/.test(value)) return null;
   const cleaned = value.split(/\s{2,}/)[0]?.trim() || null;
-  if (!cleaned || /^(不变|同上|同前|待定|未知|暂无|见上|按之前|之前方案)/.test(cleaned)) return null;
+  if (!cleaned || /不变|之前方案|原计划|按之前|维持原|同前方案|同上|待定|未知|暂无/.test(cleaned)) return null;
   return cleaned;
 }
 var DeterministicContentExtractor = class {
@@ -995,6 +1036,10 @@ function validateExtractItems(items, chunks) {
       rejected.push(`${item.field}:empty-infer`);
       continue;
     }
+    if (typeof item.normalizedValue === "string" && /不变|之前方案|原计划|按原计划/.test(String(item.normalizedValue))) {
+      rejected.push(`${item.field}:non-value`);
+      continue;
+    }
     kept.push(item);
   }
   return { items: kept, rejected };
@@ -1041,11 +1086,14 @@ var DOCUMENT_EXTRACT_SYSTEM_PROMPT = [
   "11. \u8F93\u51FA JSON\u3002"
 ].join("\n");
 var MAX_CHUNKS = 6;
-var MAX_TOKENS = 1800;
+var MAX_TOKENS = 8192;
 var TIMEOUT_MS = 25e3;
 var RETRIES = 1;
 function emptyUsage() {
   return { promptTokens: 0, completionTokens: 0, totalTokens: 0, requests: 0, failures: 0 };
+}
+function redactSecrets(text) {
+  return text.replace(/Bearer\s+\S+/gi, "Bearer [redacted]").replace(/sk-[A-Za-z0-9_\-]{8,}/g, "[redacted]");
 }
 function buildSystem(fields) {
   return [
@@ -1055,6 +1103,7 @@ function buildSystem(fields) {
     "\u6BCF\u4E2A\u5019\u9009\u5FC5\u987B\u5E26 chunkId \u4E0E evidenceText\uFF0CevidenceText \u5FC5\u987B\u662F\u8D44\u6599\u539F\u6587\u7247\u6BB5\u3002",
     "\u533A\u95F4\u4F7F\u7528 valueRange\uFF0C\u4E14 value \u7F6E\u4E3A null\u3002",
     "\u5F80\u8FD4\u91CC\u7A0B\u4E0D\u5F97\u5199\u5165 distanceKm\u3002",
+    "fact \u53EA\u80FD\u662F EXPLICIT\u3001INFERRED\u3001NOT_FOUND \u4E09\u4E2A\u82F1\u6587\u8BCD\uFF0C\u4E0D\u8981\u628A\u539F\u6587\u5199\u8FDB fact\u3002\u672A\u51FA\u73B0\u7684\u5B57\u6BB5\u4E0D\u8981\u8F93\u51FA\u3002",
     '\u53EA\u8F93\u51FA JSON\uFF1A{"items":[{"field","fact","rawValue","value","rawUnit","unit","chunkId","evidenceText","confidence","reason","qualifier","valueRange","timeContext"}],"unresolved":[]}'
   ].join("\n");
 }
@@ -1067,34 +1116,56 @@ function parseModelJson(text) {
   if (start < 0 || end <= start) throw new Error("AI_INVALID_JSON");
   return JSON.parse(body.slice(start, end + 1));
 }
-function asFact(value) {
-  return value === "EXPLICIT" || value === "INFERRED" || value === "NOT_FOUND" ? value : null;
+function asFact(value, row) {
+  if (value === "EXPLICIT" || value === "INFERRED" || value === "NOT_FOUND") return value;
+  const hint = `${typeof value === "string" ? value : ""} ${typeof row.reason === "string" ? row.reason : ""}`;
+  if (/推断|换算|推算/.test(hint)) return "INFERRED";
+  if (row.value != null || row.rawValue != null || row.valueRange) return "EXPLICIT";
+  return null;
+}
+function firstNumber(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
+  const matched = value.replace(/,/g, "").match(/-?\d+(?:\.\d+)?/);
+  return matched ? Number(matched[0]) : null;
+}
+function canonicalFreightUnit(value) {
+  if (value === "PER_TON" || value === "PER_TRIP" || value === "PER_TON_KM") return value;
+  const text = String(value || "");
+  if (/吨公里|吨·公里/.test(text)) return "PER_TON_KM";
+  if (/趟/.test(text)) return "PER_TRIP";
+  if (/吨/.test(text)) return "PER_TON";
+  return null;
 }
 function coerceExtractItem(raw) {
   if (!raw || typeof raw !== "object") return null;
   const row = raw;
   const field = typeof row.field === "string" ? row.field.trim() : "";
   if (!field || isBlockedField(field)) return null;
-  const fact = asFact(row.fact);
+  const fact = asFact(row.fact, row);
   if (!fact || fact === "NOT_FOUND") return null;
   const rangeRaw = row.valueRange;
   const min = Number(rangeRaw?.min);
   const max = Number(rangeRaw?.max);
   const valueRange = Number.isFinite(min) && Number.isFinite(max) && max > min ? { min, max } : void 0;
+  const def = REGISTRY_BY_FIELD.get(field);
   const rawValue = row.rawValue ?? row.value ?? null;
-  const numeric2 = typeof rawValue === "number" ? rawValue : typeof rawValue === "string" && rawValue.trim() && !valueRange ? Number(rawValue) : null;
+  const freightUnit = field === "freightPriceUnit" ? canonicalFreightUnit(rawValue) : null;
+  if (field === "freightPriceUnit" && !freightUnit) return null;
+  const parsed = def?.dataType === "number" ? firstNumber(rawValue) : null;
+  if (def?.dataType === "number" && !valueRange && parsed == null) return null;
   const time = row.timeContext;
   const timeContext = time === "current" || time === "historical" || time === "planned" || time === "unknown" ? time : void 0;
   return {
     field,
     fact,
-    rawValue: valueRange ? `${valueRange.min}~${valueRange.max}` : rawValue,
+    rawValue: valueRange ? `${valueRange.min}~${valueRange.max}` : freightUnit || (parsed ?? rawValue),
     rawUnit: typeof row.rawUnit === "string" ? row.rawUnit : typeof row.unit === "string" ? row.unit : void 0,
-    normalizedValue: valueRange ? null : Number.isFinite(numeric2) ? numeric2 : rawValue,
+    normalizedValue: valueRange ? null : freightUnit || (parsed ?? rawValue),
     unit: typeof row.unit === "string" ? row.unit : void 0,
     chunkId: typeof row.chunkId === "string" ? row.chunkId : void 0,
     evidenceText: typeof row.evidenceText === "string" ? row.evidenceText : void 0,
-    confidence: typeof row.confidence === "number" ? Math.min(1, Math.max(0, row.confidence)) : void 0,
+    confidence: typeof row.confidence === "number" ? Math.min(1, Math.max(0, row.confidence)) : typeof row.confidence === "string" ? void 0 : void 0,
     reason: typeof row.reason === "string" ? row.reason : void 0,
     qualifier: typeof row.qualifier === "string" ? row.qualifier : void 0,
     valueRange,
@@ -1160,6 +1231,9 @@ var DeepSeekDocumentExtractor = class {
       return true;
     });
     let failures = 0;
+    const rejected = [];
+    let debugError = "";
+    let preview = "";
     for (const batch of batchChunks(unique, { maxChunks: MAX_CHUNKS })) {
       this.usage.requests += 1;
       const user = JSON.stringify({
@@ -1184,20 +1258,28 @@ var DeepSeekDocumentExtractor = class {
         );
         addUsage(this.usage, data.usage);
         const text = data.choices?.[0]?.message?.content || "";
+        preview = redactSecrets(text).slice(0, 500);
         if (!text.trim()) {
           failures += 1;
+          debugError = "AI_EMPTY_CONTENT";
           continue;
         }
         const parsed = parseModelJson(text);
         for (const row of parsed.items || []) {
           const item = coerceExtractItem(row);
-          if (item) items.push(item);
+          if (item) {
+            items.push(item);
+            continue;
+          }
+          const field = row && typeof row === "object" && typeof row.field === "string" ? row.field.trim() : "";
+          if (field && isBlockedField(field)) rejected.push(`${field}:blocked`);
         }
         for (const note of parsed.unresolved || []) {
           if (typeof note === "string" && note.trim()) unresolved.push(note.slice(0, 200));
         }
-      } catch {
+      } catch (error) {
         failures += 1;
+        debugError = redactSecrets(error instanceof Error ? error.message : "AI_UPSTREAM_FAILED");
       }
     }
     this.usage.failures += failures;
@@ -1206,7 +1288,9 @@ var DeepSeekDocumentExtractor = class {
       items: checked.items,
       unresolved,
       degraded: failures > 0,
-      usage: { ...this.usage }
+      usage: { ...this.usage },
+      rejected: [...rejected, ...checked.rejected],
+      debug: { error: debugError || void 0, preview: preview || void 0 }
     };
   }
 };
@@ -1266,6 +1350,21 @@ function mergeRuleAndLlm(ruleItems, llmItems, chunks) {
     if (raw.field === "distanceKm" && roundTrip && !oneWay) {
       rejected.push("distanceKm:round-trip");
       continue;
+    }
+    if (raw.field === "tripsPerVehicleMonth") {
+      const daily = /每(?:天|日)(?:[^0-9趟]{0,12})?(\d+(?:\.\d+)?)\s*趟/.exec(raw.evidenceText || "");
+      if (daily && Math.abs(Number(raw.normalizedValue) - Number(daily[1])) < 1e-3) {
+        rejected.push("tripsPerVehicleMonth:daily-as-month");
+        continue;
+      }
+    }
+    if (!raw.valueRange && raw.evidenceText) {
+      const ranged = raw.evidenceText.match(/(\d+(?:\.\d+)?)\s*[~～]\s*(\d+(?:\.\d+)?)/);
+      const picked = Number(raw.normalizedValue);
+      if (ranged && (picked === Number(ranged[1]) || picked === Number(ranged[2]))) {
+        rejected.push(`${raw.field}:range-endpoint`);
+        continue;
+      }
     }
     if (raw.valueRange && raw.normalizedValue != null && raw.normalizedValue !== "") {
       rejected.push(`${raw.field}:range-collapsed`);

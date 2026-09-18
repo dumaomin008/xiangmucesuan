@@ -691,7 +691,7 @@
   async function tryRemoteIntent(projectId, scenarioId, message) {
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 8000);
+      const timer = setTimeout(() => controller.abort(), 45000);
       const res = await fetch("/api/demo-ai/intent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -786,7 +786,7 @@
         localInsight: { ...localInsight, summary: localReply },
       });
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 8000);
+      const timer = setTimeout(() => controller.abort(), 45000);
       const res = await fetch("/api/demo-ai/explain", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -838,7 +838,7 @@
         localInsight: insight,
       });
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 8000);
+      const timer = setTimeout(() => controller.abort(), 45000);
       const res = await fetch("/api/demo-ai/explain", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

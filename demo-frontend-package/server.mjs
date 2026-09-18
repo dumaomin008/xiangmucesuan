@@ -280,6 +280,7 @@ async function callChatCompletions({ system, user, temperature = 0.2 }) {
       body: JSON.stringify({
         model,
         temperature,
+        thinking: { type: 'disabled' },
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: user }

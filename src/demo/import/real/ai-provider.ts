@@ -14,7 +14,8 @@ import {
   type ExtractResponse,
   type LlmConfig,
 } from "./extractor";
-import { isBlockedField } from "./registry";
+import { isBlockedField, REGISTRY_BY_FIELD } from "./registry";
+import type { ImportFieldKey } from "../types";
 
 export const DOCUMENT_EXTRACT_SYSTEM_PROMPT = [
   "你是新能源重卡项目测算资料字段提取器。",
@@ -47,7 +48,7 @@ type ChatResponse = {
 };
 
 const MAX_CHUNKS = 6;
-const MAX_TOKENS = 1800;
+const MAX_TOKENS = 8192;
 const TIMEOUT_MS = 25_000;
 const RETRIES = 1;
 
@@ -67,6 +68,7 @@ function buildSystem(fields: string): string {
     "每个候选必须带 chunkId 与 evidenceText，evidenceText 必须是资料原文片段。",
     "区间使用 valueRange，且 value 置为 null。",
     "往返里程不得写入 distanceKm。",
+    'fact 只能是 EXPLICIT、INFERRED、NOT_FOUND 三个英文词，不要把原文写进 fact。未出现的字段不要输出。',
     '只输出 JSON：{"items":[{"field","fact","rawValue","value","rawUnit","unit","chunkId","evidenceText","confidence","reason","qualifier","valueRange","timeContext"}],"unresolved":[]}',
   ].join("\n");
 }
@@ -81,8 +83,28 @@ export function parseModelJson(text: string): { items?: unknown[]; unresolved?: 
   return JSON.parse(body.slice(start, end + 1)) as { items?: unknown[]; unresolved?: unknown[] };
 }
 
-function asFact(value: unknown): ExtractFact | null {
-  return value === "EXPLICIT" || value === "INFERRED" || value === "NOT_FOUND" ? value : null;
+function asFact(value: unknown, row: Record<string, unknown>): ExtractFact | null {
+  if (value === "EXPLICIT" || value === "INFERRED" || value === "NOT_FOUND") return value;
+  const hint = `${typeof value === "string" ? value : ""} ${typeof row.reason === "string" ? row.reason : ""}`;
+  if (/推断|换算|推算/.test(hint)) return "INFERRED";
+  if (row.value != null || row.rawValue != null || row.valueRange) return "EXPLICIT";
+  return null;
+}
+
+function firstNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return null;
+  const matched = value.replace(/,/g, "").match(/-?\d+(?:\.\d+)?/);
+  return matched ? Number(matched[0]) : null;
+}
+
+function canonicalFreightUnit(value: unknown): "PER_TON" | "PER_TRIP" | "PER_TON_KM" | null {
+  if (value === "PER_TON" || value === "PER_TRIP" || value === "PER_TON_KM") return value;
+  const text = String(value || "");
+  if (/吨公里|吨·公里/.test(text)) return "PER_TON_KM";
+  if (/趟/.test(text)) return "PER_TRIP";
+  if (/吨/.test(text)) return "PER_TON";
+  return null;
 }
 
 export function coerceExtractItem(raw: unknown): ExtractItem | null {
@@ -90,26 +112,30 @@ export function coerceExtractItem(raw: unknown): ExtractItem | null {
   const row = raw as Record<string, unknown>;
   const field = typeof row.field === "string" ? row.field.trim() : "";
   if (!field || isBlockedField(field)) return null;
-  const fact = asFact(row.fact);
+  const fact = asFact(row.fact, row);
   if (!fact || fact === "NOT_FOUND") return null;
   const rangeRaw = row.valueRange as { min?: unknown; max?: unknown } | undefined;
   const min = Number(rangeRaw?.min);
   const max = Number(rangeRaw?.max);
   const valueRange = Number.isFinite(min) && Number.isFinite(max) && max > min ? { min, max } : undefined;
+  const def = REGISTRY_BY_FIELD.get(field as ImportFieldKey);
   const rawValue = row.rawValue ?? row.value ?? null;
-  const numeric = typeof rawValue === "number" ? rawValue : typeof rawValue === "string" && rawValue.trim() && !valueRange ? Number(rawValue) : null;
+  const freightUnit = field === "freightPriceUnit" ? canonicalFreightUnit(rawValue) : null;
+  if (field === "freightPriceUnit" && !freightUnit) return null;
+  const parsed = def?.dataType === "number" ? firstNumber(rawValue) : null;
+  if (def?.dataType === "number" && !valueRange && parsed == null) return null;
   const time = row.timeContext;
   const timeContext = time === "current" || time === "historical" || time === "planned" || time === "unknown" ? time : undefined;
   return {
     field,
     fact,
-    rawValue: valueRange ? `${valueRange.min}~${valueRange.max}` : rawValue as string | number | null,
+    rawValue: valueRange ? `${valueRange.min}~${valueRange.max}` : freightUnit || (parsed ?? (rawValue as string | number | null)),
     rawUnit: typeof row.rawUnit === "string" ? row.rawUnit : typeof row.unit === "string" ? row.unit : undefined,
-    normalizedValue: valueRange ? null : Number.isFinite(numeric as number) ? (numeric as number) : rawValue as string | number | null,
+    normalizedValue: valueRange ? null : freightUnit || (parsed ?? (rawValue as string | number | null)),
     unit: typeof row.unit === "string" ? row.unit : undefined,
     chunkId: typeof row.chunkId === "string" ? row.chunkId : undefined,
     evidenceText: typeof row.evidenceText === "string" ? row.evidenceText : undefined,
-    confidence: typeof row.confidence === "number" ? Math.min(1, Math.max(0, row.confidence)) : undefined,
+    confidence: typeof row.confidence === "number" ? Math.min(1, Math.max(0, row.confidence)) : typeof row.confidence === "string" ? undefined : undefined,
     reason: typeof row.reason === "string" ? row.reason : undefined,
     qualifier: typeof row.qualifier === "string" ? row.qualifier : undefined,
     valueRange,
@@ -185,6 +211,9 @@ export class DeepSeekDocumentExtractor implements AiDocumentExtractor {
       return true;
     });
     let failures = 0;
+    const rejected: string[] = [];
+    let debugError = "";
+    let preview = "";
 
     for (const batch of batchChunks(unique, { maxChunks: MAX_CHUNKS })) {
       this.usage.requests += 1;
@@ -210,20 +239,30 @@ export class DeepSeekDocumentExtractor implements AiDocumentExtractor {
         );
         addUsage(this.usage, data.usage);
         const text = data.choices?.[0]?.message?.content || "";
+        preview = redactSecrets(text).slice(0, 500);
         if (!text.trim()) {
           failures += 1;
+          debugError = "AI_EMPTY_CONTENT";
           continue;
         }
         const parsed = parseModelJson(text);
         for (const row of parsed.items || []) {
           const item = coerceExtractItem(row);
-          if (item) items.push(item);
+          if (item) {
+            items.push(item);
+            continue;
+          }
+          const field = row && typeof row === "object" && typeof (row as { field?: unknown }).field === "string"
+            ? (row as { field: string }).field.trim()
+            : "";
+          if (field && isBlockedField(field)) rejected.push(`${field}:blocked`);
         }
         for (const note of parsed.unresolved || []) {
           if (typeof note === "string" && note.trim()) unresolved.push(note.slice(0, 200));
         }
-      } catch {
+      } catch (error) {
         failures += 1;
+        debugError = redactSecrets(error instanceof Error ? error.message : "AI_UPSTREAM_FAILED");
       }
     }
 
@@ -234,6 +273,8 @@ export class DeepSeekDocumentExtractor implements AiDocumentExtractor {
       unresolved,
       degraded: failures > 0,
       usage: { ...this.usage },
+      rejected: [...rejected, ...checked.rejected],
+      debug: { error: debugError || undefined, preview: preview || undefined },
     };
   }
 }
