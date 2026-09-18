@@ -33,6 +33,25 @@ import {
 } from "./ai/assistant";
 import { validateLlmIntent } from "./ai/llm-intent";
 import { excelExampleInput } from "../lib/engine/__tests__/fixture";
+import {
+  addImportFilesTool,
+  applyImportParamPatchesTool,
+  confirmExtractedParameterTool,
+  confirmInferredParameterTool,
+  createImportSessionTool,
+  createScenarioFromImportTool,
+  getImportSummaryTool,
+  loadDemoSampleFilesTool,
+  parseImportFilesTool,
+  previewImportParamPatches,
+  resolveConflictTool,
+  retryImportFileTool,
+  DEMO_IMPORT_SAMPLE_FILES,
+  type ImportParamPatch,
+} from "./import/tools";
+import { parseImportSupplementIntent } from "./import/supplement";
+import { canStartCalculation } from "./import/map-to-input";
+import type { ImportSession } from "./import/types";
 
 export type PmCalcBridge = {
   engineVersion: string;
@@ -78,7 +97,6 @@ export type PmCalcBridge = {
     question?: string;
   }) => DemoAiInsight;
   buildAiPayload: typeof buildAiPayload;
-  /** AI 项目测算助手：自然语言 → 工具调用 → 真实引擎 */
   runAssistant: (params: {
     projectId: string;
     scenarioId: string;
@@ -90,8 +108,42 @@ export type PmCalcBridge = {
   confirmAssistantAction: (session: AssistantSession) => AssistantTurnResult;
   createAssistantSession: typeof createAssistantSession;
   assistantShortcuts: typeof ASSISTANT_SHORTCUTS;
-  /** 校验 LLM 结构化意图；含 KPI 字段则返回 null */
   validateLlmIntent: typeof import("./ai/llm-intent").validateLlmIntent;
+  /** V2 AI 资料导入 */
+  importApi: {
+    createSession: (partial?: Partial<ImportSession>) => ImportSession;
+    getSession: (id: string) => ImportSession | null;
+    listSessions: () => ImportSession[];
+    addFiles: (sessionId: string, files: { name: string; mimeType?: string; size?: number }[]) => ReturnType<typeof addImportFilesTool>;
+    loadDemoSamples: (sessionId: string) => ReturnType<typeof loadDemoSampleFilesTool>;
+    parseFiles: (sessionId: string) => ReturnType<typeof parseImportFilesTool>;
+    retryFile: (sessionId: string, fileId: string) => ReturnType<typeof retryImportFileTool>;
+    resolveConflict: (
+      sessionId: string,
+      field: string,
+      choice: { alternativeIndex?: number; manualValue?: string | number },
+    ) => ReturnType<typeof resolveConflictTool>;
+    confirmInferred: (
+      sessionId: string,
+      field: string,
+      accept: boolean,
+      manualValue?: string | number,
+    ) => ReturnType<typeof confirmInferredParameterTool>;
+    confirmParameter: (
+      sessionId: string,
+      field: string,
+      value: string | number,
+    ) => ReturnType<typeof confirmExtractedParameterTool>;
+    previewSupplement: (sessionId: string, message: string) => { patches: ImportParamPatch[]; changes: { field: string; label: string; from: string; to: string; unit: string }[] };
+    applySupplement: (sessionId: string, patches: ImportParamPatch[]) => ReturnType<typeof applyImportParamPatchesTool>;
+    summarize: (sessionId: string) => ReturnType<typeof getImportSummaryTool> | null;
+    canStart: (sessionId: string) => { ok: boolean; reasons: string[] };
+    createScenario: (
+      sessionId: string,
+      opts?: Parameters<typeof createScenarioFromImportTool>[2],
+    ) => ReturnType<typeof createScenarioFromImportTool>;
+    demoSampleFiles: typeof DEMO_IMPORT_SAMPLE_FILES;
+  };
 };
 
 let repos: DemoRepositories | null = null;
@@ -192,6 +244,7 @@ export const PmCalc: PmCalcBridge = {
     demo.projects.clear();
     demo.scenarios.clear();
     demo.parameters.clear();
+    demo.imports.clear();
     repos = createDemoRepositories({
       storage: demo.storage,
       seedIfEmpty: true,
@@ -239,6 +292,39 @@ export const PmCalc: PmCalcBridge = {
   createAssistantSession,
   assistantShortcuts: ASSISTANT_SHORTCUTS,
   validateLlmIntent,
+  importApi: {
+    createSession: (partial) => createImportSessionTool(ensureRepos(), partial).session,
+    getSession: (id) => ensureRepos().imports.getSession(id),
+    listSessions: () => ensureRepos().imports.listSessions(),
+    addFiles: (sessionId, files) => addImportFilesTool(ensureRepos(), sessionId, files),
+    loadDemoSamples: (sessionId) => loadDemoSampleFilesTool(ensureRepos(), sessionId),
+    parseFiles: (sessionId) => parseImportFilesTool(ensureRepos(), sessionId),
+    retryFile: (sessionId, fileId) => retryImportFileTool(ensureRepos(), sessionId, fileId),
+    resolveConflict: (sessionId, field, choice) => resolveConflictTool(ensureRepos(), sessionId, field, choice),
+    confirmInferred: (sessionId, field, accept, manualValue) =>
+      confirmInferredParameterTool(ensureRepos(), sessionId, field, accept, manualValue),
+    confirmParameter: (sessionId, field, value) =>
+      confirmExtractedParameterTool(ensureRepos(), sessionId, field, value),
+    previewSupplement: (sessionId, message) => {
+      const session = ensureRepos().imports.getSession(sessionId);
+      const patches = parseImportSupplementIntent(message);
+      if (!session) return { patches, changes: [] };
+      return { patches, changes: previewImportParamPatches(session, patches).changes };
+    },
+    applySupplement: (sessionId, patches) => applyImportParamPatchesTool(ensureRepos(), sessionId, patches),
+    summarize: (sessionId) => {
+      const session = ensureRepos().imports.getSession(sessionId);
+      if (!session) return null;
+      return getImportSummaryTool(session);
+    },
+    canStart: (sessionId) => {
+      const session = ensureRepos().imports.getSession(sessionId);
+      if (!session) return { ok: false, reasons: ["会话不存在"] };
+      return canStartCalculation(session.parameters);
+    },
+    createScenario: (sessionId, opts) => createScenarioFromImportTool(ensureRepos(), sessionId, opts),
+    demoSampleFiles: DEMO_IMPORT_SAMPLE_FILES,
+  },
 };
 
 declare global {

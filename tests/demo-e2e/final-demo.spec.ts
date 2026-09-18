@@ -225,4 +225,61 @@ test.describe("终审 Demo 主链路", () => {
     await expect(page.locator("#app")).not.toHaveText(/Infinity/);
     await expect(page.locator("#calc-field-error")).toContainText(/有效数字|不能为空|运价/);
   });
+
+  test("V2 AI导入资料：新建测算→演示资料→解析→冲突/补参确认→引擎测算", async ({ page }) => {
+    await loginAsSales(page);
+    await page.goto("/#/calculation");
+    await expect(page.locator("h1", { hasText: "项目测算中心" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /新建测算/ })).toBeVisible();
+    await expect(page.locator(".calc-center-metrics")).toContainText("测算项目");
+    await expect(page.locator(".calc-center-metrics")).not.toContainText("存储方式");
+
+    await page.locator("#calc-center-ai-import").first().click();
+    await expect(page).toHaveURL(/#\/calculation\/import/);
+    await expect(page.locator(".calc-import-page")).toContainText(/AI 导入|导入资料/);
+    await page.locator("#calc-import-demo").click();
+    await expect(page.locator("#calc-import-files")).toContainText("项目运输需求");
+    await page.locator("#calc-import-parse").click();
+    await expect(page.locator("[data-import-review]")).toBeVisible({ timeout: 15000 });
+    await expect(page.locator("body")).toContainText(/冲突|缺失|AI推断/);
+
+    // 处理所有冲突
+    while ((await page.locator("[data-resolve-conflict]").count()) > 0) {
+      const btn = page.locator("[data-resolve-conflict]").first();
+      const field = await btn.getAttribute("data-resolve-conflict");
+      await page.locator(`input[name="conflict-${field}"]`).first().check();
+      await btn.click();
+      await expect(page.locator(`[data-resolve-conflict="${field}"]`)).toHaveCount(0, { timeout: 10000 });
+    }
+
+    // 确认所有推断
+    while ((await page.locator("[data-confirm-infer]").count()) > 0) {
+      await page.locator("[data-confirm-infer]").first().click();
+      await page.waitForTimeout(200);
+    }
+
+    // AI 补参
+    await page.locator("#calc-import-ask").fill("月租9800，重载能耗1.45，司机单趟120");
+    await page.locator("#calc-import-ask-send").click();
+    await expect(page.locator("#calc-import-pending")).toBeVisible();
+    await page.locator("#calc-import-apply-sup").click();
+    await expect(page.locator("#calc-import-pending")).toBeHidden({ timeout: 10000 }).catch(() => null);
+
+    // 若仍有缺失，逐项手填
+    for (const field of ["monthlyRentPerVehicle", "loadedEnergyConsumption", "driverCostPerTrip"]) {
+      const save = page.locator(`[data-manual-save="${field}"]`);
+      if (await save.count()) {
+        const defaults = { monthlyRentPerVehicle: "9800", loadedEnergyConsumption: "1.45", driverCostPerTrip: "120" };
+        await page.locator(`[data-manual-field="${field}"]`).fill(defaults[field]);
+        await save.click();
+      }
+    }
+
+    await expect(page.locator("#calc-import-gate")).toContainText(/已就绪|可开始/, { timeout: 10000 });
+    await expect(page.locator("#calc-import-start")).toBeEnabled({ timeout: 10000 });
+    await page.locator("#calc-import-start").click();
+    await expect(page.locator(".calc-result-metrics")).toBeVisible({ timeout: 20000 });
+    await expect(page.locator("#app")).not.toHaveText(/NaN|Infinity/);
+    await expect(page.locator(".calc-ai-panel")).toContainText("AI 项目测算助手");
+  });
 });

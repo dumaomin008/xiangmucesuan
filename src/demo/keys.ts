@@ -4,6 +4,7 @@ export const DEMO_STORAGE_KEYS = {
   scenarios: "pm_demo_calc_scenarios",
   drafts: "pm_demo_calc_drafts",
   preferences: "pm_demo_calc_preferences",
+  imports: "pm_demo_calc_imports",
 } as const;
 
 export type DemoStorageKey = (typeof DEMO_STORAGE_KEYS)[keyof typeof DEMO_STORAGE_KEYS];

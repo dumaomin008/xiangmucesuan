@@ -207,6 +207,18 @@
     return `<button type="button" class="btn" id="calc-reset-seed" title="清除本机测算 LocalStorage 并恢复演示种子">一键恢复演示数据</button>`;
   }
 
+  function calcBizStatus(scenarios) {
+    const hasDraft = scenarios.some((s) => s.status === "draft" || !s.results);
+    const risky = scenarios.some((s) => {
+      const p = s.results?.metrics?.monthlyProfit;
+      return p != null && Number(p) < 0;
+    });
+    if (risky) return { label: "存在风险", cls: "danger" };
+    if (hasDraft && !scenarios.some((s) => s.results)) return { label: "待完善", cls: "warning" };
+    if (scenarios.some((s) => s.results)) return { label: "已测算", cls: "success" };
+    return { label: "待完善", cls: "warning" };
+  }
+
   function calcCenterPage() {
     const blocked = requireCalc();
     if (blocked) return shell(blocked);
@@ -219,44 +231,115 @@
       byProject.get(s.projectId).push(s);
     }
 
+    const incomplete = [...byProject.values()].filter((list) => list.some((s) => !s.results || s.status === "draft")).length;
+    const risky = [...byProject.values()].filter((list) =>
+      list.some((s) => s.results && Number(s.results.metrics.monthlyProfit) < 0),
+    ).length;
+
+    const recent = [...all]
+      .filter((s) => s.results)
+      .sort((a, b) => (b.results?.calculatedAt || b.updatedAt || "").localeCompare(a.results?.calculatedAt || a.updatedAt || ""))
+      .slice(0, 6);
+
+    const recentRows = recent
+      .map((s) => {
+        const p = projects.find((x) => x.id === s.projectId);
+        const m = s.results?.metrics;
+        const profit = m ? Number(m.monthlyProfit) : null;
+        return `<tr>
+          <td class="object-cell"><div class="object-name">${esc(p?.name || s.projectId)}</div><div class="object-meta">${esc(p?.customer || "")}</div></td>
+          <td>${esc(s.name)}</td>
+          <td class="num">${m ? money(m.monthlyRevenue) : "—"}</td>
+          <td class="num">${m ? money(m.monthlyTotalCost) : "—"}</td>
+          <td class="num ${profit != null && profit < 0 ? "is-negative" : "is-positive"}">${m ? money(m.monthlyProfit) : "—"}</td>
+          <td class="num">${m ? pct(m.profitMargin) : "—"}</td>
+          <td>${esc((s.results?.calculatedAt || s.updatedAt || "").replace("T", " ").slice(0, 16))}</td>
+          <td>${statusTag(s.status)}</td>
+          <td><div class="table-actions">
+            <button class="btn ghost small text-action" data-go="/projects/${esc(s.projectId)}/calculation/${esc(s.id)}">继续测算</button>
+            <button class="btn ghost small text-action" data-go="/projects/${esc(s.projectId)}/calculation/${esc(s.id)}">查看结果</button>
+          </div></td>
+        </tr>`;
+      })
+      .join("");
+
     const tableBody = [...byProject.entries()]
       .map(([projectId, scenarios]) => {
         const p = projects.find((x) => x.id === projectId);
-        const baseline = scenarios.find((s) => s.status === "baseline") || scenarios.find((s) => s.results) || scenarios[0];
-        const m = baseline?.results?.metrics;
+        const latest =
+          [...scenarios].sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""))[0] ||
+          scenarios.find((s) => s.status === "baseline") ||
+          scenarios[0];
+        const m = latest?.results?.metrics;
         const profit = m ? Number(m.monthlyProfit) : null;
+        const st = calcBizStatus(scenarios);
         return `<tr>
-          <td class="object-cell"><div class="object-name" data-go="/projects/${esc(projectId)}/calculation">${esc(p?.name || projectId)}</div><div class="object-meta">${esc(projectId)} · ${esc(p?.customer || "")}</div></td>
+          <td class="object-cell"><div class="object-name" data-go="/projects/${esc(projectId)}/calculation">${esc(p?.name || projectId)}</div><div class="object-meta">${esc(projectId)}</div></td>
+          <td>${esc(p?.customer || "—")}</td>
           <td class="num">${scenarios.length}</td>
-          <td>${baseline ? statusTag(baseline.status) : "—"}</td>
+          <td>${esc(latest?.name || "—")}</td>
           <td class="num">${m ? money(m.monthlyRevenue) : "—"}</td>
           <td class="num ${profit === null || !Number.isFinite(profit) ? "" : profit >= 0 ? "is-positive" : "is-negative"}">${m ? money(m.monthlyProfit) : "—"}</td>
           <td class="num">${m ? pct(m.profitMargin) : "—"}</td>
+          <td><span class="tag ${st.cls}">${st.label}</span></td>
+          <td>${esc((latest?.results?.calculatedAt || latest?.updatedAt || "").replace("T", " ").slice(0, 16) || "—")}</td>
           <td><button class="btn ghost small text-action" data-go="/projects/${esc(projectId)}/calculation">进入测算</button></td>
         </tr>`;
       })
       .join("");
 
-    return shell(`${breadcrumb([
-      { label: "业务管理" },
-      { label: "项目测算中心" },
-    ])}
-    ${pageHead("项目测算中心", "跨项目查看测算方案 · 核心数字由浏览器真实计算引擎产出", `${stateControl()}${resetDemoButton()}`)}
-    <section class="metric-section calc-center-metrics" aria-label="测算中心摘要">
+    const empty = byProject.size === 0;
+    const emptyBlock = empty
+      ? `<section class="panel calc-empty-state">
+          <h2>暂无项目测算</h2>
+          <p>上传项目资料，让 AI 自动识别经营参数，快速生成第一份项目测算。</p>
+          <div class="calc-empty-actions">
+            <button type="button" class="btn primary" id="calc-center-ai-import" data-go="/calculation/import">AI导入资料测算</button>
+            <button type="button" class="btn" data-go="/calculation/link">关联已有项目</button>
+            <button type="button" class="btn" data-go="/calculation/manual">手动创建</button>
+          </div>
+        </section>`
+      : "";
+
+    return shell(`${breadcrumb([{ label: "业务管理" }, { label: "项目测算中心" }])}
+    ${pageHead(
+      "项目测算中心",
+      "跨项目管理测算方案、经营结果与方案决策",
+      `${canEdit() ? `<button class="btn primary" id="calc-center-new">${icons.plus}<span>新建测算</span></button><button class="btn" id="calc-center-ai-import" data-go="/calculation/import">AI辅助测算</button>` : ""}
+       <details class="calc-demo-tools"><summary>演示状态 / Demo Tools</summary>
+         <div class="calc-demo-tools-body">${stateControl()}${resetDemoButton()}
+         <p class="help">引擎 ${esc(global.PmCalc.engineVersion)} · LocalStorage · 不作为业务 KPI</p></div>
+       </details>`,
+    )}
+    <section class="metric-section calc-center-metrics" aria-label="测算中心经营摘要">
       <div class="vehicle-metrics compact-inventory-metrics calc-center-metric-row">
-        <article class="metric-card"><div class="metric-main"><div class="metric-label">可见测算项目</div><div class="metric-value">${byProject.size}<span class="metric-unit">个</span></div></div></article>
-        <article class="metric-card"><div class="metric-main"><div class="metric-label">方案总数</div><div class="metric-value">${all.length}<span class="metric-unit">个</span></div></div></article>
-        <article class="metric-card"><div class="metric-main"><div class="metric-label">计算引擎</div><div class="metric-value calc-engine-value">${esc(global.PmCalc.engineVersion)}</div></div></article>
-        <article class="metric-card"><div class="metric-main"><div class="metric-label">存储方式</div><div class="metric-value calc-engine-value">LocalStorage</div></div></article>
+        <article class="metric-card"><div class="metric-main"><div class="metric-label">测算项目</div><div class="metric-value">${byProject.size}<span class="metric-unit">个</span></div></div></article>
+        <article class="metric-card"><div class="metric-main"><div class="metric-label">测算方案</div><div class="metric-value">${all.length}<span class="metric-unit">个</span></div></div></article>
+        <article class="metric-card"><div class="metric-main"><div class="metric-label">待完善测算</div><div class="metric-value">${incomplete}<span class="metric-unit">个</span></div></div></article>
+        <article class="metric-card"><div class="metric-main"><div class="metric-label">风险方案</div><div class="metric-value">${risky}<span class="metric-unit">个</span></div></div></article>
       </div>
     </section>
-    <section class="panel project-list-panel calc-center-panel">
-      <div class="section-title" style="padding:14px 0 0"><div><h2>测算项目一览</h2><p>按项目编号关联；不使用项目名称作为主键</p></div></div>
+    ${emptyBlock}
+    ${
+      empty
+        ? ""
+        : `<section class="panel project-list-panel calc-center-panel">
+      <div class="section-title" style="padding:14px 0 0"><div><h2>最近测算</h2><p>核心 KPI 来自已保存 Calculation Result</p></div></div>
       <div class="table-wrap responsive"><table>
-        <thead><tr><th>项目</th><th class="num">方案数</th><th>基准状态</th><th class="num">基准营收</th><th class="num">基准利润</th><th class="num">利润率</th><th>操作</th></tr></thead>
-        <tbody>${tableBody || `<tr class="empty-row"><td colspan="7">当前可见项目尚无测算方案。请从项目详情进入「项目测算」并新建。</td></tr>`}</tbody>
+        <thead><tr><th>项目/客户</th><th>方案</th><th class="num">月收入</th><th class="num">月总成本</th><th class="num">月利润</th><th class="num">利润率</th><th>最后测算</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody>${recentRows || `<tr class="empty-row"><td colspan="9">暂无已测算方案</td></tr>`}</tbody>
       </table></div>
-    </section>`);
+    </section>
+    <section class="panel project-list-panel calc-center-panel">
+      <div class="section-title" style="padding:14px 0 0"><div><h2>项目测算列表</h2><p>跨项目查看测算任务与经营结果</p></div>
+        <div class="toolbar"><input class="input" id="calc-center-filter" placeholder="搜索项目/客户" style="max-width:220px"></div>
+      </div>
+      <div class="table-wrap responsive"><table id="calc-center-table">
+        <thead><tr><th>项目名称</th><th>客户</th><th class="num">方案数</th><th>最新方案</th><th class="num">月收入</th><th class="num">月利润</th><th class="num">利润率</th><th>测算状态</th><th>最后测算</th><th>操作</th></tr></thead>
+        <tbody>${tableBody}</tbody>
+      </table></div>
+    </section>`
+    }`);
   }
 
   function projectCalculationPage(projectId) {
@@ -990,6 +1073,17 @@
 
   function bindCalculationActions() {
     bindResetSeed();
+    global.ImportApp?.bindImportActions?.();
+    $("#calc-center-new")?.addEventListener("click", () => global.ImportApp?.openCreateCalcModal?.());
+    $$("#calc-center-ai-import").forEach((btn) => {
+      btn.onclick = () => go("/calculation/import");
+    });
+    $("#calc-center-filter")?.addEventListener("input", (e) => {
+      const q = (e.target.value || "").trim().toLowerCase();
+      $$("#calc-center-table tbody tr").forEach((tr) => {
+        tr.hidden = q ? !tr.textContent.toLowerCase().includes(q) : false;
+      });
+    });
     $$("[data-calc-new]").forEach((btn) => {
       btn.onclick = () => createScenarioForProject(btn.dataset.calcNew);
     });
@@ -1065,7 +1159,12 @@
 
   function matchCalculationRoute(route) {
     if (route === "/calculation") return { type: "center" };
-    let m = /^\/projects\/([^/]+)\/calculation\/new$/.exec(route);
+    if (route === "/calculation/import") return { type: "import_upload" };
+    if (route === "/calculation/link") return { type: "import_link" };
+    if (route === "/calculation/manual") return { type: "import_manual" };
+    let m = /^\/calculation\/import\/([^/]+)$/.exec(route);
+    if (m) return { type: "import_review", sessionId: m[1] };
+    m = /^\/projects\/([^/]+)\/calculation\/new$/.exec(route);
     if (m) return { type: "new", projectId: m[1] };
     m = /^\/projects\/([^/]+)\/calculation\/([^/]+)$/.exec(route);
     if (m) return { type: "workspace", projectId: m[1], scenarioId: m[2] };
@@ -1078,6 +1177,18 @@
     const hit = matchCalculationRoute(route);
     if (!hit) return null;
     if (hit.type === "center") return calcCenterPage();
+    if (hit.type === "import_upload") {
+      return shell(global.ImportApp ? global.ImportApp.importUploadPage() : "<p>ImportApp 未加载</p>");
+    }
+    if (hit.type === "import_review") {
+      return shell(global.ImportApp ? global.ImportApp.importReviewPage(hit.sessionId) : "<p>ImportApp 未加载</p>");
+    }
+    if (hit.type === "import_link") {
+      return shell(global.ImportApp ? global.ImportApp.linkProjectPage() : "<p>ImportApp 未加载</p>");
+    }
+    if (hit.type === "import_manual") {
+      return shell(global.ImportApp ? global.ImportApp.manualCreatePage() : "<p>ImportApp 未加载</p>");
+    }
     if (hit.type === "new") {
       createScenarioForProject(hit.projectId);
       return null;
@@ -1095,5 +1206,7 @@
     calcCenterPage,
     projectCalculationPage,
     scenarioWorkspacePage,
+    createScenarioForProject,
+    openCreateCalcModal: () => global.ImportApp?.openCreateCalcModal?.(),
   };
 })(window);

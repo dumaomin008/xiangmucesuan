@@ -13,10 +13,16 @@ describe("Phase 3：Demo 融合冒烟", () => {
     const html = fs.readFileSync(path.join(demoRoot, "index.html"), "utf8");
     expect(html).toContain("pm-calc.bundle.js");
     expect(html).toContain("calculation-app.js");
+    expect(html).toContain("import-app.js");
     const app = fs.readFileSync(path.join(demoRoot, "app.js"), "utf8");
+    const calcApp = fs.readFileSync(path.join(demoRoot, "calculation-app.js"), "utf8");
     expect(app).toContain("/projects/${id}/calculation");
     expect(app).toContain("项目测算中心");
     expect(app).toContain("CalculationApp");
+    expect(calcApp).toContain("新建测算");
+    expect(calcApp).toContain("测算项目");
+    expect(calcApp).toContain("待完善测算");
+    expect(calcApp).not.toContain('metric-label">计算引擎');
   });
 
   it("PmCalc bundle 可在假浏览器环境计算并读写仓库", () => {

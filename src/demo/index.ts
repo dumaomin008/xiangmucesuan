@@ -44,3 +44,19 @@ export type {
   PendingAssistantAction,
 } from "./ai/assistant";
 export { parseAssistantIntent } from "./ai/intent";
+export {
+  createImportSessionTool,
+  parseImportFilesTool,
+  createScenarioFromImportTool,
+  DEMO_IMPORT_SAMPLE_FILES,
+} from "./import/tools";
+export { mapToSchemeCalculationInput, canStartCalculation, summarizeParameterStates } from "./import/map-to-input";
+export { parseImportFileDemo, mergeExtractedParameters } from "./import/parser-adapter";
+export { parseImportSupplementIntent } from "./import/supplement";
+export type {
+  ImportSession,
+  ImportFile,
+  ExtractedParameter,
+  ExtractedParamStatus,
+} from "./import/types";
+export { ImportRepository } from "./repository/importRepository";

@@ -456,7 +456,7 @@ var PmCalcModule = (() => {
     return this.cmp(y) < 1;
   };
   P.logarithm = P.log = function(base) {
-    var isBase10, d, denominator, k, inf, num2, sd, r, arg = this, Ctor = arg.constructor, pr = Ctor.precision, rm = Ctor.rounding, guard = 5;
+    var isBase10, d, denominator, k, inf, num3, sd, r, arg = this, Ctor = arg.constructor, pr = Ctor.precision, rm = Ctor.rounding, guard = 5;
     if (base == null) {
       base = new Ctor(10);
       isBase10 = true;
@@ -480,15 +480,15 @@ var PmCalcModule = (() => {
     }
     external = false;
     sd = pr + guard;
-    num2 = naturalLogarithm(arg, sd);
+    num3 = naturalLogarithm(arg, sd);
     denominator = isBase10 ? getLn10(Ctor, sd + 10) : naturalLogarithm(base, sd);
-    r = divide(num2, denominator, sd, 1);
+    r = divide(num3, denominator, sd, 1);
     if (checkRoundingDigits(r.d, k = pr, rm)) {
       do {
         sd += 10;
-        num2 = naturalLogarithm(arg, sd);
+        num3 = naturalLogarithm(arg, sd);
         denominator = isBase10 ? getLn10(Ctor, sd + 10) : naturalLogarithm(base, sd);
-        r = divide(num2, denominator, sd, 1);
+        r = divide(num3, denominator, sd, 1);
         if (!inf) {
           if (+digitsToString(r.d).slice(k + 1, k + 15) + 1 == 1e14) {
             r = finalise(r, pr + 1, 0);
@@ -818,30 +818,30 @@ var PmCalcModule = (() => {
     return finalise(x, dp + x.e + 1, rm);
   };
   P.toExponential = function(dp, rm) {
-    var str, x = this, Ctor = x.constructor;
+    var str2, x = this, Ctor = x.constructor;
     if (dp === void 0) {
-      str = finiteToString(x, true);
+      str2 = finiteToString(x, true);
     } else {
       checkInt32(dp, 0, MAX_DIGITS);
       if (rm === void 0) rm = Ctor.rounding;
       else checkInt32(rm, 0, 8);
       x = finalise(new Ctor(x), dp + 1, rm);
-      str = finiteToString(x, true, dp + 1);
+      str2 = finiteToString(x, true, dp + 1);
     }
-    return x.isNeg() && !x.isZero() ? "-" + str : str;
+    return x.isNeg() && !x.isZero() ? "-" + str2 : str2;
   };
   P.toFixed = function(dp, rm) {
-    var str, y, x = this, Ctor = x.constructor;
+    var str2, y, x = this, Ctor = x.constructor;
     if (dp === void 0) {
-      str = finiteToString(x);
+      str2 = finiteToString(x);
     } else {
       checkInt32(dp, 0, MAX_DIGITS);
       if (rm === void 0) rm = Ctor.rounding;
       else checkInt32(rm, 0, 8);
       y = finalise(new Ctor(x), dp + x.e + 1, rm);
-      str = finiteToString(y, false, dp + y.e + 1);
+      str2 = finiteToString(y, false, dp + y.e + 1);
     }
-    return x.isNeg() && !x.isZero() ? "-" + str : str;
+    return x.isNeg() && !x.isZero() ? "-" + str2 : str2;
   };
   P.toFraction = function(maxD) {
     var d, d0, d1, d2, e, k, n, n0, n1, pr, q, r, x = this, xd = x.d, Ctor = x.constructor;
@@ -970,17 +970,17 @@ var PmCalcModule = (() => {
     return finalise(r, pr, rm);
   };
   P.toPrecision = function(sd, rm) {
-    var str, x = this, Ctor = x.constructor;
+    var str2, x = this, Ctor = x.constructor;
     if (sd === void 0) {
-      str = finiteToString(x, x.e <= Ctor.toExpNeg || x.e >= Ctor.toExpPos);
+      str2 = finiteToString(x, x.e <= Ctor.toExpNeg || x.e >= Ctor.toExpPos);
     } else {
       checkInt32(sd, 1, MAX_DIGITS);
       if (rm === void 0) rm = Ctor.rounding;
       else checkInt32(rm, 0, 8);
       x = finalise(new Ctor(x), sd, rm);
-      str = finiteToString(x, sd <= x.e || x.e <= Ctor.toExpNeg, sd);
+      str2 = finiteToString(x, sd <= x.e || x.e <= Ctor.toExpNeg, sd);
     }
-    return x.isNeg() && !x.isZero() ? "-" + str : str;
+    return x.isNeg() && !x.isZero() ? "-" + str2 : str2;
   };
   P.toSignificantDigits = P.toSD = function(sd, rm) {
     var x = this, Ctor = x.constructor;
@@ -995,35 +995,35 @@ var PmCalcModule = (() => {
     return finalise(new Ctor(x), sd, rm);
   };
   P.toString = function() {
-    var x = this, Ctor = x.constructor, str = finiteToString(x, x.e <= Ctor.toExpNeg || x.e >= Ctor.toExpPos);
-    return x.isNeg() && !x.isZero() ? "-" + str : str;
+    var x = this, Ctor = x.constructor, str2 = finiteToString(x, x.e <= Ctor.toExpNeg || x.e >= Ctor.toExpPos);
+    return x.isNeg() && !x.isZero() ? "-" + str2 : str2;
   };
   P.truncated = P.trunc = function() {
     return finalise(new this.constructor(this), this.e + 1, 1);
   };
   P.valueOf = P.toJSON = function() {
-    var x = this, Ctor = x.constructor, str = finiteToString(x, x.e <= Ctor.toExpNeg || x.e >= Ctor.toExpPos);
-    return x.isNeg() ? "-" + str : str;
+    var x = this, Ctor = x.constructor, str2 = finiteToString(x, x.e <= Ctor.toExpNeg || x.e >= Ctor.toExpPos);
+    return x.isNeg() ? "-" + str2 : str2;
   };
   function digitsToString(d) {
-    var i, k, ws, indexOfLastWord = d.length - 1, str = "", w = d[0];
+    var i, k, ws, indexOfLastWord = d.length - 1, str2 = "", w = d[0];
     if (indexOfLastWord > 0) {
-      str += w;
+      str2 += w;
       for (i = 1; i < indexOfLastWord; i++) {
         ws = d[i] + "";
         k = LOG_BASE - ws.length;
-        if (k) str += getZeroString(k);
-        str += ws;
+        if (k) str2 += getZeroString(k);
+        str2 += ws;
       }
       w = d[i];
       ws = w + "";
       k = LOG_BASE - ws.length;
-      if (k) str += getZeroString(k);
+      if (k) str2 += getZeroString(k);
     } else if (w === 0) {
       return "0";
     }
     for (; w % 10 === 0; ) w /= 10;
-    return str + w;
+    return str2 + w;
   }
   function checkInt32(i, min2, max2) {
     if (i !== ~~i || i < min2 || i > max2) {
@@ -1062,11 +1062,11 @@ var PmCalcModule = (() => {
     }
     return r;
   }
-  function convertBase(str, baseIn, baseOut) {
-    var j, arr = [0], arrL, i = 0, strL = str.length;
+  function convertBase(str2, baseIn, baseOut) {
+    var j, arr = [0], arrL, i = 0, strL = str2.length;
     for (; i < strL; ) {
       for (arrL = arr.length; arrL--; ) arr[arrL] *= baseIn;
-      arr[0] += NUMERALS.indexOf(str.charAt(i++));
+      arr[0] += NUMERALS.indexOf(str2.charAt(i++));
       for (j = 0; j < arr.length; j++) {
         if (arr[j] > baseOut - 1) {
           if (arr[j + 1] === void 0) arr[j + 1] = 0;
@@ -1346,28 +1346,28 @@ var PmCalcModule = (() => {
   }
   function finiteToString(x, isExp, sd) {
     if (!x.isFinite()) return nonFiniteToString(x);
-    var k, e = x.e, str = digitsToString(x.d), len = str.length;
+    var k, e = x.e, str2 = digitsToString(x.d), len = str2.length;
     if (isExp) {
       if (sd && (k = sd - len) > 0) {
-        str = str.charAt(0) + "." + str.slice(1) + getZeroString(k);
+        str2 = str2.charAt(0) + "." + str2.slice(1) + getZeroString(k);
       } else if (len > 1) {
-        str = str.charAt(0) + "." + str.slice(1);
+        str2 = str2.charAt(0) + "." + str2.slice(1);
       }
-      str = str + (x.e < 0 ? "e" : "e+") + x.e;
+      str2 = str2 + (x.e < 0 ? "e" : "e+") + x.e;
     } else if (e < 0) {
-      str = "0." + getZeroString(-e - 1) + str;
-      if (sd && (k = sd - len) > 0) str += getZeroString(k);
+      str2 = "0." + getZeroString(-e - 1) + str2;
+      if (sd && (k = sd - len) > 0) str2 += getZeroString(k);
     } else if (e >= len) {
-      str += getZeroString(e + 1 - len);
-      if (sd && (k = sd - e - 1) > 0) str = str + "." + getZeroString(k);
+      str2 += getZeroString(e + 1 - len);
+      if (sd && (k = sd - e - 1) > 0) str2 = str2 + "." + getZeroString(k);
     } else {
-      if ((k = e + 1) < len) str = str.slice(0, k) + "." + str.slice(k);
+      if ((k = e + 1) < len) str2 = str2.slice(0, k) + "." + str2.slice(k);
       if (sd && (k = sd - len) > 0) {
-        if (e + 1 === len) str += ".";
-        str += getZeroString(k);
+        if (e + 1 === len) str2 += ".";
+        str2 += getZeroString(k);
       }
     }
-    return str;
+    return str2;
   }
   function getBase10Exponent(digits, e) {
     var w = digits[0];
@@ -1548,35 +1548,35 @@ var PmCalcModule = (() => {
   function nonFiniteToString(x) {
     return String(x.s * x.s / 0);
   }
-  function parseDecimal(x, str) {
+  function parseDecimal(x, str2) {
     var e, i, len;
-    if ((e = str.indexOf(".")) > -1) str = str.replace(".", "");
-    if ((i = str.search(/e/i)) > 0) {
+    if ((e = str2.indexOf(".")) > -1) str2 = str2.replace(".", "");
+    if ((i = str2.search(/e/i)) > 0) {
       if (e < 0) e = i;
-      e += +str.slice(i + 1);
-      str = str.substring(0, i);
+      e += +str2.slice(i + 1);
+      str2 = str2.substring(0, i);
     } else if (e < 0) {
-      e = str.length;
+      e = str2.length;
     }
-    for (i = 0; str.charCodeAt(i) === 48; i++) ;
-    for (len = str.length; str.charCodeAt(len - 1) === 48; --len) ;
-    str = str.slice(i, len);
-    if (str) {
+    for (i = 0; str2.charCodeAt(i) === 48; i++) ;
+    for (len = str2.length; str2.charCodeAt(len - 1) === 48; --len) ;
+    str2 = str2.slice(i, len);
+    if (str2) {
       len -= i;
       x.e = e = e - i - 1;
       x.d = [];
       i = (e + 1) % LOG_BASE;
       if (e < 0) i += LOG_BASE;
       if (i < len) {
-        if (i) x.d.push(+str.slice(0, i));
-        for (len -= LOG_BASE; i < len; ) x.d.push(+str.slice(i, i += LOG_BASE));
-        str = str.slice(i);
-        i = LOG_BASE - str.length;
+        if (i) x.d.push(+str2.slice(0, i));
+        for (len -= LOG_BASE; i < len; ) x.d.push(+str2.slice(i, i += LOG_BASE));
+        str2 = str2.slice(i);
+        i = LOG_BASE - str2.length;
       } else {
         i -= len;
       }
-      for (; i--; ) str += "0";
-      x.d.push(+str);
+      for (; i--; ) str2 += "0";
+      x.d.push(+str2);
       if (external) {
         if (x.e > x.constructor.maxE) {
           x.d = null;
@@ -1592,44 +1592,44 @@ var PmCalcModule = (() => {
     }
     return x;
   }
-  function parseOther(x, str) {
+  function parseOther(x, str2) {
     var base, Ctor, divisor, i, isFloat, len, p, xd, xe;
-    if (str.indexOf("_") > -1) {
-      str = str.replace(/(\d)_(?=\d)/g, "$1");
-      if (isDecimal.test(str)) return parseDecimal(x, str);
-    } else if (str === "Infinity" || str === "NaN") {
-      if (!+str) x.s = NaN;
+    if (str2.indexOf("_") > -1) {
+      str2 = str2.replace(/(\d)_(?=\d)/g, "$1");
+      if (isDecimal.test(str2)) return parseDecimal(x, str2);
+    } else if (str2 === "Infinity" || str2 === "NaN") {
+      if (!+str2) x.s = NaN;
       x.e = NaN;
       x.d = null;
       return x;
     }
-    if (isHex.test(str)) {
+    if (isHex.test(str2)) {
       base = 16;
-      str = str.toLowerCase();
-    } else if (isBinary.test(str)) {
+      str2 = str2.toLowerCase();
+    } else if (isBinary.test(str2)) {
       base = 2;
-    } else if (isOctal.test(str)) {
+    } else if (isOctal.test(str2)) {
       base = 8;
     } else {
-      throw Error(invalidArgument + str);
+      throw Error(invalidArgument + str2);
     }
-    i = str.search(/p/i);
+    i = str2.search(/p/i);
     if (i > 0) {
-      p = +str.slice(i + 1);
-      str = str.substring(2, i);
+      p = +str2.slice(i + 1);
+      str2 = str2.substring(2, i);
     } else {
-      str = str.slice(2);
+      str2 = str2.slice(2);
     }
-    i = str.indexOf(".");
+    i = str2.indexOf(".");
     isFloat = i >= 0;
     Ctor = x.constructor;
     if (isFloat) {
-      str = str.replace(".", "");
-      len = str.length;
+      str2 = str2.replace(".", "");
+      len = str2.length;
       i = len - i;
       divisor = intPow(Ctor, new Ctor(base), i, i * 2);
     }
-    xd = convertBase(str, base, BASE);
+    xd = convertBase(str2, base, BASE);
     xe = xd.length - 1;
     for (i = xe; xd[i] === 0; --i) xd.pop();
     if (i < 0) return new Ctor(x.s * 0);
@@ -1707,7 +1707,7 @@ var PmCalcModule = (() => {
     return x.minus(pi).abs();
   }
   function toStringBinary(x, baseOut, sd, rm) {
-    var base, e, i, k, len, roundUp, str, xd, y, Ctor = x.constructor, isExp = sd !== void 0;
+    var base, e, i, k, len, roundUp, str2, xd, y, Ctor = x.constructor, isExp = sd !== void 0;
     if (isExp) {
       checkInt32(sd, 1, MAX_DIGITS);
       if (rm === void 0) rm = Ctor.rounding;
@@ -1717,10 +1717,10 @@ var PmCalcModule = (() => {
       rm = Ctor.rounding;
     }
     if (!x.isFinite()) {
-      str = nonFiniteToString(x);
+      str2 = nonFiniteToString(x);
     } else {
-      str = finiteToString(x);
-      i = str.indexOf(".");
+      str2 = finiteToString(x);
+      i = str2.indexOf(".");
       if (isExp) {
         base = 2;
         if (baseOut == 16) {
@@ -1732,17 +1732,17 @@ var PmCalcModule = (() => {
         base = baseOut;
       }
       if (i >= 0) {
-        str = str.replace(".", "");
+        str2 = str2.replace(".", "");
         y = new Ctor(1);
-        y.e = str.length - i;
+        y.e = str2.length - i;
         y.d = convertBase(finiteToString(y), 10, base);
         y.e = y.d.length;
       }
-      xd = convertBase(str, 10, base);
+      xd = convertBase(str2, 10, base);
       e = len = xd.length;
       for (; xd[--len] == 0; ) xd.pop();
       if (!xd[0]) {
-        str = isExp ? "0p+0" : "0";
+        str2 = isExp ? "0p+0" : "0";
       } else {
         if (i < 0) {
           e--;
@@ -1770,31 +1770,31 @@ var PmCalcModule = (() => {
           }
         }
         for (len = xd.length; !xd[len - 1]; --len) ;
-        for (i = 0, str = ""; i < len; i++) str += NUMERALS.charAt(xd[i]);
+        for (i = 0, str2 = ""; i < len; i++) str2 += NUMERALS.charAt(xd[i]);
         if (isExp) {
           if (len > 1) {
             if (baseOut == 16 || baseOut == 8) {
               i = baseOut == 16 ? 4 : 3;
-              for (--len; len % i; len++) str += "0";
-              xd = convertBase(str, base, baseOut);
+              for (--len; len % i; len++) str2 += "0";
+              xd = convertBase(str2, base, baseOut);
               for (len = xd.length; !xd[len - 1]; --len) ;
-              for (i = 1, str = "1."; i < len; i++) str += NUMERALS.charAt(xd[i]);
+              for (i = 1, str2 = "1."; i < len; i++) str2 += NUMERALS.charAt(xd[i]);
             } else {
-              str = str.charAt(0) + "." + str.slice(1);
+              str2 = str2.charAt(0) + "." + str2.slice(1);
             }
           }
-          str = str + (e < 0 ? "p" : "p+") + e;
+          str2 = str2 + (e < 0 ? "p" : "p+") + e;
         } else if (e < 0) {
-          for (; ++e; ) str = "0" + str;
-          str = "0." + str;
+          for (; ++e; ) str2 = "0" + str2;
+          str2 = "0." + str2;
         } else {
-          if (++e > len) for (e -= len; e--; ) str += "0";
-          else if (e < len) str = str.slice(0, e) + "." + str.slice(e);
+          if (++e > len) for (e -= len; e--; ) str2 += "0";
+          else if (e < len) str2 = str2.slice(0, e) + "." + str2.slice(e);
         }
       }
-      str = (baseOut == 16 ? "0x" : baseOut == 2 ? "0b" : baseOut == 8 ? "0o" : "") + str;
+      str2 = (baseOut == 16 ? "0x" : baseOut == 2 ? "0b" : baseOut == 8 ? "0o" : "") + str2;
     }
-    return x.s < 0 ? "-" + str : str;
+    return x.s < 0 ? "-" + str2 : str2;
   }
   function truncate(arr, len) {
     if (arr.length > len) {
@@ -2653,9 +2653,9 @@ var PmCalcModule = (() => {
     }
     return { amount: new decimal_default(0), source: "NONE" };
   }
-  function driverCostSourceLabel(source) {
-    if (source === "SEGMENT_OVERRIDE") return "\u53F8\u673A\u6210\u672C\u6765\u6E90\uFF1A\u8DEF\u6BB5\u8986\u76D6\u503C";
-    if (source === "SCHEME_DEFAULT") return "\u53F8\u673A\u6210\u672C\u6765\u6E90\uFF1A\u65B9\u6848\u9ED8\u8BA4\u503C";
+  function driverCostSourceLabel(source2) {
+    if (source2 === "SEGMENT_OVERRIDE") return "\u53F8\u673A\u6210\u672C\u6765\u6E90\uFF1A\u8DEF\u6BB5\u8986\u76D6\u503C";
+    if (source2 === "SCHEME_DEFAULT") return "\u53F8\u673A\u6210\u672C\u6765\u6E90\uFF1A\u65B9\u6848\u9ED8\u8BA4\u503C";
     return "\u53F8\u673A\u6210\u672C\u6765\u6E90\uFF1A\u672A\u6309\u8D9F\u8BA1";
   }
 
@@ -3878,7 +3878,8 @@ var PmCalcModule = (() => {
     projects: "pm_demo_projects",
     scenarios: "pm_demo_calc_scenarios",
     drafts: "pm_demo_calc_drafts",
-    preferences: "pm_demo_calc_preferences"
+    preferences: "pm_demo_calc_preferences",
+    imports: "pm_demo_calc_imports"
   };
 
   // src/demo/storage/versioned.ts
@@ -3943,6 +3944,63 @@ var PmCalcModule = (() => {
   function cloneJson(value) {
     return JSON.parse(JSON.stringify(value));
   }
+
+  // src/demo/repository/importRepository.ts
+  var ImportRepository = class {
+    constructor(storage) {
+      __publicField(this, "store");
+      this.store = new VersionedStore(storage, DEMO_STORAGE_KEYS.imports, () => []);
+    }
+    listSessions() {
+      return cloneJson(this.store.read().data).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    }
+    getSession(id) {
+      return cloneJson(this.store.read().data.find((s) => s.id === id) ?? null);
+    }
+    saveSession(session) {
+      const all = this.store.read().data;
+      const idx = all.findIndex((s) => s.id === session.id);
+      const next = { ...session, updatedAt: nowIso() };
+      if (idx >= 0) all[idx] = next;
+      else all.push(next);
+      this.store.write(all);
+      return cloneJson(next);
+    }
+    createSession(partial) {
+      const now = nowIso();
+      const session = {
+        id: createId("IMP"),
+        status: "draft",
+        files: [],
+        parameters: [],
+        createMode: "ai_import",
+        createdAt: now,
+        updatedAt: now,
+        ...partial
+      };
+      return this.saveSession(session);
+    }
+    deleteSession(id) {
+      const next = this.store.read().data.filter((s) => s.id !== id);
+      this.store.write(next);
+    }
+    clear() {
+      this.store.write([]);
+    }
+    updateFiles(sessionId, files) {
+      const s = this.getSession(sessionId);
+      if (!s) return null;
+      s.files = files;
+      s.status = files.length ? "uploaded" : "draft";
+      return this.saveSession(s);
+    }
+    updateParameters(sessionId, parameters) {
+      const s = this.getSession(sessionId);
+      if (!s) return null;
+      s.parameters = parameters;
+      return this.saveSession(s);
+    }
+  };
 
   // src/demo/repository/parameterRepository.ts
   var DEFAULT_PREFS = {
@@ -4713,11 +4771,12 @@ var PmCalcModule = (() => {
     const projects = new ProjectRepository(storage);
     const scenarios = new ScenarioRepository(storage);
     const parameters = new ParameterRepository(storage);
+    const imports = new ImportRepository(storage);
     const empty = projects.listProjects().length === 0 && scenarios.listScenarios().length === 0;
     if (options.forceReseed || options.seedIfEmpty !== false && empty) {
       seedDemoData({ projects, scenarios, parameters });
     }
-    return { storage, projects, scenarios, parameters };
+    return { storage, projects, scenarios, parameters, imports };
   }
   function seedDemoData(repos2) {
     repos2.projects.replaceAll(buildSeedProjects());
@@ -5913,7 +5972,7 @@ ${changeLines}` : "",
       confirmRequired: false
     };
   }
-  function prepareModifyOrCreate(intent, scenario2, projectId, session, traces, source) {
+  function prepareModifyOrCreate(intent, scenario2, projectId, session, traces, source2) {
     const type = intent.kind === "create_scenario" ? "create_scenario" : "modify";
     if (!intent.patches.length && type === "create_scenario") {
       const pending2 = buildPending("create_scenario", {
@@ -5923,7 +5982,7 @@ ${changeLines}` : "",
         scenarioName: intent.scenarioName
       });
       session.pending = pending2;
-      return { reply: pending2.previewText, intent, pending: pending2, session, traces, source, confirmRequired: true };
+      return { reply: pending2.previewText, intent, pending: pending2, session, traces, source: source2, confirmRequired: true };
     }
     if (!intent.patches.length) {
       return {
@@ -5932,13 +5991,13 @@ ${changeLines}` : "",
         pending: null,
         session,
         traces,
-        source,
+        source: source2,
         confirmRequired: false
       };
     }
     const scoped = resolveScopeFromHint(scenario2, intent);
     if (!scoped.ok) {
-      return { reply: scoped.reply, intent, pending: null, session, traces, source, confirmRequired: false };
+      return { reply: scoped.reply, intent, pending: null, session, traces, source: source2, confirmRequired: false };
     }
     let patches = scoped.patches;
     if (needsScopeClarification(scenario2, patches)) {
@@ -5949,7 +6008,7 @@ ${changeLines}` : "",
         scenarioName: intent.scenarioName
       });
       session.pending = pending2;
-      return { reply: pending2.previewText, intent, pending: pending2, session, traces, source, confirmRequired: true };
+      return { reply: pending2.previewText, intent, pending: pending2, session, traces, source: source2, confirmRequired: true };
     }
     patches = patches.map((p) => {
       if (fieldScopeLevel(p.field) === "vehicle") return { ...p, scope: "vehicle" };
@@ -5964,7 +6023,7 @@ ${changeLines}` : "",
         pending: null,
         session,
         traces,
-        source,
+        source: source2,
         confirmRequired: false
       };
     }
@@ -5981,7 +6040,7 @@ ${changeLines}` : "",
 ${pending2.previewText}
 \u56DE\u590D\u300C\u786E\u8BA4\u300D\u7EE7\u7EED\uFF0C\u6216\u300C\u53D6\u6D88\u300D\u653E\u5F03\u3002`;
       session.pending = pending2;
-      return { reply: pending2.previewText, intent, pending: pending2, session, traces, source, confirmRequired: true };
+      return { reply: pending2.previewText, intent, pending: pending2, session, traces, source: source2, confirmRequired: true };
     }
     const pending = buildPending(type, {
       patches,
@@ -5990,14 +6049,14 @@ ${pending2.previewText}
       scenarioName: intent.scenarioName
     });
     session.pending = pending;
-    return { reply: pending.previewText, intent, pending, session, traces, source, confirmRequired: true };
+    return { reply: pending.previewText, intent, pending, session, traces, source: source2, confirmRequired: true };
   }
   function runAssistantTurn(params) {
     const session = params.session ? { ...params.session, recentScenarioIds: [...params.session.recentScenarioIds] } : createAssistantSession();
     session.pending = params.session?.pending ? { ...params.session.pending } : null;
     const intent = params.parsedIntent || parseAssistantIntent(params.message);
     const traces = [];
-    const source = params.parsedIntent?.parser === "llm" ? "llm_intent" : "tools";
+    const source2 = params.parsedIntent?.parser === "llm" ? "llm_intent" : "tools";
     const projectHit = getProjectContextTool(params.repos, params.projectId);
     traces.push(projectHit.trace);
     const project = params.project ?? projectHit.project;
@@ -6011,7 +6070,7 @@ ${pending2.previewText}
         pending: null,
         session,
         traces,
-        source,
+        source: source2,
         confirmRequired: false
       };
     }
@@ -6027,7 +6086,7 @@ ${pending2.previewText}
           pending: null,
           session,
           traces,
-          source,
+          source: source2,
           confirmRequired: false
         };
       }
@@ -6038,7 +6097,7 @@ ${pending2.previewText}
           pending: session.pending,
           session,
           traces,
-          source,
+          source: source2,
           confirmRequired: true
         };
       }
@@ -6058,7 +6117,7 @@ ${pending2.previewText}
         pending: null,
         session,
         traces,
-        source,
+        source: source2,
         confirmRequired: false
       };
     }
@@ -6078,7 +6137,7 @@ ${pending2.previewText}
             pending: session.pending,
             session,
             traces,
-            source,
+            source: source2,
             confirmRequired: true
           };
         }
@@ -6093,7 +6152,7 @@ ${pending2.previewText}
             pending: session.pending,
             session,
             traces,
-            source,
+            source: source2,
             confirmRequired: true
           };
         }
@@ -6109,16 +6168,16 @@ ${pending2.previewText}
         scenarioName: basePending.scenarioName,
         parser: intent.parser
       };
-      return prepareModifyOrCreate(nextIntent, scenario2, params.projectId, session, traces, source);
+      return prepareModifyOrCreate(nextIntent, scenario2, params.projectId, session, traces, source2);
     }
     if (intent.kind === "modify" || intent.kind === "create_scenario") {
-      return prepareModifyOrCreate(intent, scenario2, params.projectId, session, traces, source);
+      return prepareModifyOrCreate(intent, scenario2, params.projectId, session, traces, source2);
     }
     if (intent.kind === "query") {
       getCalculationResultTool(scenario2);
       const count = params.repos.scenarios.listScenarios(params.projectId).length;
       const reply = formatMetricAnswer(scenario2, intent.queryTarget || "general", count);
-      return { reply, intent, pending: session.pending, session, traces, source, confirmRequired: false };
+      return { reply, intent, pending: session.pending, session, traces, source: source2, confirmRequired: false };
     }
     if (intent.kind === "compare") {
       const pair = resolveComparePair(params.repos, params.projectId, scenario2.id, session, intent.compareHint);
@@ -6129,7 +6188,7 @@ ${pending2.previewText}
           pending: session.pending,
           session,
           traces,
-          source,
+          source: source2,
           confirmRequired: false
         };
       }
@@ -6144,7 +6203,7 @@ ${cmp.rows.map((r) => `${r.label}\uFF1A${r.a} \u2192 ${r.b}\uFF08\u0394 ${r.delt
         session,
         compareRows: cmp.rows,
         traces,
-        source,
+        source: source2,
         confirmRequired: false
       };
     }
@@ -6159,14 +6218,14 @@ ${lines}`,
         pending: session.pending,
         session,
         traces,
-        source,
+        source: source2,
         confirmRequired: false
       };
     }
     if (intent.kind === "report") {
       const report = generateReportTool({ project, scenario: scenario2 });
       traces.push(report.trace);
-      return { reply: report.text, intent, pending: session.pending, session, traces, source, confirmRequired: false };
+      return { reply: report.text, intent, pending: session.pending, session, traces, source: source2, confirmRequired: false };
     }
     if (intent.kind === "advice" || intent.kind === "diagnose") {
       const diag = localDiagnoseTool({ scenario: scenario2, project, question: params.message });
@@ -6247,6 +6306,859 @@ ${insight.disclaimer}`,
       ...params.session,
       recentScenarioIds: [...params.session.recentScenarioIds]
     });
+  }
+
+  // src/demo/import/types.ts
+  var IMPORT_FIELD_WHITELIST = [
+    "projectName",
+    "customer",
+    "region",
+    "owner",
+    "projectType",
+    "fleetSize",
+    "monthlyRentPerVehicle",
+    "distanceKm",
+    "loadTon",
+    "tripsPerVehicleMonth",
+    "freightPrice",
+    "freightPriceUnit",
+    "originName",
+    "destinationName",
+    "routeName",
+    "electricityPrice",
+    "loadedEnergyConsumption",
+    "emptyEnergyConsumption",
+    "driverCostPerTrip",
+    "operatingMonthsYear",
+    "tollPerTrip"
+  ];
+  var REQUIRED_IMPORT_FIELDS = [
+    "fleetSize",
+    "monthlyRentPerVehicle",
+    "distanceKm",
+    "loadTon",
+    "tripsPerVehicleMonth",
+    "freightPrice",
+    "electricityPrice",
+    "loadedEnergyConsumption",
+    "driverCostPerTrip"
+  ];
+  var FIELD_LABELS = {
+    projectName: "\u9879\u76EE\u540D\u79F0",
+    customer: "\u5BA2\u6237",
+    region: "\u9879\u76EE\u533A\u57DF",
+    owner: "\u9879\u76EE\u8D1F\u8D23\u4EBA",
+    projectType: "\u9879\u76EE\u7C7B\u578B",
+    fleetSize: "\u8F66\u8F86\u6570",
+    monthlyRentPerVehicle: "\u5355\u8F66\u6708\u79DF",
+    distanceKm: "\u5355\u7A0B\u91CC\u7A0B",
+    loadTon: "\u8F7D\u91CD",
+    tripsPerVehicleMonth: "\u5355\u8F66\u6708\u8D9F\u6B21",
+    freightPrice: "\u8FD0\u4EF7",
+    freightPriceUnit: "\u8FD0\u4EF7\u5355\u4F4D",
+    originName: "\u8D77\u70B9",
+    destinationName: "\u7EC8\u70B9",
+    routeName: "\u7EBF\u8DEF",
+    electricityPrice: "\u7535\u4EF7",
+    loadedEnergyConsumption: "\u91CD\u8F7D\u80FD\u8017",
+    emptyEnergyConsumption: "\u7A7A\u8F7D\u80FD\u8017",
+    driverCostPerTrip: "\u53F8\u673A\u5355\u8D9F\u6210\u672C",
+    operatingMonthsYear: "\u5E74\u8FD0\u8425\u6708\u6570",
+    tollPerTrip: "\u8DEF\u6865\u8D39/\u8D9F"
+  };
+  var FIELD_GROUPS = {
+    projectName: "project",
+    customer: "project",
+    region: "project",
+    owner: "project",
+    projectType: "project",
+    fleetSize: "vehicle",
+    monthlyRentPerVehicle: "vehicle",
+    distanceKm: "transport",
+    loadTon: "transport",
+    tripsPerVehicleMonth: "transport",
+    originName: "transport",
+    destinationName: "transport",
+    routeName: "transport",
+    freightPrice: "revenue",
+    freightPriceUnit: "revenue",
+    electricityPrice: "energy",
+    loadedEnergyConsumption: "energy",
+    emptyEnergyConsumption: "energy",
+    driverCostPerTrip: "cost",
+    tollPerTrip: "cost",
+    operatingMonthsYear: "finance"
+  };
+
+  // src/demo/import/map-to-input.ts
+  function num2(v) {
+    if (v === null || v === void 0 || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  function str(v) {
+    if (v === null || v === void 0 || v === "") return null;
+    return String(v);
+  }
+  function mapToSchemeCalculationInput(parameters) {
+    const errors = [];
+    const warnings = [];
+    const defaultsUsed = [];
+    const byField = /* @__PURE__ */ new Map();
+    for (const p of parameters) {
+      if (!IMPORT_FIELD_WHITELIST.includes(p.field)) {
+        warnings.push(`\u975E\u6CD5\u5B57\u6BB5\u5DF2\u4E22\u5F03\uFF1A${p.field}`);
+        continue;
+      }
+      byField.set(p.field, p);
+    }
+    for (const p of byField.values()) {
+      if (p.status === "CONFLICT") errors.push(`${p.label} \u4ECD\u6709\u51B2\u7A81\u672A\u5904\u7406`);
+      if (p.status === "INFERRED") errors.push(`${p.label} \u4E3A AI \u63A8\u65AD\uFF0C\u9700\u4EBA\u5DE5\u786E\u8BA4`);
+      if (p.required && (p.status === "MISSING" || p.normalizedValue == null || p.normalizedValue === "")) {
+        errors.push(`${p.label} \u4E3A\u5FC5\u586B\u4F46\u5C1A\u672A\u586B\u5199`);
+      }
+    }
+    if (errors.length) {
+      return { ok: false, projectPatch: {}, errors, warnings, defaultsUsed };
+    }
+    const base = cloneJson(excelExampleInput());
+    const seg = base.routes[0].segments[0];
+    const fleet = num2(byField.get("fleetSize")?.normalizedValue);
+    if (fleet != null) {
+      base.fleetSize = Math.max(1, Math.round(fleet));
+      base.vehicle.fleetSize = base.fleetSize;
+    }
+    const rent = str(byField.get("monthlyRentPerVehicle")?.normalizedValue);
+    if (rent != null) base.vehicle.monthlyRentPerVehicle = rent;
+    const distance = str(byField.get("distanceKm")?.normalizedValue);
+    if (distance != null) seg.distanceKm = distance;
+    const load = str(byField.get("loadTon")?.normalizedValue);
+    if (load != null) seg.loadTon = load;
+    const trips = str(byField.get("tripsPerVehicleMonth")?.normalizedValue);
+    if (trips != null) seg.tripsPerVehicleMonth = trips;
+    const freight = str(byField.get("freightPrice")?.normalizedValue);
+    if (freight != null) seg.freightPrice = freight;
+    const freightUnit = str(byField.get("freightPriceUnit")?.normalizedValue);
+    if (freightUnit != null) seg.freightPriceUnit = freightUnit;
+    const elec = str(byField.get("electricityPrice")?.normalizedValue);
+    if (elec != null) seg.electricityPrice = elec;
+    const energy = str(byField.get("loadedEnergyConsumption")?.normalizedValue);
+    if (energy != null) seg.loadedEnergyConsumption = energy;
+    const emptyEnergy = str(byField.get("emptyEnergyConsumption")?.normalizedValue);
+    if (emptyEnergy != null) seg.emptyEnergyConsumption = emptyEnergy;
+    else defaultsUsed.push({ field: "emptyEnergyConsumption", label: "\u7A7A\u8F7D\u80FD\u8017", defaultValue: String(seg.emptyEnergyConsumption) });
+    const driver = str(byField.get("driverCostPerTrip")?.normalizedValue);
+    if (driver != null) seg.driverCostPerTrip = driver;
+    const toll = str(byField.get("tollPerTrip")?.normalizedValue);
+    if (toll != null) seg.tollPerTrip = toll;
+    const opMonths = num2(byField.get("operatingMonthsYear")?.normalizedValue);
+    if (opMonths != null) seg.operatingMonthsYear = String(opMonths);
+    const routeName = str(byField.get("routeName")?.normalizedValue);
+    if (routeName != null) base.routes[0].routeName = routeName;
+    const origin = str(byField.get("originName")?.normalizedValue);
+    if (origin != null) seg.originName = origin;
+    const dest = str(byField.get("destinationName")?.normalizedValue);
+    if (dest != null) seg.destinationName = dest;
+    const projectName = str(byField.get("projectName")?.normalizedValue) || void 0;
+    base.schemeName = projectName ? `${projectName}-AI\u5BFC\u5165\u65B9\u6848` : "AI\u5BFC\u5165\u6D4B\u7B97\u65B9\u6848";
+    return {
+      ok: true,
+      inputs: base,
+      projectPatch: {
+        projectName,
+        customer: str(byField.get("customer")?.normalizedValue) || void 0,
+        region: str(byField.get("region")?.normalizedValue) || void 0,
+        owner: str(byField.get("owner")?.normalizedValue) || void 0,
+        projectType: str(byField.get("projectType")?.normalizedValue) || void 0
+      },
+      errors: [],
+      warnings,
+      defaultsUsed
+    };
+  }
+  function summarizeParameterStates(parameters) {
+    const counts = {
+      extracted: 0,
+      missing: 0,
+      conflict: 0,
+      inferred: 0,
+      manual: 0,
+      confirmed: 0,
+      total: parameters.length
+    };
+    for (const p of parameters) {
+      if (p.status === "EXTRACTED") counts.extracted += 1;
+      else if (p.status === "MISSING") counts.missing += 1;
+      else if (p.status === "CONFLICT") counts.conflict += 1;
+      else if (p.status === "INFERRED") counts.inferred += 1;
+      else if (p.status === "MANUAL") counts.manual += 1;
+      else if (p.status === "CONFIRMED") counts.confirmed += 1;
+    }
+    return counts;
+  }
+  function canStartCalculation(parameters) {
+    const reasons = [];
+    for (const p of parameters) {
+      if (p.status === "CONFLICT") reasons.push(`${p.label}\uFF1A\u51B2\u7A81\u672A\u89E3\u51B3`);
+      if (p.status === "INFERRED") reasons.push(`${p.label}\uFF1A\u63A8\u65AD\u672A\u786E\u8BA4`);
+      if (p.required && (p.normalizedValue == null || p.normalizedValue === "" || p.status === "MISSING")) {
+        reasons.push(`${p.label}\uFF1A\u5FC5\u586B\u7F3A\u5931`);
+      }
+    }
+    return { ok: reasons.length === 0, reasons };
+  }
+
+  // src/demo/import/normalize.ts
+  var UNIT_ALIASES = {
+    \u5EA6: "\u5143/kWh",
+    "\u5143/\u5EA6": "\u5143/kWh",
+    "\u5143/kwh": "\u5143/kWh",
+    "\u5143/kWh": "\u5143/kWh",
+    \u516C\u91CC: "km",
+    \u5343\u7C73: "km",
+    km: "km",
+    \u5428: "\u5428",
+    t: "\u5428",
+    "\u5143/\u5428": "\u5143",
+    "\u5143/t": "\u5143",
+    "\u5143/\u8D9F": "\u5143/\u8D9F",
+    "\u5143/\u6708/\u8F66": "\u5143",
+    "\u5143/\u8F66/\u6708": "\u5143",
+    \u53F0: "\u53F0",
+    \u8D9F: "\u8D9F",
+    "kWh/km": "kWh/km",
+    "\u5EA6/\u516C\u91CC": "kWh/km"
+  };
+  function normalizeUnitLabel(raw) {
+    if (!raw) return void 0;
+    const key = raw.trim();
+    return UNIT_ALIASES[key] || UNIT_ALIASES[key.toLowerCase()] || key;
+  }
+  function parseValueWithUnit(text) {
+    const trimmed = text.trim();
+    const m = trimmed.match(/(-?\d+(?:\.\d+)?)\s*([^\d\s]*)/);
+    if (!m) {
+      return {
+        originalValue: null,
+        originalText: trimmed,
+        normalizedValue: null
+      };
+    }
+    const num3 = Number(m[1]);
+    const unitRaw = m[2] || void 0;
+    return {
+      originalValue: num3,
+      originalUnit: unitRaw,
+      originalText: trimmed,
+      normalizedValue: Number.isFinite(num3) ? num3 : null,
+      unit: normalizeUnitLabel(unitRaw)
+    };
+  }
+  function normalizeElectricity(value, unitHint) {
+    return {
+      originalValue: value,
+      originalUnit: unitHint || "\u5143/\u5EA6",
+      originalText: `${value}${unitHint || "\u5143/\u5EA6"}`,
+      normalizedValue: value,
+      unit: "\u5143/kWh"
+    };
+  }
+  function normalizeDistance(value, unitHint) {
+    return {
+      originalValue: value,
+      originalUnit: unitHint || "\u516C\u91CC",
+      originalText: `${value}${unitHint || "\u516C\u91CC"}`,
+      normalizedValue: value,
+      unit: "km"
+    };
+  }
+
+  // src/demo/import/parser-adapter.ts
+  function param(field, value, status, sources, extras) {
+    return {
+      field,
+      label: FIELD_LABELS[field],
+      value,
+      normalizedValue: value,
+      unit: extras?.unit,
+      originalUnit: extras?.originalUnit,
+      originalText: extras?.originalText,
+      status,
+      confidence: extras?.confidence,
+      sources,
+      alternatives: extras?.alternatives,
+      required: REQUIRED_IMPORT_FIELDS.includes(field),
+      group: FIELD_GROUPS[field],
+      inferReason: extras?.inferReason
+    };
+  }
+  function source(file, patch2 = {}) {
+    return { fileId: file.id, fileName: file.name, ...patch2 };
+  }
+  function parseTransportDemand(file) {
+    const elec = normalizeElectricity(0.68, "\u5143/\u5EA6");
+    const dist = normalizeDistance(85, "\u516C\u91CC");
+    return {
+      fileId: file.id,
+      ok: true,
+      mode: "demo",
+      suggestedProjectName: "\u4E34\u6E2F\u6E2F\u533A\u77ED\u5012\u7535\u52A8\u5316\u9879\u76EE",
+      parameters: [
+        param("projectName", "\u4E34\u6E2F\u6E2F\u533A\u77ED\u5012\u7535\u52A8\u5316\u9879\u76EE", "EXTRACTED", [
+          source(file, { sheetName: "\u9879\u76EE\u6982\u51B5", cellRange: "B2", originalText: "\u9879\u76EE\u540D\u79F0\uFF1A\u4E34\u6E2F\u6E2F\u533A\u77ED\u5012\u7535\u52A8\u5316\u9879\u76EE" })
+        ], { confidence: 0.96, originalText: "\u4E34\u6E2F\u6E2F\u533A\u77ED\u5012\u7535\u52A8\u5316\u9879\u76EE" }),
+        param("customer", "\u4E34\u6E2F\u667A\u8FD0", "EXTRACTED", [
+          source(file, { sheetName: "\u9879\u76EE\u6982\u51B5", cellRange: "B3", originalText: "\u5BA2\u6237\uFF1A\u4E34\u6E2F\u667A\u8FD0" })
+        ], { confidence: 0.94 }),
+        param("region", "\u534E\u4E1C", "EXTRACTED", [
+          source(file, { sheetName: "\u9879\u76EE\u6982\u51B5", cellRange: "B4", originalText: "\u533A\u57DF\uFF1A\u534E\u4E1C" })
+        ], { confidence: 0.9 }),
+        param("fleetSize", 30, "EXTRACTED", [
+          source(file, { sheetName: "\u8F66\u8F86\u914D\u7F6E", cellRange: "B12", originalText: "\u9884\u8BA1\u6295\u5165\u65B0\u80FD\u6E90\u7275\u5F15\u8F6630\u53F0" })
+        ], { unit: "\u53F0", confidence: 0.98, originalText: "\u9884\u8BA1\u6295\u5165\u65B0\u80FD\u6E90\u7275\u5F15\u8F6630\u53F0" }),
+        param("distanceKm", dist.normalizedValue, "EXTRACTED", [
+          source(file, { sheetName: "\u7EBF\u8DEF", cellRange: "C5", originalText: "\u5355\u7A0B85\u516C\u91CC" })
+        ], { unit: dist.unit, originalUnit: dist.originalUnit, originalText: dist.originalText, confidence: 0.95 }),
+        param("loadTon", 32, "EXTRACTED", [
+          source(file, { sheetName: "\u7EBF\u8DEF", cellRange: "C6", originalText: "\u989D\u5B9A\u8F7D\u91CD32\u5428" })
+        ], { unit: "\u5428", confidence: 0.93, originalText: "\u989D\u5B9A\u8F7D\u91CD32\u5428" }),
+        param("tripsPerVehicleMonth", 28, "EXTRACTED", [
+          source(file, { sheetName: "\u8FD0\u529B", cellRange: "D8", originalText: "\u5355\u8F66\u6708\u574728\u8D9F" })
+        ], { unit: "\u8D9F", confidence: 0.91 }),
+        param("freightPrice", 120, "EXTRACTED", [
+          source(file, { sheetName: "\u6536\u5165", cellRange: "E3", originalText: "\u8FD0\u4EF7120\u5143/\u5428" })
+        ], { unit: "\u5143", originalUnit: "\u5143/\u5428", originalText: "\u8FD0\u4EF7120\u5143/\u5428", confidence: 0.92 }),
+        param("freightPriceUnit", "PER_TON", "EXTRACTED", [
+          source(file, { sheetName: "\u6536\u5165", cellRange: "E4", originalText: "\u8BA1\u4EF7\uFF1A\u6309\u5428" })
+        ], { confidence: 0.88 }),
+        param("routeName", "\u4E34\u6E2F\u4ED3-\u7801\u5934\u77ED\u5012", "EXTRACTED", [
+          source(file, { sheetName: "\u7EBF\u8DEF", cellRange: "A2", originalText: "\u7EBF\u8DEF\uFF1A\u4E34\u6E2F\u4ED3-\u7801\u5934\u77ED\u5012" })
+        ], { confidence: 0.9 }),
+        param("originName", "\u4E34\u6E2F\u4ED3", "EXTRACTED", [
+          source(file, { sheetName: "\u7EBF\u8DEF", cellRange: "A3", originalText: "\u8D77\u70B9\uFF1A\u4E34\u6E2F\u4ED3" })
+        ], { confidence: 0.9 }),
+        param("destinationName", "\u7801\u5934\u5806\u573A", "EXTRACTED", [
+          source(file, { sheetName: "\u7EBF\u8DEF", cellRange: "A4", originalText: "\u7EC8\u70B9\uFF1A\u7801\u5934\u5806\u573A" })
+        ], { confidence: 0.9 }),
+        param("electricityPrice", elec.normalizedValue, "EXTRACTED", [
+          source(file, { sheetName: "\u80FD\u6E90", cellRange: "F2", originalText: "\u573A\u7AD9\u7535\u4EF70.68\u5143/\u5EA6" })
+        ], {
+          unit: elec.unit,
+          originalUnit: elec.originalUnit,
+          originalText: elec.originalText,
+          confidence: 0.94
+        }),
+        param("operatingMonthsYear", 12, "INFERRED", [
+          source(file, { sheetName: "\u5907\u6CE8", originalText: "\u9879\u76EE\u8D44\u6599\u63CF\u8FF0\u300C\u6BCF\u5468\u8FD0\u84256\u5929\u3001\u5168\u5E74\u57FA\u672C\u4E0D\u505C\u300D" })
+        ], {
+          unit: "\u6708",
+          confidence: 0.62,
+          inferReason: "\u8D44\u6599\u5199\u300C\u6BCF\u5468\u8FD0\u84256\u5929\u300D\uFF0C\u6309\u5168\u5E74\u63A8\u7B97\u7EA612\u4E2A\u8FD0\u8425\u6708\uFF08\u6F14\u793A\u63A8\u65AD\uFF0C\u9700\u4EBA\u5DE5\u786E\u8BA4\uFF09"
+        }),
+        param("monthlyRentPerVehicle", null, "MISSING", [], { unit: "\u5143" }),
+        param("loadedEnergyConsumption", null, "MISSING", [], { unit: "kWh/km" }),
+        param("driverCostPerTrip", null, "MISSING", [], { unit: "\u5143/\u8D9F" })
+      ]
+    };
+  }
+  function parseVehicleQuote(file) {
+    return {
+      fileId: file.id,
+      ok: true,
+      mode: "demo",
+      suggestedProjectName: "\u4E34\u6E2F\u6E2F\u533A\u77ED\u5012\u7535\u52A8\u5316\u9879\u76EE",
+      parameters: [
+        // 与运输需求车辆数冲突（演示：禁止 AI 静默选择）
+        param("fleetSize", 32, "EXTRACTED", [
+          source(file, { page: 3, originalText: "\u79DF\u8D41\u65B9\u6848\u5EFA\u8BAE\u6295\u653E\u7275\u5F15\u8F66 32 \u53F0" })
+        ], { unit: "\u53F0", confidence: 0.9, originalText: "\u79DF\u8D41\u65B9\u6848\u5EFA\u8BAE\u6295\u653E\u7275\u5F15\u8F66 32 \u53F0" })
+        // 月租留给对话补参演示
+      ]
+    };
+  }
+  function parseRouteQuote(file) {
+    const dist = normalizeDistance(85, "\u516C\u91CC");
+    return {
+      fileId: file.id,
+      ok: true,
+      mode: "demo",
+      parameters: [
+        param("distanceKm", dist.normalizedValue, "EXTRACTED", [
+          source(file, { sheetName: "\u62A5\u4EF7", cellRange: "B10", originalText: "\u8FD0\u8F93\u91CC\u7A0B85\u516C\u91CC\uFF08\u4E0E\u9700\u6C42\u4E66\u4E00\u81F4\uFF09" })
+        ], { unit: dist.unit, originalUnit: "\u516C\u91CC", originalText: "\u8FD0\u8F93\u91CC\u7A0B85\u516C\u91CC", confidence: 0.93 })
+      ]
+    };
+  }
+  function parseCustomerDoc(file) {
+    return {
+      fileId: file.id,
+      ok: true,
+      mode: "demo",
+      parameters: [
+        param("owner", "\u6797\u6668", "EXTRACTED", [
+          source(file, { originalText: "\u9879\u76EE\u8D1F\u8D23\u4EBA\uFF1A\u6797\u6668" })
+        ], { confidence: 0.8 })
+        // 司机成本留给对话补参
+      ]
+    };
+  }
+  function parseImage(file) {
+    return {
+      fileId: file.id,
+      ok: true,
+      mode: "demo",
+      parameters: [
+        param("loadedEnergyConsumption", 1.45, "EXTRACTED", [
+          source(file, { originalText: "OCR\uFF1A\u91CD\u8F7D\u80FD\u8017\u7EA6 1.45 kWh/km" })
+        ], { unit: "kWh/km", originalText: "OCR\uFF1A\u91CD\u8F7D\u80FD\u8017\u7EA6 1.45 kWh/km", confidence: 0.7 })
+      ]
+    };
+  }
+  function parseImportFileDemo(file) {
+    const name = file.name.toLowerCase();
+    if (/fail|损坏|坏/.test(name)) {
+      return {
+        fileId: file.id,
+        ok: false,
+        mode: "demo",
+        errorMessage: "\u6F14\u793A\u9002\u914D\u5668\uFF1A\u8BE5\u6587\u4EF6\u6A21\u62DF\u89E3\u6790\u5931\u8D25\uFF0C\u53EF\u91CD\u8BD5\u6216\u66F4\u6362\u6587\u4EF6\u3002",
+        parameters: []
+      };
+    }
+    if (/运输需求|项目需求|需求书/.test(name)) return parseTransportDemand(file);
+    if (/车辆|租赁/.test(name) && /报价|租赁|车辆/.test(name)) return parseVehicleQuote(file);
+    if (/线路|路线/.test(name)) return parseRouteQuote(file);
+    if (/说明|需求说明|\.docx?$/.test(name)) return parseCustomerDoc(file);
+    if (/\.(png|jpe?g|webp)$/i.test(name) || /截图|图片/.test(name)) return parseImage(file);
+    const parsed = parseValueWithUnit("30\u53F0");
+    return {
+      fileId: file.id,
+      ok: true,
+      mode: "demo",
+      parameters: [
+        param("fleetSize", parsed.normalizedValue, "EXTRACTED", [
+          source(file, { originalText: `\u6F14\u793A\u89E3\u6790\uFF1A\u4ECE\u300C${file.name}\u300D\u8BC6\u522B\u8F66\u8F86\u657030\u53F0` })
+        ], { unit: "\u53F0", confidence: 0.5, originalText: "30\u53F0" }),
+        param("monthlyRentPerVehicle", null, "MISSING", [], { unit: "\u5143" }),
+        param("electricityPrice", null, "MISSING", [], { unit: "\u5143/kWh" }),
+        param("distanceKm", null, "MISSING", [], { unit: "km" }),
+        param("loadTon", null, "MISSING", [], { unit: "\u5428" }),
+        param("tripsPerVehicleMonth", null, "MISSING", [], { unit: "\u8D9F" }),
+        param("freightPrice", null, "MISSING", [], { unit: "\u5143" }),
+        param("loadedEnergyConsumption", null, "MISSING", [], { unit: "kWh/km" }),
+        param("driverCostPerTrip", null, "MISSING", [], { unit: "\u5143/\u8D9F" })
+      ]
+    };
+  }
+  function mergeExtractedParameters(batches) {
+    const map = /* @__PURE__ */ new Map();
+    for (const batch of batches) {
+      if (!batch.ok) continue;
+      for (const p of batch.parameters) {
+        const existing = map.get(p.field);
+        if (!existing) {
+          map.set(p.field, {
+            ...p,
+            sources: [...p.sources],
+            alternatives: p.alternatives ? [...p.alternatives] : void 0
+          });
+          continue;
+        }
+        if (existing.status === "MISSING" && p.value != null && p.status !== "MISSING") {
+          map.set(p.field, { ...p, sources: [...p.sources] });
+          continue;
+        }
+        if (p.status === "MISSING") continue;
+        const same = String(existing.normalizedValue ?? existing.value) === String(p.normalizedValue ?? p.value);
+        if (same) {
+          existing.sources = [...existing.sources, ...p.sources];
+          if ((p.confidence ?? 0) > (existing.confidence ?? 0)) existing.confidence = p.confidence;
+          continue;
+        }
+        const alternatives = [
+          ...existing.alternatives || [
+            {
+              value: existing.value,
+              unit: existing.unit,
+              source: existing.sources[0] || { fileId: "", fileName: "\u672A\u77E5" }
+            }
+          ],
+          {
+            value: p.value,
+            unit: p.unit,
+            source: p.sources[0] || { fileId: "", fileName: "\u672A\u77E5" }
+          }
+        ];
+        map.set(p.field, {
+          ...existing,
+          status: "CONFLICT",
+          value: null,
+          normalizedValue: null,
+          sources: [...existing.sources, ...p.sources],
+          alternatives,
+          confidence: Math.min(existing.confidence ?? 1, p.confidence ?? 1)
+        });
+      }
+    }
+    for (const field of REQUIRED_IMPORT_FIELDS) {
+      if (!map.has(field)) {
+        map.set(field, param(field, null, "MISSING", []));
+      }
+    }
+    return [...map.values()].sort((a, b) => a.field.localeCompare(b.field));
+  }
+  function createImportFileMeta(input) {
+    return {
+      id: createId("FILE"),
+      name: input.name,
+      mimeType: input.mimeType || guessMime(input.name),
+      size: input.size ?? 0,
+      status: "UPLOADED",
+      parserMode: "demo",
+      addedAt: nowIso()
+    };
+  }
+  function guessMime(name) {
+    const n = name.toLowerCase();
+    if (n.endsWith(".xlsx") || n.endsWith(".xls")) return "application/vnd.ms-excel";
+    if (n.endsWith(".pdf")) return "application/pdf";
+    if (n.endsWith(".docx") || n.endsWith(".doc")) return "application/msword";
+    if (n.endsWith(".png")) return "image/png";
+    if (n.endsWith(".jpg") || n.endsWith(".jpeg")) return "image/jpeg";
+    return "application/octet-stream";
+  }
+  var DEMO_IMPORT_SAMPLE_FILES = [
+    { name: "\u9879\u76EE\u8FD0\u8F93\u9700\u6C42.xlsx", mimeType: "application/vnd.ms-excel", size: 48200 },
+    { name: "\u8F66\u8F86\u79DF\u8D41\u62A5\u4EF7.pdf", mimeType: "application/pdf", size: 126e3 },
+    { name: "\u7EBF\u8DEF\u62A5\u4EF7\u8868.xlsx", mimeType: "application/vnd.ms-excel", size: 31800 },
+    { name: "\u5BA2\u6237\u9700\u6C42\u8BF4\u660E.docx", mimeType: "application/msword", size: 22400 }
+  ];
+
+  // src/demo/import/tools.ts
+  function createImportSessionTool(repos2, partial) {
+    const session = repos2.imports.createSession(partial);
+    return { session, trace: { tool: "createImportSession", ok: true, detail: session.id } };
+  }
+  function addImportFilesTool(repos2, sessionId, files) {
+    const session = repos2.imports.getSession(sessionId);
+    if (!session) return { session: null, added: [], trace: { tool: "addImportFiles", ok: false, detail: "session missing" } };
+    const MAX_FILES = 12;
+    const MAX_SIZE = 20 * 1024 * 1024;
+    const allowed = /\.(xlsx|xls|pdf|docx|doc|png|jpe?g)$/i;
+    const added = [];
+    const errors = [];
+    for (const f of files) {
+      if (session.files.length + added.length >= MAX_FILES) {
+        errors.push("\u8D85\u8FC7\u5355\u6B21\u4E0A\u4F20\u6570\u91CF\u4E0A\u9650");
+        break;
+      }
+      if (!allowed.test(f.name)) {
+        errors.push(`${f.name}\uFF1A\u7C7B\u578B\u4E0D\u5141\u8BB8`);
+        continue;
+      }
+      if ((f.size ?? 0) > MAX_SIZE) {
+        errors.push(`${f.name}\uFF1A\u8D85\u8FC7 20MB`);
+        continue;
+      }
+      const safeName = f.name.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "_");
+      added.push(createImportFileMeta({ name: safeName, mimeType: f.mimeType, size: f.size }));
+    }
+    const nextFiles = [...session.files, ...added];
+    const saved = repos2.imports.updateFiles(sessionId, nextFiles);
+    return {
+      session: saved,
+      added,
+      trace: { tool: "addImportFiles", ok: added.length > 0, detail: errors.join(";") || `${added.length} added` }
+    };
+  }
+  function loadDemoSampleFilesTool(repos2, sessionId) {
+    return addImportFilesTool(
+      repos2,
+      sessionId,
+      DEMO_IMPORT_SAMPLE_FILES.map((f) => ({ name: f.name, mimeType: f.mimeType, size: f.size }))
+    );
+  }
+  function parseImportFilesTool(repos2, sessionId) {
+    const session = repos2.imports.getSession(sessionId);
+    if (!session) return { session: null, trace: { tool: "parseImportFiles", ok: false } };
+    session.status = "parsing";
+    repos2.imports.saveSession(session);
+    const batches = [];
+    for (const file of session.files) {
+      file.status = "PARSING";
+      const result = parseImportFileDemo(file);
+      file.parserMode = "demo";
+      if (!result.ok) {
+        file.status = "FAILED";
+        file.errorMessage = result.errorMessage;
+      } else {
+        file.status = "PARSED";
+        file.errorMessage = void 0;
+      }
+      batches.push(result);
+      if (result.suggestedProjectName) {
+        session.suggestedProjectName = result.suggestedProjectName;
+      }
+    }
+    const parameters = mergeExtractedParameters(batches);
+    session.parameters = parameters;
+    session.status = "review";
+    session.updatedAt = nowIso();
+    if (session.suggestedProjectName) {
+      const hit = repos2.projects.listProjects().find((p) => p.projectName.includes(session.suggestedProjectName) || session.suggestedProjectName.includes(p.projectName));
+      if (hit) {
+        session.suggestedProjectId = hit.projectId;
+      }
+    }
+    const saved = repos2.imports.saveSession(session);
+    return {
+      session: saved,
+      trace: { tool: "parseImportFiles", ok: true, detail: `params=${parameters.length}` }
+    };
+  }
+  function retryImportFileTool(repos2, sessionId, fileId) {
+    const session = repos2.imports.getSession(sessionId);
+    if (!session) return { session: null, trace: { tool: "retryImportFile", ok: false } };
+    const file = session.files.find((f) => f.id === fileId);
+    if (!file) return { session, trace: { tool: "retryImportFile", ok: false, detail: "file missing" } };
+    file.status = "UPLOADED";
+    file.errorMessage = void 0;
+    repos2.imports.saveSession(session);
+    return parseImportFilesTool(repos2, sessionId);
+  }
+  function confirmExtractedParameterTool(repos2, sessionId, field, value, status = "CONFIRMED") {
+    const session = repos2.imports.getSession(sessionId);
+    if (!session) return { session: null, trace: { tool: "confirmExtractedParameter", ok: false } };
+    const p = session.parameters.find((x) => x.field === field);
+    if (!p) return { session, trace: { tool: "confirmExtractedParameter", ok: false, detail: "field missing" } };
+    p.value = value;
+    p.normalizedValue = value;
+    p.status = status;
+    const saved = repos2.imports.saveSession(session);
+    return { session: saved, trace: { tool: "confirmExtractedParameter", ok: true, detail: field } };
+  }
+  function resolveConflictTool(repos2, sessionId, field, choice) {
+    const session = repos2.imports.getSession(sessionId);
+    if (!session) return { session: null, trace: { tool: "resolveConflict", ok: false } };
+    const p = session.parameters.find((x) => x.field === field);
+    if (!p || p.status !== "CONFLICT") {
+      return { session, trace: { tool: "resolveConflict", ok: false, detail: "not conflict" } };
+    }
+    let value = null;
+    let picked;
+    if (choice.manualValue != null && choice.manualValue !== "") {
+      value = choice.manualValue;
+      p.status = "MANUAL";
+    } else if (choice.alternativeIndex != null && p.alternatives?.[choice.alternativeIndex]) {
+      picked = p.alternatives[choice.alternativeIndex];
+      value = picked.value;
+      p.status = "CONFIRMED";
+      if (picked.source) p.sources = [picked.source];
+    } else {
+      return { session, trace: { tool: "resolveConflict", ok: false, detail: "no choice" } };
+    }
+    p.value = value;
+    p.normalizedValue = value;
+    p.alternatives = void 0;
+    const saved = repos2.imports.saveSession(session);
+    return { session: saved, trace: { tool: "resolveConflict", ok: true, detail: field } };
+  }
+  function confirmInferredParameterTool(repos2, sessionId, field, accept, manualValue) {
+    const session = repos2.imports.getSession(sessionId);
+    if (!session) return { session: null, trace: { tool: "confirmInferredParameter", ok: false } };
+    const p = session.parameters.find((x) => x.field === field);
+    if (!p) return { session, trace: { tool: "confirmInferredParameter", ok: false } };
+    if (!accept) {
+      if (manualValue == null) {
+        p.status = "MISSING";
+        p.value = null;
+        p.normalizedValue = null;
+      } else {
+        p.value = manualValue;
+        p.normalizedValue = manualValue;
+        p.status = "MANUAL";
+      }
+    } else {
+      p.status = "CONFIRMED";
+    }
+    return {
+      session: repos2.imports.saveSession(session),
+      trace: { tool: "confirmInferredParameter", ok: true, detail: field }
+    };
+  }
+  function previewImportParamPatches(session, patches) {
+    return {
+      changes: patches.map((patch2) => {
+        const cur = session.parameters.find((p) => p.field === patch2.field);
+        return {
+          field: patch2.field,
+          label: patch2.label || cur?.label || patch2.field,
+          from: cur?.normalizedValue == null ? "\u2014" : String(cur.normalizedValue),
+          to: String(patch2.value),
+          unit: patch2.unit || cur?.unit || ""
+        };
+      })
+    };
+  }
+  function applyImportParamPatchesTool(repos2, sessionId, patches) {
+    const session = repos2.imports.getSession(sessionId);
+    if (!session) return { session: null, trace: { tool: "updateExtractedParameter", ok: false } };
+    for (const patch2 of patches) {
+      let p = session.parameters.find((x) => x.field === patch2.field);
+      if (!p) {
+        p = {
+          field: patch2.field,
+          label: patch2.label,
+          value: patch2.value,
+          normalizedValue: patch2.value,
+          unit: patch2.unit,
+          status: "MANUAL",
+          sources: [],
+          required: true,
+          group: "cost"
+        };
+        session.parameters.push(p);
+      } else {
+        p.value = patch2.value;
+        p.normalizedValue = patch2.value;
+        p.status = "MANUAL";
+        if (patch2.unit) p.unit = patch2.unit;
+      }
+    }
+    return {
+      session: repos2.imports.saveSession(session),
+      trace: { tool: "updateExtractedParameter", ok: true, detail: patches.map((p) => p.field).join(",") }
+    };
+  }
+  function createScenarioFromImportTool(repos2, sessionId, opts) {
+    const session = repos2.imports.getSession(sessionId);
+    if (!session) {
+      return {
+        session: null,
+        scenario: null,
+        project: null,
+        defaultsUsed: [],
+        errors: ["\u5BFC\u5165\u4F1A\u8BDD\u4E0D\u5B58\u5728"],
+        trace: { tool: "createScenarioFromImport", ok: false }
+      };
+    }
+    const gate = canStartCalculation(session.parameters);
+    if (!gate.ok) {
+      return {
+        session,
+        scenario: null,
+        project: null,
+        defaultsUsed: [],
+        errors: gate.reasons,
+        trace: { tool: "createScenarioFromImport", ok: false, detail: gate.reasons.join(";") }
+      };
+    }
+    const mapped = mapToSchemeCalculationInput(session.parameters);
+    if (!mapped.ok || !mapped.inputs) {
+      return {
+        session,
+        scenario: null,
+        project: null,
+        defaultsUsed: mapped.defaultsUsed,
+        errors: mapped.errors,
+        trace: { tool: "mapToCalculationInput", ok: false }
+      };
+    }
+    let projectId = opts?.projectId || session.projectId;
+    let project = projectId ? repos2.projects.getProject(projectId) : null;
+    if (!project && opts?.linkSuggested && session.suggestedProjectId) {
+      project = repos2.projects.getProject(session.suggestedProjectId);
+      projectId = project?.projectId;
+    }
+    if (!project && (opts?.createTempProject || !projectId)) {
+      const now = nowIso();
+      const tempId = `PRJ-TEMP-${Date.now().toString(36).toUpperCase()}`;
+      project = {
+        projectId: tempId,
+        projectName: opts?.tempName || mapped.projectPatch.projectName || session.tempProjectName || "\u4E34\u65F6\u6D4B\u7B97\u9879\u76EE",
+        customer: mapped.projectPatch.customer || "\u5F85\u8865\u5BA2\u6237",
+        region: mapped.projectPatch.region || "\u5F85\u5B9A",
+        owner: mapped.projectPatch.owner || "\u672A\u6307\u5B9A",
+        projectType: mapped.projectPatch.projectType || "\u4E34\u65F6\u6D4B\u7B97",
+        place: "",
+        tractorDemand: null,
+        trailerDemand: null,
+        members: [],
+        stage: "\u65B9\u6848\u6D4B\u7B97",
+        status: "\u8FDB\u884C\u4E2D",
+        createdAt: now,
+        updatedAt: now,
+        source: "ai_import_temp"
+      };
+      project = repos2.projects.saveProject(project);
+      projectId = project.projectId;
+    }
+    if (!project || !projectId) {
+      return {
+        session,
+        scenario: null,
+        project: null,
+        defaultsUsed: mapped.defaultsUsed,
+        errors: ["\u8BF7\u5148\u5173\u8054\u5DF2\u6709\u9879\u76EE\u6216\u521B\u5EFA\u4E34\u65F6\u6D4B\u7B97"],
+        trace: { tool: "createScenarioFromImport", ok: false, detail: "no project" }
+      };
+    }
+    session.projectId = projectId;
+    const scenario2 = repos2.scenarios.saveScenario({
+      projectId,
+      name: mapped.inputs.schemeName || "AI\u5BFC\u5165\u6D4B\u7B97\u65B9\u6848",
+      status: "calculated",
+      inputs: mapped.inputs,
+      notes: `\u6765\u81EA\u5BFC\u5165\u4F1A\u8BDD ${session.id}\uFF1Bmode=demo parser`,
+      inputsSource: "user"
+    });
+    session.status = "completed";
+    session.completedScenarioId = scenario2.id;
+    repos2.imports.saveSession(session);
+    return {
+      session: cloneJson(session),
+      scenario: scenario2,
+      project,
+      defaultsUsed: mapped.defaultsUsed,
+      errors: [],
+      trace: { tool: "createScenarioFromImport", ok: true, detail: scenario2.id }
+    };
+  }
+  function getImportSummaryTool(session) {
+    return {
+      summary: summarizeParameterStates(session.parameters),
+      canCalculate: canStartCalculation(session.parameters),
+      trace: { tool: "getImportSummary", ok: true }
+    };
+  }
+
+  // src/demo/import/supplement.ts
+  function parseImportSupplementIntent(message) {
+    const q = message.replace(/\s+/g, "");
+    const patches = [];
+    const rent = q.match(/月租[^0-9\-]{0,6}(-?\d+(?:\.\d+)?)/);
+    if (rent) patches.push({ field: "monthlyRentPerVehicle", value: Number(rent[1]), label: "\u5355\u8F66\u6708\u79DF", unit: "\u5143" });
+    const energy = q.match(/(?:重载)?能耗[^0-9\-]{0,6}(-?\d+(?:\.\d+)?)/);
+    if (energy) {
+      patches.push({
+        field: "loadedEnergyConsumption",
+        value: Number(energy[1]),
+        label: "\u91CD\u8F7D\u80FD\u8017",
+        unit: "kWh/km"
+      });
+    }
+    const driver = q.match(/司机[^0-9\-]{0,10}(-?\d+(?:\.\d+)?)/);
+    if (driver) {
+      patches.push({ field: "driverCostPerTrip", value: Number(driver[1]), label: "\u53F8\u673A\u5355\u8D9F\u6210\u672C", unit: "\u5143/\u8D9F" });
+    }
+    const fleet = q.match(/车辆[^0-9\-]{0,6}(-?\d+)/);
+    if (fleet && !/增加|减少/.test(q)) {
+      patches.push({ field: "fleetSize", value: Number(fleet[1]), label: "\u8F66\u8F86\u6570", unit: "\u53F0" });
+    }
+    const elec = q.match(/电价[^0-9\-]{0,6}(-?\d+(?:\.\d+)?)/);
+    if (elec) patches.push({ field: "electricityPrice", value: Number(elec[1]), label: "\u7535\u4EF7", unit: "\u5143/kWh" });
+    return patches;
   }
 
   // src/demo/ai/llm-intent.ts
@@ -6444,6 +7356,7 @@ ${insight.disclaimer}`,
       demo.projects.clear();
       demo.scenarios.clear();
       demo.parameters.clear();
+      demo.imports.clear();
       repos = createDemoRepositories({
         storage: demo.storage,
         seedIfEmpty: true,
@@ -6488,7 +7401,38 @@ ${insight.disclaimer}`,
     }),
     createAssistantSession,
     assistantShortcuts: ASSISTANT_SHORTCUTS,
-    validateLlmIntent
+    validateLlmIntent,
+    importApi: {
+      createSession: (partial) => createImportSessionTool(ensureRepos(), partial).session,
+      getSession: (id) => ensureRepos().imports.getSession(id),
+      listSessions: () => ensureRepos().imports.listSessions(),
+      addFiles: (sessionId, files) => addImportFilesTool(ensureRepos(), sessionId, files),
+      loadDemoSamples: (sessionId) => loadDemoSampleFilesTool(ensureRepos(), sessionId),
+      parseFiles: (sessionId) => parseImportFilesTool(ensureRepos(), sessionId),
+      retryFile: (sessionId, fileId) => retryImportFileTool(ensureRepos(), sessionId, fileId),
+      resolveConflict: (sessionId, field, choice) => resolveConflictTool(ensureRepos(), sessionId, field, choice),
+      confirmInferred: (sessionId, field, accept, manualValue) => confirmInferredParameterTool(ensureRepos(), sessionId, field, accept, manualValue),
+      confirmParameter: (sessionId, field, value) => confirmExtractedParameterTool(ensureRepos(), sessionId, field, value),
+      previewSupplement: (sessionId, message) => {
+        const session = ensureRepos().imports.getSession(sessionId);
+        const patches = parseImportSupplementIntent(message);
+        if (!session) return { patches, changes: [] };
+        return { patches, changes: previewImportParamPatches(session, patches).changes };
+      },
+      applySupplement: (sessionId, patches) => applyImportParamPatchesTool(ensureRepos(), sessionId, patches),
+      summarize: (sessionId) => {
+        const session = ensureRepos().imports.getSession(sessionId);
+        if (!session) return null;
+        return getImportSummaryTool(session);
+      },
+      canStart: (sessionId) => {
+        const session = ensureRepos().imports.getSession(sessionId);
+        if (!session) return { ok: false, reasons: ["\u4F1A\u8BDD\u4E0D\u5B58\u5728"] };
+        return canStartCalculation(session.parameters);
+      },
+      createScenario: (sessionId, opts) => createScenarioFromImportTool(ensureRepos(), sessionId, opts),
+      demoSampleFiles: DEMO_IMPORT_SAMPLE_FILES
+    }
   };
   if (typeof window !== "undefined") {
     window.PmCalc = PmCalc;

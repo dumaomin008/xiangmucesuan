@@ -1,4 +1,5 @@
 import { DEMO_STORAGE_KEYS } from "./keys";
+import { ImportRepository } from "./repository/importRepository";
 import { ParameterRepository } from "./repository/parameterRepository";
 import { ProjectRepository } from "./repository/projectRepository";
 import { ScenarioRepository } from "./repository/scenarioRepository";
@@ -10,6 +11,7 @@ export type DemoRepositories = {
   projects: ProjectRepository;
   scenarios: ScenarioRepository;
   parameters: ParameterRepository;
+  imports: ImportRepository;
 };
 
 export type CreateDemoReposOptions = {
@@ -26,13 +28,14 @@ export function createDemoRepositories(options: CreateDemoReposOptions = {}): De
   const projects = new ProjectRepository(storage);
   const scenarios = new ScenarioRepository(storage);
   const parameters = new ParameterRepository(storage);
+  const imports = new ImportRepository(storage);
 
   const empty = projects.listProjects().length === 0 && scenarios.listScenarios().length === 0;
   if (options.forceReseed || (options.seedIfEmpty !== false && empty)) {
     seedDemoData({ projects, scenarios, parameters });
   }
 
-  return { storage, projects, scenarios, parameters };
+  return { storage, projects, scenarios, parameters, imports };
 }
 
 export function seedDemoData(repos: Pick<DemoRepositories, "projects" | "scenarios" | "parameters">) {
@@ -50,6 +53,7 @@ export function resetDemoData(repos: DemoRepositories) {
   repos.projects.clear();
   repos.scenarios.clear();
   repos.parameters.clear();
+  repos.imports.clear();
   seedDemoData(repos);
 }
 
