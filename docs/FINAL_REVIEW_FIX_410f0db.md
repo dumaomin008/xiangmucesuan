@@ -80,4 +80,4 @@ E2E 强制 `DEMO_AI_API_KEY=""`，生成解读区域出现本地解读 / AI 暂�
 
 ## 10. Git commit SHA
 
-见本轮 push 后 `git rev-parse HEAD`（提交信息附于 PR/push 输出）。
+`854f34b3168b00364739ed6ca4f8bbb62ad8a9d8`（已 push 至 `origin/main`）
