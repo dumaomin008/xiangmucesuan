@@ -1121,8 +1121,11 @@ table .btn.ghost:not(.danger):hover { color:var(--brand-strong); background:var(
 }
 
 /* ===== Phase 5：AI 解读区（与计算解耦，失败仅本区域降级） ===== */
-.calc-ai-panel { margin-top:0; }
+.calc-ai-panel { margin-top:0; position:relative; }
 .calc-ai-body { display:grid; gap:14px; }
+.calc-ai-chips { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+.calc-ai-chip { border:0; background:var(--subtle); color:var(--text-2); border-radius:999px; padding:6px 12px; font-size:12px; cursor:pointer; }
+.calc-ai-chip:hover { background:var(--brand-soft); color:var(--brand-strong); }
 .calc-ai-degrade { display:flex; flex-wrap:wrap; align-items:center; gap:8px 10px; padding:10px 12px; background:var(--subtle); border-radius:var(--r-control); color:var(--text-2); font-size:12px; }
 .calc-ai-remote { padding:12px; border-left:3px solid var(--brand); background:var(--brand-soft); border-radius:0 var(--r-control) var(--r-control) 0; }
 .calc-ai-remote-label { font-size:11px; color:var(--brand-strong); margin-bottom:6px; font-weight:500; }
@@ -1138,6 +1141,41 @@ table .btn.ghost:not(.danger):hover { color:var(--brand-strong); background:var(
 .calc-ai-risk p { margin:0; color:var(--text-2); line-height:1.55; font-size:12px; }
 .calc-ai-reco { margin-top:6px !important; color:var(--text) !important; }
 .calc-ai-disclaimer { margin:0; color:var(--text-3); font-size:11px; }
+.calc-ai-fab {
+  position:fixed; right:24px; bottom:24px; z-index:30;
+  border:0; border-radius:999px; padding:12px 18px;
+  background:var(--brand); color:#fff; font-weight:600; box-shadow:0 10px 30px rgba(15,23,42,.18);
+  cursor:pointer;
+}
+.calc-ai-drawer {
+  position:fixed; top:0; right:0; bottom:0; width:min(420px,100vw); z-index:40;
+  background:rgba(255,255,255,.92); backdrop-filter:blur(18px); saturate(1.2);
+  border-left:1px solid rgba(15,23,42,.08);
+  box-shadow:-12px 0 40px rgba(15,23,42,.12);
+  display:flex; flex-direction:column; padding:16px;
+}
+.calc-ai-drawer[hidden] { display:none !important; }
+.calc-ai-drawer-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; margin-bottom:12px; }
+.calc-ai-drawer-head strong { display:block; font-size:16px; }
+.calc-ai-drawer-head p { margin:4px 0 0; color:var(--text-3); font-size:12px; }
+.calc-ai-chat { flex:1; overflow:auto; display:flex; flex-direction:column; gap:10px; padding-right:4px; }
+.calc-ai-msg { display:flex; }
+.calc-ai-msg.user { justify-content:flex-end; }
+.calc-ai-bubble {
+  max-width:92%; padding:10px 12px; border-radius:14px; font-size:13px; line-height:1.55;
+  background:var(--subtle); color:var(--text);
+  white-space:normal; word-break:break-word;
+}
+.calc-ai-msg.user .calc-ai-bubble { background:var(--brand-soft); color:var(--brand-strong); }
+.calc-ai-compose { display:grid; gap:8px; margin-top:12px; }
+.calc-ai-confirm { margin-top:10px; }
+.calc-ai-confirm-card {
+  padding:12px; border-radius:var(--r-control); background:#fff8eb; border:1px solid rgba(180,120,20,.2);
+}
+.calc-ai-confirm-card ul { margin:8px 0; padding-left:18px; color:var(--text-2); font-size:12px; }
+.calc-ai-confirm-actions { display:flex; gap:8px; }
+.calc-ai-compare { margin-top:8px; font-size:12px; }
+body.calc-ai-drawer-open { overflow:hidden; }
 @media (max-width:900px) {
   .calc-ai-columns, .calc-ai-risk-grid { grid-template-columns:1fr; }
 }

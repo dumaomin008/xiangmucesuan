@@ -456,7 +456,7 @@ var PmCalcModule = (() => {
     return this.cmp(y) < 1;
   };
   P.logarithm = P.log = function(base) {
-    var isBase10, d, denominator, k, inf, num, sd, r, arg = this, Ctor = arg.constructor, pr = Ctor.precision, rm = Ctor.rounding, guard = 5;
+    var isBase10, d, denominator, k, inf, num2, sd, r, arg = this, Ctor = arg.constructor, pr = Ctor.precision, rm = Ctor.rounding, guard = 5;
     if (base == null) {
       base = new Ctor(10);
       isBase10 = true;
@@ -480,15 +480,15 @@ var PmCalcModule = (() => {
     }
     external = false;
     sd = pr + guard;
-    num = naturalLogarithm(arg, sd);
+    num2 = naturalLogarithm(arg, sd);
     denominator = isBase10 ? getLn10(Ctor, sd + 10) : naturalLogarithm(base, sd);
-    r = divide(num, denominator, sd, 1);
+    r = divide(num2, denominator, sd, 1);
     if (checkRoundingDigits(r.d, k = pr, rm)) {
       do {
         sd += 10;
-        num = naturalLogarithm(arg, sd);
+        num2 = naturalLogarithm(arg, sd);
         denominator = isBase10 ? getLn10(Ctor, sd + 10) : naturalLogarithm(base, sd);
-        r = divide(num, denominator, sd, 1);
+        r = divide(num2, denominator, sd, 1);
         if (!inf) {
           if (+digitsToString(r.d).slice(k + 1, k + 15) + 1 == 1e14) {
             r = finalise(r, pr + 1, 0);
@@ -3993,8 +3993,8 @@ var PmCalcModule = (() => {
     getPreferences() {
       return cloneJson(this.prefStore.read().data);
     }
-    savePreferences(patch) {
-      const next = { ...this.prefStore.read().data, ...patch };
+    savePreferences(patch2) {
+      const next = { ...this.prefStore.read().data, ...patch2 };
       this.prefStore.write(next);
       return cloneJson(next);
     }
@@ -4790,10 +4790,18 @@ var PmCalcModule = (() => {
     }
     const question = params.question?.trim() || "";
     let summary = `\u5F15\u64CE\u7ED3\u679C\u663E\u793A\u65B9\u6848\u300C${scenario2.name}\u300D\u6708\u5229\u6DA6 ${money2(profit)} \u5143\u3001\u5229\u6DA6\u7387 ${pct(margin)}\u3002${top ? `\u6700\u5927\u6210\u672C\u9879\u4E3A${top.name}\u3002` : ""}${highRisks.length ? `\u9AD8\u98CE\u9669\u5173\u6CE8\uFF1A${highRisks.map((r) => r.name).join("\u3001")}\u3002` : "\u6682\u65E0\u9AD8\u7B49\u7EA7\u98CE\u9669\u3002"}\u4EE5\u4E0A\u6570\u5B57\u5747\u6765\u81EA\u8BA1\u7B97\u5F15\u64CE\uFF0C\u672C\u6A21\u5757\u53EA\u505A\u89E3\u91CA\u3002`;
-    if (/最大成本|成本结构/.test(question)) {
-      summary = top ? `\u6D4B\u7B97\u5F15\u64CE\u6210\u672C\u7ED3\u6784\u4E2D\u6700\u5927\u9879\u662F\u300C${top.name}\u300D\uFF0C\u91D1\u989D ${money2(top.amount)} \u5143/\u6708\u3002\u8BE5\u6570\u5B57\u6765\u81EA Calculation Engine\uFF0C\u4E0D\u662F\u6A21\u578B\u4F30\u7B97\u3002` : "\u8FD8\u6CA1\u6709\u6210\u672C\u7ED3\u6784\u7ED3\u679C\u3002";
-    } else if (/敏感|风险/.test(question)) {
-      summary = `\u654F\u611F\u6027\u7531\u5F15\u64CE\u91CD\u7B97\uFF1A\u8FD0\u4EF7/\u7535\u4EF7/\u8D9F\u6B21\u6CE2\u52A8\u5BF9\u5229\u6DA6\u5F71\u54CD\u89C1\u4E0B\u65B9\u98CE\u9669\u6E05\u5355\u3002\u6838\u5FC3 KPI\uFF1A\u6708\u5229\u6DA6 ${money2(profit)} \u5143\uFF0C\u5229\u6DA6\u7387 ${pct(margin)}\u3002`;
+    if (/最大成本|成本结构|分析成本/.test(question)) {
+      const costLines = costs.slice(0, 4).map((c, i) => `${i + 1}. ${c.name} ${money2(c.amount)} \u5143`).join("\uFF1B");
+      summary = top ? `\u6D4B\u7B97\u5F15\u64CE\u6210\u672C\u7ED3\u6784\u4E2D\u6700\u5927\u9879\u662F\u300C${top.name}\u300D\uFF0C\u91D1\u989D ${money2(top.amount)} \u5143/\u6708\u3002\u4E3B\u8981\u6784\u6210\uFF1A${costLines || "\u6682\u7F3A"}\u3002\u8BE5\u6570\u5B57\u6765\u81EA Calculation Engine\uFF0C\u4E0D\u662F\u6A21\u578B\u4F30\u7B97\u3002` : "\u8FD8\u6CA1\u6709\u6210\u672C\u7ED3\u6784\u7ED3\u679C\u3002";
+    } else if (/为什么.*利润|利润.*低|利润.*不高|项目情况/.test(question)) {
+      const drivers = [
+        `\u6536\u5165\u4FA7\uFF1A\u6708\u8425\u6536 ${money2(revenue)} \u5143`,
+        top ? `\u6210\u672C\u4FA7\u6700\u5927\u9879\u300C${top.name}\u300D\u7EA6 ${money2(top.amount)} \u5143/\u6708` : `\u6210\u672C\u4FA7\uFF1A\u6708\u603B\u6210\u672C ${money2(cost)} \u5143`,
+        `\u7ED3\u679C\uFF1A\u6708\u5229\u6DA6 ${money2(profit)} \u5143\uFF0C\u5229\u6DA6\u7387 ${pct(margin)}`
+      ];
+      summary = `\u4E1A\u52A1\u8BCA\u65AD\uFF08\u57FA\u4E8E\u5F15\u64CE\u7ED3\u679C\uFF09\uFF1A${drivers.join("\uFF1B")}\u3002${profit < 0 ? "\u5229\u6DA6\u4E3A\u8D1F\uFF0C\u4F18\u5148\u590D\u6838\u8FD0\u4EF7\u3001\u7535\u4EF7\u4E0E\u8D9F\u6B21\u5047\u8BBE\u3002" : margin !== null && margin < 0.08 ? "\u5229\u6DA6\u504F\u8584\uFF0C\u80FD\u6E90/\u8F66\u8F86/\u53F8\u673A\u6210\u672C\u4EFB\u4E00\u4E0A\u884C\u90FD\u53EF\u80FD\u4FB5\u8680\u7A7A\u95F4\u3002" : "\u5229\u6DA6\u5C1A\u53EF\uFF0C\u4ECD\u5EFA\u8BAE\u5173\u6CE8\u7535\u4EF7\u4E0E\u8FD0\u4EF7\u654F\u611F\u6027\u3002"}`;
+    } else if (/敏感|风险|异常|检查.*参数/.test(question)) {
+      summary = `\u654F\u611F\u6027\u7531\u5F15\u64CE\u91CD\u7B97\uFF1A\u8FD0\u4EF7/\u7535\u4EF7/\u8D9F\u6B21\u6CE2\u52A8\u5BF9\u5229\u6DA6\u5F71\u54CD\u89C1\u4E0B\u65B9\u98CE\u9669\u6E05\u5355\u3002\u6838\u5FC3 KPI\uFF1A\u6708\u5229\u6DA6 ${money2(profit)} \u5143\uFF0C\u5229\u6DA6\u7387 ${pct(margin)}\u3002${highRisks.length ? `\u5F53\u524D\u9AD8\u98CE\u9669\uFF1A${highRisks.map((r) => r.name).join("\u3001")}\u3002` : "\u6682\u65E0\u9AD8\u7B49\u7EA7\u98CE\u9669\u3002"}`;
     } else if (/亏损|盈利|能不能做/.test(question)) {
       summary = profit >= 0 ? `\u6309\u5F53\u524D\u53C2\u6570\uFF0C\u5F15\u64CE\u7ED9\u51FA\u6B63\u5229\u6DA6 ${money2(profit)} \u5143/\u6708\u3002\u662F\u5426\u7ACB\u9879\u8FD8\u9700\u7ED3\u5408\u5408\u540C\u9501\u4EF7\u3001\u573A\u7AD9\u7535\u4EF7\u4E0E\u5B9E\u9645\u8D9F\u6B21\u3002` : `\u6309\u5F53\u524D\u53C2\u6570\uFF0C\u5F15\u64CE\u7ED9\u51FA\u4E8F\u635F ${money2(profit)} \u5143/\u6708\u3002\u4E0D\u5EFA\u8BAE\u5728\u672A\u4FEE\u6B63\u5173\u952E\u5047\u8BBE\u524D\u63A8\u8FDB\u7B7E\u7EA6\u3002`;
     }
@@ -4922,6 +4930,806 @@ var PmCalcModule = (() => {
     };
   }
 
+  // src/demo/ai/params.ts
+  var FIELD_META = {
+    electricityPrice: { label: "\u7535\u4EF7", unit: "\u5143/kWh" },
+    fleetSize: { label: "\u8F66\u8F86\u6570", unit: "\u53F0" },
+    freightPrice: { label: "\u8FD0\u4EF7", unit: "\u5143" },
+    tripsPerVehicleMonth: { label: "\u5355\u8F66\u6708\u8D9F\u6B21", unit: "\u8D9F" },
+    distanceKm: { label: "\u91CC\u7A0B", unit: "km" },
+    loadTon: { label: "\u8F7D\u91CD", unit: "\u5428" },
+    loadedEnergyConsumption: { label: "\u91CD\u8F7D\u80FD\u8017", unit: "kWh/km" },
+    driverCostPerTrip: { label: "\u53F8\u673A\u6210\u672C", unit: "\u5143/\u8D9F" },
+    monthlyRentPerVehicle: { label: "\u5355\u8F66\u6708\u79DF", unit: "\u5143" }
+  };
+  function firstSegment(inputs) {
+    return inputs.routes?.[0]?.segments?.[0];
+  }
+  function num(v) {
+    if (v === null || v === void 0 || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  function getParamValue(inputs, field) {
+    const seg = firstSegment(inputs);
+    switch (field) {
+      case "fleetSize":
+        return num(inputs.fleetSize ?? inputs.vehicle?.fleetSize);
+      case "monthlyRentPerVehicle":
+        return num(inputs.vehicle?.monthlyRentPerVehicle);
+      case "electricityPrice":
+        return num(seg?.electricityPrice);
+      case "freightPrice":
+        return num(seg?.freightPrice);
+      case "tripsPerVehicleMonth":
+        return num(seg?.tripsPerVehicleMonth);
+      case "distanceKm":
+        return num(seg?.distanceKm);
+      case "loadTon":
+        return num(seg?.loadTon);
+      case "loadedEnergyConsumption":
+        return num(seg?.loadedEnergyConsumption);
+      case "driverCostPerTrip":
+        return num(seg?.driverCostPerTrip);
+      default:
+        return null;
+    }
+  }
+  function snapshotParams(inputs) {
+    return Object.keys(FIELD_META).map((field) => {
+      const meta = FIELD_META[field];
+      const value = getParamValue(inputs, field);
+      return {
+        field,
+        label: meta.label,
+        value,
+        unit: meta.unit,
+        display: value == null ? "\u2014" : `${value}${meta.unit ? ` ${meta.unit}` : ""}`
+      };
+    });
+  }
+  function applyOne(inputs, patch2) {
+    const current = getParamValue(inputs, patch2.field);
+    let next;
+    if (patch2.operation === "set") next = patch2.value;
+    else if (patch2.operation === "add") next = (current ?? 0) + patch2.value;
+    else next = (current ?? 0) * patch2.value;
+    if (patch2.field === "fleetSize") {
+      const n = Math.max(1, Math.round(next));
+      inputs.fleetSize = n;
+      if (inputs.vehicle) inputs.vehicle.fleetSize = n;
+      return;
+    }
+    if (patch2.field === "monthlyRentPerVehicle") {
+      if (inputs.vehicle) inputs.vehicle.monthlyRentPerVehicle = String(next);
+      return;
+    }
+    const key = patch2.field;
+    for (const route of inputs.routes || []) {
+      for (const seg of route.segments || []) {
+        seg[key] = String(next);
+      }
+    }
+  }
+  function applyParamPatches(inputs, patches) {
+    const next = cloneJson(inputs);
+    const changes = patches.map((patch2) => {
+      const meta = FIELD_META[patch2.field];
+      const fromVal = getParamValue(next, patch2.field);
+      applyOne(next, patch2);
+      const toVal = getParamValue(next, patch2.field);
+      return {
+        field: patch2.field,
+        label: meta.label,
+        from: fromVal == null ? "\u2014" : String(fromVal),
+        to: toVal == null ? "\u2014" : String(toVal),
+        unit: meta.unit
+      };
+    });
+    return { inputs: next, changes };
+  }
+
+  // src/demo/ai/intent.ts
+  function compact(q) {
+    return q.replace(/\s+/g, "");
+  }
+  function numMatch(q, patterns) {
+    for (const re of patterns) {
+      const m = q.match(re);
+      if (m) {
+        const n = Number(m[1]);
+        if (Number.isFinite(n)) return n;
+      }
+    }
+    return null;
+  }
+  function patch(field, operation, value) {
+    const meta = FIELD_META[field];
+    return { field, label: meta.label, operation, value, unit: meta.unit };
+  }
+  function parseAssistantIntent(question) {
+    const raw = question.trim();
+    const q = compact(raw);
+    if (!q) {
+      return { kind: "unmatched", title: "\u7A7A\u95EE\u9898", patches: [], parser: "rule" };
+    }
+    if (/^(确认|确认并测算|应用并测算|好的|执行|同意)$/.test(q) || /确认并.*测算/.test(q)) {
+      return { kind: "confirm", title: "\u786E\u8BA4\u4FEE\u6539\u5E76\u6D4B\u7B97", patches: [], parser: "rule" };
+    }
+    if (/^(取消|不要|算了|放弃)$/.test(q)) {
+      return { kind: "cancel", title: "\u53D6\u6D88\u4FEE\u6539", patches: [], parser: "rule" };
+    }
+    if (/汇报|给领导|经营结论|汇报结论|项目结论/.test(q)) {
+      return { kind: "report", title: "\u751F\u6210\u6C47\u62A5\u7ED3\u8BBA", patches: [], parser: "rule" };
+    }
+    if (/为什么.*利润|利润.*低|利润.*不高|利润比较低|成本结构|有什么风险|项目风险|诊断|分析一下.*项目|分析.*为什么|项目情况怎么样|参数.*异常|检查.*参数/.test(q)) {
+      return { kind: "diagnose", title: "\u4E1A\u52A1\u8BCA\u65AD", patches: [], parser: "rule" };
+    }
+    if (/(比较|对比).*(方案|指标)|两个方案|方案差异|有什么区别|哪个更好|指标变化/.test(q) || /帮我比较/.test(q)) {
+      return {
+        kind: "compare",
+        title: "\u65B9\u6848\u5BF9\u6BD4",
+        patches: [],
+        compareHint: /刚才|两个方案|刚创建/.test(q) ? "last_two" : "baseline_peer",
+        parser: "rule"
+      };
+    }
+    if (/最影响|敏感性|哪个参数|参数.*敏感|敏感分析/.test(q)) {
+      return { kind: "sensitivity", title: "\u654F\u611F\u6027\u89E3\u91CA", patches: [], parser: "rule" };
+    }
+    if (/经营建议|怎么优化|优化方向|怎么改善/.test(q)) {
+      return { kind: "advice", title: "\u7ECF\u8425\u5EFA\u8BAE", patches: [], parser: "rule" };
+    }
+    const createName = (raw.match(/做[一个]?(?:个)?(.+?)方案/) || raw.match(/创建(.+?)方案/) || raw.match(/低电价方案/))?.[1];
+    const isCreate = /做[一个]?|创建|新建|生成.+方案|低电价方案/.test(q) && /方案/.test(q);
+    const patches = [];
+    const elecTo = numMatch(q, [
+      /电价[^0-9]{0,12}(?:降到|降为|改为|改成|调整为|调到|按照|按)(\d+(?:\.\d+)?)/,
+      /电价.*?降到(\d+(?:\.\d+)?)/
+    ]);
+    if (elecTo != null && /电价/.test(q)) {
+      patches.push(patch("electricityPrice", "set", elecTo));
+    } else if (/电价/.test(q) && /下降|降低|降了|降电价/.test(q) && !/降到|降为|改为|改成/.test(q)) {
+      const drop = numMatch(q, [/下降(\d+(?:\.\d+)?)元?/, /降低(\d+(?:\.\d+)?)元?/, /降(?:了)?(\d+(?:\.\d+)?)元?/]) ?? 0.1;
+      patches.push(patch("electricityPrice", "add", -Math.abs(drop)));
+    } else if (/电价/.test(q) && /改成|改为|调整为|设为|把电价/.test(q)) {
+      const n = numMatch(q, [/(\d+(?:\.\d+)?)/]);
+      if (n != null) patches.push(patch("electricityPrice", "set", n));
+    } else {
+      const elecSet = numMatch(q, [/电价[^0-9]{0,8}(?:为|是|=)(\d+(?:\.\d+)?)/]);
+      if (elecSet != null) patches.push(patch("electricityPrice", "set", elecSet));
+    }
+    const fleetSet = numMatch(q, [/车辆(?:数|配置)?[^0-9]{0,6}(?:改成|改为|调整为|设为)?(\d+)\s*台?/]);
+    if (fleetSet != null && /车辆/.test(q) && !/增加|减少|加|少/.test(q)) {
+      patches.push(patch("fleetSize", "set", fleetSet));
+    }
+    const fleetAdd = numMatch(q, [/车辆[^0-9]{0,8}增加(\d+)/, /增加(\d+)\s*台/, /车辆增加(\d+)/]);
+    if (fleetAdd != null) patches.push(patch("fleetSize", "add", fleetAdd));
+    const fleetSub = numMatch(q, [/车辆[^0-9]{0,8}减少(\d+)/, /减少(\d+)\s*台/, /车辆减少(\d+)/]);
+    if (fleetSub != null) patches.push(patch("fleetSize", "add", -fleetSub));
+    const freightPct = numMatch(q, [/运价[^0-9]{0,8}(?:下降|下调|降低|降)(\d+(?:\.\d+)?)\s*%/]);
+    if (freightPct != null) {
+      patches.push(patch("freightPrice", "multiply", 1 - freightPct / 100));
+    }
+    const freightSet = numMatch(q, [/运价[^0-9]{0,6}(?:改成|改为|调整为)?(\d+(?:\.\d+)?)/]);
+    if (freightSet != null && /运价/.test(q) && freightPct == null) {
+      patches.push(patch("freightPrice", "set", freightSet));
+    }
+    const rent = numMatch(q, [/月租[^0-9]{0,6}(?:改成|改为|调整为)?(\d+(?:\.\d+)?)/]);
+    if (rent != null) patches.push(patch("monthlyRentPerVehicle", "set", rent));
+    if (isCreate || patches.length && /方案|情景|模拟/.test(q) && /做|创建|新建|生成|帮我/.test(q)) {
+      const name = createName && createName.length < 20 ? createName.includes("\u65B9\u6848") ? createName : `${createName}\u65B9\u6848` : patches.some((p) => p.field === "electricityPrice") ? "\u4F4E\u7535\u4EF7\u65B9\u6848" : patches.some((p) => p.field === "fleetSize") ? "\u8F66\u8F86\u8C03\u6574\u65B9\u6848" : "AI\u6A21\u62DF\u65B9\u6848";
+      return {
+        kind: "create_scenario",
+        title: `\u521B\u5EFA${name}`,
+        patches,
+        scenarioName: name,
+        parser: "rule"
+      };
+    }
+    if (patches.length) {
+      return {
+        kind: "modify",
+        title: "\u4FEE\u6539\u6D4B\u7B97\u53C2\u6570",
+        patches,
+        parser: "rule"
+      };
+    }
+    if (/几个测算方案|有多少方案|方案数量/.test(q)) {
+      return { kind: "query", title: "\u67E5\u8BE2\u65B9\u6848\u6570\u91CF", queryTarget: "scenarioCount", patches: [], parser: "rule" };
+    }
+    if (/月利润|一个月能赚|赚多少|利润多少/.test(q)) {
+      return { kind: "query", title: "\u67E5\u8BE2\u6708\u5229\u6DA6", queryTarget: "monthlyProfit", patches: [], parser: "rule" };
+    }
+    if (/月收入|收入是多少|营收/.test(q)) {
+      return { kind: "query", title: "\u67E5\u8BE2\u6708\u6536\u5165", queryTarget: "monthlyRevenue", patches: [], parser: "rule" };
+    }
+    if (/总成本|成本多少|月成本/.test(q) && !/最大成本|成本结构|最高/.test(q)) {
+      return { kind: "query", title: "\u67E5\u8BE2\u6708\u6210\u672C", queryTarget: "monthlyTotalCost", patches: [], parser: "rule" };
+    }
+    if (/利润率/.test(q)) {
+      return { kind: "query", title: "\u67E5\u8BE2\u5229\u6DA6\u7387", queryTarget: "profitMargin", patches: [], parser: "rule" };
+    }
+    if (/\bIRR\b|内部收益率|irr/.test(raw) || /IRR|内部收益率/.test(q)) {
+      return { kind: "query", title: "\u67E5\u8BE2IRR", queryTarget: "irr", patches: [], parser: "rule" };
+    }
+    if (/车辆配置|车辆多少|几台车|车辆数/.test(q)) {
+      return { kind: "query", title: "\u67E5\u8BE2\u8F66\u8F86\u6570", queryTarget: "fleetSize", patches: [], parser: "rule" };
+    }
+    if (/最大成本|成本最高|哪个成本/.test(q)) {
+      return { kind: "query", title: "\u67E5\u8BE2\u6700\u5927\u6210\u672C\u9879", queryTarget: "topCost", patches: [], parser: "rule" };
+    }
+    if (/核心参数|当前参数|有哪些参数/.test(q)) {
+      return { kind: "query", title: "\u67E5\u8BE2\u6838\u5FC3\u53C2\u6570", queryTarget: "params", patches: [], parser: "rule" };
+    }
+    if (/当前项目|项目情况|怎么样/.test(q)) {
+      return { kind: "diagnose", title: "\u9879\u76EE\u6982\u51B5", patches: [], parser: "rule" };
+    }
+    return { kind: "unmatched", title: "\u672A\u8BC6\u522B", patches: [], parser: "rule" };
+  }
+
+  // src/demo/ai/tools.ts
+  function money3(n) {
+    if (n === null || n === void 0 || n === "") return "\u2014";
+    const v = Number(n);
+    if (!Number.isFinite(v)) return "\u2014";
+    return v.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function pct2(n) {
+    if (n === null || n === void 0 || n === "") return "\u2014";
+    const v = Number(n);
+    if (!Number.isFinite(v)) return "\u2014";
+    return `${(v * 100).toFixed(2)}%`;
+  }
+  function getProjectContextTool(repos2, projectId) {
+    const project = repos2.projects.getProjectContext(projectId);
+    return {
+      project,
+      trace: { tool: "getProjectContext", ok: Boolean(project), detail: projectId }
+    };
+  }
+  function getScenarioTool(repos2, scenarioId) {
+    const scenario2 = repos2.scenarios.getScenario(scenarioId);
+    return {
+      scenario: scenario2,
+      trace: { tool: "getScenario", ok: Boolean(scenario2), detail: scenarioId }
+    };
+  }
+  function getCalculationResultTool(scenario2) {
+    return {
+      results: scenario2?.results ?? null,
+      trace: {
+        tool: "getCalculationResult",
+        ok: Boolean(scenario2?.results),
+        detail: scenario2?.id
+      }
+    };
+  }
+  function updateScenarioInputTool(inputs, patches) {
+    const applied = applyParamPatches(inputs, patches);
+    return {
+      inputs: applied.inputs,
+      changes: applied.changes,
+      trace: { tool: "updateScenarioInput", ok: true, detail: applied.changes.map((c) => c.label).join(",") }
+    };
+  }
+  function calculateAndSaveTool(repos2, params) {
+    const live = calculateProject(params.inputs);
+    const saved = repos2.scenarios.saveScenario({
+      id: params.createNew ? void 0 : params.scenarioId,
+      projectId: params.projectId,
+      name: params.name,
+      status: params.status ?? "calculated",
+      inputs: params.inputs,
+      notes: params.notes,
+      inputsSource: "user"
+    });
+    return {
+      scenario: saved,
+      liveProfit: live.monthlyProfit.toString(),
+      trace: {
+        tool: "calculateProject",
+        ok: true,
+        detail: `${saved.id} profit=${live.monthlyProfit.toFixed(2)}`
+      }
+    };
+  }
+  function compareScenariosTool(a, b) {
+    const ma = a.results?.metrics;
+    const mb = b.results?.metrics;
+    if (!ma || !mb) {
+      return {
+        rows: [],
+        summary: "\u5BF9\u6BD4\u65B9\u6848\u7F3A\u5C11\u6D4B\u7B97\u7ED3\u679C\uFF0C\u8BF7\u5148\u5B8C\u6210\u6D4B\u7B97\u3002",
+        trace: { tool: "compareScenarios", ok: false, detail: "missing results" }
+      };
+    }
+    const defs = [
+      { key: "monthlyRevenue", label: "\u6708\u6536\u5165", kind: "money" },
+      { key: "monthlyTotalCost", label: "\u6708\u603B\u6210\u672C", kind: "money" },
+      { key: "monthlyProfit", label: "\u6708\u5229\u6DA6", kind: "money" },
+      { key: "profitMargin", label: "\u5229\u6DA6\u7387", kind: "pct" },
+      { key: "irr", label: "IRR", kind: "pct" },
+      { key: "cumulativeCashFlow", label: "\u7D2F\u8BA1\u73B0\u91D1\u6D41", kind: "money" }
+    ];
+    const rows = defs.map((d) => {
+      const va = ma[d.key];
+      const vb = mb[d.key];
+      const na = va == null ? null : Number(va);
+      const nb = vb == null ? null : Number(vb);
+      let delta = "\u2014";
+      if (na != null && nb != null && Number.isFinite(na) && Number.isFinite(nb)) {
+        const diff2 = nb - na;
+        delta = d.kind === "pct" ? `${(diff2 * 100).toFixed(2)} ppt` : money3(diff2);
+      }
+      const fmt = (v) => {
+        if (v == null) return "\u2014";
+        return d.kind === "pct" ? pct2(v) : d.kind === "money" ? money3(v) : String(v);
+      };
+      return { key: String(d.key), label: d.label, a: fmt(va), b: fmt(vb), delta };
+    });
+    const profitA = Number(ma.monthlyProfit);
+    const profitB = Number(mb.monthlyProfit);
+    const diff = profitB - profitA;
+    const summary = `\u300C${a.name}\u300D\u6708\u5229\u6DA6 ${money3(profitA)} \u5143\uFF0C\u300C${b.name}\u300D\u6708\u5229\u6DA6 ${money3(profitB)} \u5143\uFF0C\u5DEE\u503C ${money3(diff)} \u5143\u3002\u4EE5\u4E0A\u6570\u5B57\u5747\u6765\u81EA\u5DF2\u4FDD\u5B58\u7684\u5F15\u64CE\u7ED3\u679C\uFF0CAI \u672A\u91CD\u65B0\u8BA1\u7B97\u3002`;
+    return {
+      rows,
+      summary,
+      trace: { tool: "compareScenarios", ok: true, detail: `${a.id} vs ${b.id}` }
+    };
+  }
+  function getSensitivityAnalysisTool(inputs) {
+    try {
+      const base = calculateProject(inputs);
+      const baseProfit = Number(base.monthlyProfit.toString());
+      const specs = [
+        { name: "\u8FD0\u4EF7 -10%", variable: "freight_price", change: "-10" },
+        { name: "\u7535\u4EF7 +20%", variable: "electricity_price", change: "20" },
+        { name: "\u8D9F\u6B21 -20%", variable: "trips_per_vehicle_month", change: "-20" }
+      ];
+      const items = specs.map((spec) => {
+        const rows = runSensitivity({
+          input: inputs,
+          variable: spec.variable,
+          changeMode: "PERCENT",
+          minChange: spec.change,
+          maxChange: spec.change,
+          step: "1"
+        });
+        const row = rows[0];
+        const nextProfit = row ? Number(row.monthlyProfit) : baseProfit;
+        const impact = Math.abs(nextProfit - baseProfit);
+        return {
+          name: spec.name,
+          evidence: row ? `${spec.name} \u540E\u6708\u5229\u6DA6 ${money3(row.monthlyProfit)} \u5143\uFF08\u76F8\u5BF9\u57FA\u51C6\u53D8\u5316 ${money3(row.profitDelta)} \u5143\uFF09` : "\u654F\u611F\u6027\u884C\u7F3A\u5931",
+          impact
+        };
+      });
+      items.sort((a, b) => b.impact - a.impact);
+      const summary = items.length ? `\u57FA\u4E8E\u5F15\u64CE\u654F\u611F\u6027\u91CD\u7B97\uFF0C\u5BF9\u5229\u6DA6\u51B2\u51FB\u6700\u5927\u7684\u662F\u300C${items[0].name}\u300D\u3002\u6570\u5B57\u5747\u6765\u81EA Calculation Engine\u3002` : "\u6682\u65E0\u654F\u611F\u6027\u7ED3\u679C\u3002";
+      return {
+        items,
+        summary,
+        trace: { tool: "getSensitivityAnalysis", ok: true }
+      };
+    } catch (err) {
+      return {
+        items: [],
+        summary: `\u654F\u611F\u6027\u5206\u6790\u6682\u65F6\u5931\u8D25\uFF1A${err instanceof Error ? err.message : "\u672A\u77E5\u9519\u8BEF"}\u3002\u6D4B\u7B97\u7ED3\u679C\u672C\u8EAB\u4E0D\u53D7\u5F71\u54CD\u3002`,
+        trace: { tool: "getSensitivityAnalysis", ok: false }
+      };
+    }
+  }
+  function generateReportTool(params) {
+    const m = params.scenario.results?.metrics;
+    if (!m) {
+      return {
+        text: "\u5F53\u524D\u65B9\u6848\u5C1A\u65E0\u6D4B\u7B97\u7ED3\u679C\uFF0C\u65E0\u6CD5\u751F\u6210\u6C47\u62A5\u7ED3\u8BBA\u3002\u8BF7\u5148\u5B8C\u6210\u6D4B\u7B97\u3002",
+        trace: { tool: "generateReport", ok: false }
+      };
+    }
+    const profit = Number(m.monthlyProfit);
+    const margin = m.profitMargin == null ? null : Number(m.profitMargin);
+    const projectName = params.project?.projectName || params.scenario.name;
+    const verdict = profit < 0 ? "\u5F53\u524D\u6D4B\u7B97\u4E3A\u4E8F\u635F\uFF0C\u4E0D\u5EFA\u8BAE\u5728\u672A\u4FEE\u6B63\u5173\u952E\u5047\u8BBE\u524D\u63A8\u8FDB\u7B7E\u7EA6\u3002" : margin != null && margin < 0.08 ? "\u5229\u6DA6\u4E3A\u6B63\u4F46\u504F\u8584\uFF0C\u5EFA\u8BAE\u4FDD\u7559\u538B\u529B\u6D4B\u8BD5\u65B9\u6848\u540E\u518D\u51B3\u7B56\u3002" : "\u5F53\u524D\u6D4B\u7B97\u5229\u6DA6\u4E3A\u6B63\uFF0C\u53EF\u4F5C\u4E3A\u5546\u52A1\u8BC4\u5BA1\u57FA\u51C6\uFF0C\u5E76\u5EFA\u8BAE\u4FDD\u7559\u5BF9\u6BD4\u60C5\u666F\u3002";
+    const text = [
+      `\u3010\u9879\u76EE\u6D4B\u7B97\u6C47\u62A5\u7ED3\u8BBA\u3011`,
+      `\u9879\u76EE\uFF1A${projectName}${params.project ? `\uFF08${params.project.projectId}\uFF09` : ""}`,
+      `\u65B9\u6848\uFF1A${params.scenario.name}\uFF08${params.scenario.id}\uFF09`,
+      `\u6838\u5FC3\u6307\u6807\uFF08Calculation Engine\uFF09\uFF1A\u6708\u6536\u5165 ${money3(m.monthlyRevenue)} \u5143\uFF1B\u6708\u603B\u6210\u672C ${money3(m.monthlyTotalCost)} \u5143\uFF1B\u6708\u5229\u6DA6 ${money3(m.monthlyProfit)} \u5143\uFF1B\u5229\u6DA6\u7387 ${pct2(m.profitMargin)}\uFF1BIRR ${pct2(m.irr)}\uFF1B\u7D2F\u8BA1\u73B0\u91D1\u6D41 ${money3(m.cumulativeCashFlow)} \u5143\u3002`,
+      `\u7ED3\u8BBA\uFF1A${verdict}`,
+      `\u8BF4\u660E\uFF1A\u4EE5\u4E0A\u6570\u5B57\u5747\u6765\u81EA\u5DF2\u4FDD\u5B58\u7684\u5F15\u64CE\u7ED3\u679C\uFF0CAI \u4EC5\u8D1F\u8D23\u5F52\u7EB3\u4E0E\u8868\u8FBE\uFF0C\u4E0D\u66FF\u4EE3\u8BA1\u7B97\u3002`
+    ].join("\n");
+    return { text, trace: { tool: "generateReport", ok: true } };
+  }
+  function localDiagnoseTool(params) {
+    const insight = analyzeScenarioLocal(params);
+    return { insight, trace: { tool: "localInsightEngine", ok: insight.status === "ready" } };
+  }
+  function topCostFromScenario(scenario2) {
+    const breakdown = scenario2.results?.full?.costBreakdown || [];
+    const costs = breakdown.map((row) => ({ name: row.name || row.code || "\u6210\u672C\u9879", amount: Number(row.amount || 0) })).sort((a, b) => b.amount - a.amount);
+    return costs[0] || null;
+  }
+  function formatMetricAnswer(scenario2, target, scenarioCount) {
+    const m = scenario2.results?.metrics;
+    if (!m && target !== "scenarioCount" && target !== "params" && target !== "fleetSize") {
+      return "\u5F53\u524D\u65B9\u6848\u5C1A\u65E0\u6D4B\u7B97\u7ED3\u679C\uFF0C\u8BF7\u5148\u5B8C\u6210\u6D4B\u7B97\u3002AI \u4E0D\u4F1A\u7F16\u9020\u6570\u5B57\u3002";
+    }
+    switch (target) {
+      case "monthlyProfit":
+        return `\u5F53\u524D\u65B9\u6848\u300C${scenario2.name}\u300D\u6708\u5229\u6DA6\u4E3A ${money3(m.monthlyProfit)} \u5143\uFF08\u5F15\u64CE\u7ED3\u679C\uFF09\u3002`;
+      case "monthlyRevenue":
+        return `\u5F53\u524D\u65B9\u6848\u6708\u6536\u5165\u4E3A ${money3(m.monthlyRevenue)} \u5143\uFF08\u5F15\u64CE\u7ED3\u679C\uFF09\u3002`;
+      case "monthlyTotalCost":
+        return `\u5F53\u524D\u65B9\u6848\u6708\u603B\u6210\u672C\u4E3A ${money3(m.monthlyTotalCost)} \u5143\uFF08\u5F15\u64CE\u7ED3\u679C\uFF09\u3002`;
+      case "profitMargin":
+        return `\u5F53\u524D\u65B9\u6848\u5229\u6DA6\u7387\u4E3A ${pct2(m.profitMargin)}${m.profitMarginReason ? `\uFF08${m.profitMarginReason}\uFF09` : ""}\u3002`;
+      case "irr":
+        return m.irr == null ? `\u5F53\u524D\u65B9\u6848 IRR \u6682\u4E0D\u53EF\u7528${m.irrReason ? `\uFF08${m.irrReason}\uFF09` : ""}\u3002` : `\u5F53\u524D\u65B9\u6848 IRR \u4E3A ${pct2(m.irr)}\uFF08\u5F15\u64CE\u7ED3\u679C\uFF09\u3002`;
+      case "fleetSize": {
+        const fleet = m?.fleetSize ?? scenario2.inputs.fleetSize ?? scenario2.inputs.vehicle?.fleetSize;
+        return `\u5F53\u524D\u8F66\u8F86\u914D\u7F6E\u4E3A ${fleet ?? "\u2014"} \u53F0\u3002`;
+      }
+      case "topCost": {
+        const top = topCostFromScenario(scenario2);
+        return top ? `\u6210\u672C\u7ED3\u6784\u6700\u5927\u9879\u662F\u300C${top.name}\u300D\uFF0C\u7EA6 ${money3(top.amount)} \u5143/\u6708\uFF08\u6765\u81EA\u5F15\u64CE costBreakdown\uFF09\u3002` : "\u6682\u65E0\u6210\u672C\u7ED3\u6784\u660E\u7EC6\u3002";
+      }
+      case "scenarioCount":
+        return `\u5F53\u524D\u9879\u76EE\u5171\u6709 ${scenarioCount ?? 0} \u4E2A\u6D4B\u7B97\u65B9\u6848\u3002`;
+      case "params": {
+        const snaps = snapshotParams(scenario2.inputs).slice(0, 6);
+        return `\u5F53\u524D\u6838\u5FC3\u53C2\u6570\uFF1A${snaps.map((s) => `${s.label} ${s.display}`).join("\uFF1B")}\u3002`;
+      }
+      default:
+        return m ? `\u65B9\u6848\u300C${scenario2.name}\u300D\u6708\u5229\u6DA6 ${money3(m.monthlyProfit)} \u5143\uFF0C\u5229\u6DA6\u7387 ${pct2(m.profitMargin)}\u3002` : "\u6682\u65E0\u6D4B\u7B97\u7ED3\u679C\u3002";
+    }
+  }
+
+  // src/demo/ai/assistant.ts
+  var ASSISTANT_SHORTCUTS = {
+    project: ["\u5F53\u524D\u9879\u76EE\u60C5\u51B5\u600E\u4E48\u6837\uFF1F", "\u5F53\u524D\u9879\u76EE\u6709\u54EA\u4E9B\u6838\u5FC3\u53C2\u6570\uFF1F", "\u8FD9\u4E2A\u9879\u76EE\u6709\u4EC0\u4E48\u98CE\u9669\uFF1F"],
+    input: ["\u54EA\u4E9B\u53C2\u6570\u6700\u5F71\u54CD\u5229\u6DA6\uFF1F", "\u5F53\u524D\u53C2\u6570\u662F\u5426\u5B58\u5728\u660E\u663E\u5F02\u5E38\uFF1F", "\u5E2E\u6211\u68C0\u67E5\u4E00\u4E0B\u6D4B\u7B97\u53C2\u6570\u3002"],
+    results: [
+      "\u4E3A\u4EC0\u4E48\u8FD9\u4E2A\u9879\u76EE\u5229\u6DA6\u8FD9\u4E48\u4F4E\uFF1F",
+      "\u5E2E\u6211\u5206\u6790\u6210\u672C\u7ED3\u6784\u3002",
+      "\u54EA\u4E9B\u53C2\u6570\u6700\u5F71\u54CD\u5229\u6DA6\uFF1F",
+      "\u5E2E\u6211\u627E\u51FA\u9879\u76EE\u98CE\u9669\u3002",
+      "\u5982\u679C\u7535\u4EF7\u4E0B\u964D0.1\u5143\u4F1A\u600E\u4E48\u6837\uFF1F",
+      "\u5E2E\u6211\u751F\u6210\u9879\u76EE\u6C47\u62A5\u7ED3\u8BBA\u3002"
+    ],
+    compare: ["\u4E24\u4E2A\u65B9\u6848\u6709\u4EC0\u4E48\u533A\u522B\uFF1F", "\u54EA\u4E9B\u6307\u6807\u53D8\u5316\u6700\u5927\uFF1F", "\u5E2E\u6211\u89E3\u91CA\u65B9\u6848\u5DEE\u5F02\u3002"]
+  };
+  function createAssistantSession() {
+    return { recentScenarioIds: [], pending: null };
+  }
+  function pushRecent(session, id) {
+    session.recentScenarioIds = [id, ...session.recentScenarioIds.filter((x) => x !== id)].slice(0, 6);
+  }
+  function resolveComparePair(repos2, projectId, currentId, session, hint) {
+    const list = repos2.scenarios.listScenarios(projectId).filter((s) => s.results);
+    if (list.length < 2) return null;
+    if (hint === "last_two" && session.recentScenarioIds.length >= 2) {
+      const a = repos2.scenarios.getScenario(session.recentScenarioIds[1]);
+      const b = repos2.scenarios.getScenario(session.recentScenarioIds[0]);
+      if (a?.results && b?.results) return { a, b };
+    }
+    const baseline = list.find((s) => s.status === "baseline") || list.find((s) => s.id === currentId) || list[0];
+    const peer = list.find((s) => s.id !== baseline.id) || list[1];
+    if (!baseline || !peer) return null;
+    return { a: baseline, b: peer };
+  }
+  function buildPending(type, ctx) {
+    const updated = updateScenarioInputTool(ctx.scenario.inputs, ctx.patches);
+    const previewText = type === "create_scenario" ? `\u5C06\u57FA\u4E8E\u300C${ctx.scenario.name}\u300D\u521B\u5EFA\u300C${ctx.scenarioName || "AI\u6A21\u62DF\u65B9\u6848"}\u300D\uFF0C\u5E76\u5E94\u7528\uFF1A${updated.changes.map((c) => `${c.label} ${c.from}\u2192${c.to}${c.unit ? c.unit : ""}`).join("\uFF1B") || "\u65E0\u53C2\u6570\u53D8\u66F4"}\u3002\u662F\u5426\u786E\u8BA4\u5E76\u6D4B\u7B97\uFF1F` : `\u5DF2\u8BC6\u522B\u53C2\u6570\u8C03\u6574\uFF1A${updated.changes.map((c) => `${c.label}\uFF1A${c.from} \u2192 ${c.to}${c.unit ? ` ${c.unit}` : ""}`).join("\uFF1B")}\u3002\u662F\u5426\u5E94\u7528\u5E76\u91CD\u65B0\u6D4B\u7B97\uFF1F`;
+    return {
+      type,
+      patches: ctx.patches,
+      scenarioName: ctx.scenarioName,
+      baseScenarioId: ctx.scenario.id,
+      projectId: ctx.projectId,
+      previewText,
+      changes: updated.changes
+    };
+  }
+  function executePending(repos2, pending, session) {
+    const traces = [];
+    const base = getScenarioTool(repos2, pending.baseScenarioId);
+    traces.push(base.trace);
+    if (!base.scenario) {
+      return {
+        reply: "\u539F\u65B9\u6848\u4E0D\u5B58\u5728\uFF0C\u65E0\u6CD5\u6267\u884C\u3002",
+        intent: { kind: "unmatched", title: "\u5931\u8D25", patches: [], parser: "rule" },
+        pending: null,
+        session: { ...session, pending: null },
+        traces,
+        source: "tools",
+        confirmRequired: false
+      };
+    }
+    const updated = updateScenarioInputTool(base.scenario.inputs, pending.patches);
+    traces.push(updated.trace);
+    const createNew = pending.type === "create_scenario";
+    const name = pending.type === "create_scenario" ? pending.scenarioName || "AI\u6A21\u62DF\u65B9\u6848" : base.scenario.name;
+    const calc = calculateAndSaveTool(repos2, {
+      scenarioId: createNew ? void 0 : base.scenario.id,
+      projectId: pending.projectId,
+      name,
+      inputs: updated.inputs,
+      status: createNew ? "calculated" : base.scenario.status === "baseline" ? "baseline" : "calculated",
+      notes: createNew ? `AI\u52A9\u624B\u521B\u5EFA\uFF1A\u57FA\u4E8E ${base.scenario.id}` : base.scenario.notes,
+      createNew
+    });
+    traces.push(calc.trace);
+    pushRecent(session, calc.scenario.id);
+    if (createNew) pushRecent(session, base.scenario.id);
+    const before = base.scenario.results?.metrics;
+    const after = calc.scenario.results?.metrics;
+    const profitBefore = before ? Number(before.monthlyProfit) : null;
+    const profitAfter = after ? Number(after.monthlyProfit) : Number(calc.liveProfit);
+    const delta = profitBefore != null && Number.isFinite(profitBefore) ? (profitAfter - profitBefore).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "\u2014";
+    const changeLines = pending.changes.map((c) => `${c.label}\uFF1A${c.from} \u2192 ${c.to}${c.unit ? ` ${c.unit}` : ""}`).join("\n");
+    const reply = [
+      createNew ? `\u5DF2\u521B\u5EFA\u65B9\u6848\u300C${calc.scenario.name}\u300D\uFF08${calc.scenario.id}\uFF09\u5E76\u5B8C\u6210\u771F\u5B9E\u6D4B\u7B97\u3002` : `\u5DF2\u5E94\u7528\u53C2\u6570\u5E76\u8C03\u7528 Calculation Engine \u91CD\u65B0\u6D4B\u7B97\u3002`,
+      changeLines ? `\u53D8\u66F4\uFF1A
+${changeLines}` : "",
+      after ? `\u65B0\u7ED3\u679C\uFF1A\u6708\u6536\u5165 ${Number(after.monthlyRevenue).toLocaleString("zh-CN", { minimumFractionDigits: 2 })} \u5143\uFF1B\u6708\u6210\u672C ${Number(after.monthlyTotalCost).toLocaleString("zh-CN", { minimumFractionDigits: 2 })} \u5143\uFF1B\u6708\u5229\u6DA6 ${Number(after.monthlyProfit).toLocaleString("zh-CN", { minimumFractionDigits: 2 })} \u5143\uFF1B\u5229\u6DA6\u7387 ${after.profitMargin == null ? "\u2014" : `${(Number(after.profitMargin) * 100).toFixed(2)}%`}\u3002\u76F8\u5BF9\u539F\u65B9\u6848\u6708\u5229\u6DA6\u53D8\u5316 ${delta} \u5143\u3002` : `\u5F15\u64CE\u6708\u5229\u6DA6 ${Number(calc.liveProfit).toLocaleString("zh-CN", { minimumFractionDigits: 2 })} \u5143\u3002`,
+      "\u4EE5\u4E0A\u6570\u5B57\u5747\u6765\u81EA\u8BA1\u7B97\u5F15\u64CE\uFF0CAI \u672A\u81EA\u884C\u8BA1\u7B97\u3002"
+    ].filter(Boolean).join("\n");
+    session.pending = null;
+    return {
+      reply,
+      intent: {
+        kind: createNew ? "create_scenario" : "modify",
+        title: createNew ? "\u5DF2\u521B\u5EFA\u5E76\u6D4B\u7B97" : "\u5DF2\u4FEE\u6539\u5E76\u6D4B\u7B97",
+        patches: pending.patches,
+        parser: "rule"
+      },
+      pending: null,
+      session,
+      scenarioId: calc.scenario.id,
+      refreshedScenarioIds: [calc.scenario.id],
+      traces,
+      source: "tools",
+      confirmRequired: false
+    };
+  }
+  function runAssistantTurn(params) {
+    const session = params.session ? { ...params.session, recentScenarioIds: [...params.session.recentScenarioIds] } : createAssistantSession();
+    session.pending = params.session?.pending ? { ...params.session.pending } : null;
+    const intent = parseAssistantIntent(params.message);
+    const traces = [];
+    const projectHit = getProjectContextTool(params.repos, params.projectId);
+    traces.push(projectHit.trace);
+    const project = params.project ?? projectHit.project;
+    const scenarioHit = getScenarioTool(params.repos, params.scenarioId);
+    traces.push(scenarioHit.trace);
+    const scenario2 = scenarioHit.scenario;
+    if (!scenario2) {
+      return {
+        reply: "\u627E\u4E0D\u5230\u5F53\u524D\u6D4B\u7B97\u65B9\u6848\uFF0C\u8BF7\u5148\u6253\u5F00\u4E00\u4E2A\u65B9\u6848\u3002",
+        intent,
+        pending: null,
+        session,
+        traces,
+        source: "tools",
+        confirmRequired: false
+      };
+    }
+    pushRecent(session, scenario2.id);
+    if (intent.kind === "confirm") {
+      if (!session.pending) {
+        return {
+          reply: "\u5F53\u524D\u6CA1\u6709\u5F85\u786E\u8BA4\u7684\u53C2\u6570\u4FEE\u6539\u3002",
+          intent,
+          pending: null,
+          session,
+          traces,
+          source: "tools",
+          confirmRequired: false
+        };
+      }
+      return executePending(params.repos, session.pending, session);
+    }
+    if (intent.kind === "cancel") {
+      session.pending = null;
+      return {
+        reply: "\u5DF2\u53D6\u6D88\uFF0C\u672A\u4FEE\u6539\u4EFB\u4F55\u53C2\u6570\uFF0C\u4E5F\u672A\u8C03\u7528\u6D4B\u7B97\u5F15\u64CE\u3002",
+        intent,
+        pending: null,
+        session,
+        traces,
+        source: "tools",
+        confirmRequired: false
+      };
+    }
+    if (intent.kind === "modify" || intent.kind === "create_scenario") {
+      if (!intent.patches.length && intent.kind === "create_scenario") {
+        const pending2 = buildPending("create_scenario", {
+          patches: [],
+          scenario: scenario2,
+          projectId: params.projectId,
+          scenarioName: intent.scenarioName
+        });
+        session.pending = pending2;
+        return {
+          reply: pending2.previewText,
+          intent,
+          pending: pending2,
+          session,
+          traces,
+          source: "tools",
+          confirmRequired: true
+        };
+      }
+      if (!intent.patches.length) {
+        return {
+          reply: "\u5DF2\u8BC6\u522B\u5230\u4FEE\u6539\u610F\u56FE\uFF0C\u4F46\u672A\u89E3\u6790\u51FA\u5177\u4F53\u53C2\u6570\u503C\u3002\u8BF7\u4F8B\u5982\uFF1A\u300C\u628A\u7535\u4EF7\u6539\u62100.65\u5143\u300D\u3002",
+          intent,
+          pending: null,
+          session,
+          traces,
+          source: "tools",
+          confirmRequired: false
+        };
+      }
+      const pending = buildPending(intent.kind === "create_scenario" ? "create_scenario" : "modify", {
+        patches: intent.patches,
+        scenario: scenario2,
+        projectId: params.projectId,
+        scenarioName: intent.scenarioName
+      });
+      session.pending = pending;
+      return {
+        reply: pending.previewText,
+        intent,
+        pending,
+        session,
+        traces,
+        source: "tools",
+        confirmRequired: true
+      };
+    }
+    if (intent.kind === "query") {
+      getCalculationResultTool(scenario2);
+      const count = params.repos.scenarios.listScenarios(params.projectId).length;
+      const reply = formatMetricAnswer(scenario2, intent.queryTarget || "general", count);
+      return {
+        reply,
+        intent,
+        pending: session.pending,
+        session,
+        traces,
+        source: "tools",
+        confirmRequired: false
+      };
+    }
+    if (intent.kind === "compare") {
+      const pair = resolveComparePair(params.repos, params.projectId, scenario2.id, session, intent.compareHint);
+      if (!pair) {
+        return {
+          reply: "\u81F3\u5C11\u9700\u8981\u4E24\u4E2A\u5DF2\u6D4B\u7B97\u65B9\u6848\u624D\u80FD\u5BF9\u6BD4\u3002\u53EF\u5148\u8BA9\u52A9\u624B\u521B\u5EFA\u4F4E\u7535\u4EF7\u65B9\u6848\u540E\u518D\u6BD4\u8F83\u3002",
+          intent,
+          pending: session.pending,
+          session,
+          traces,
+          source: "tools",
+          confirmRequired: false
+        };
+      }
+      const cmp = compareScenariosTool(pair.a, pair.b);
+      traces.push(cmp.trace);
+      return {
+        reply: cmp.summary + (cmp.rows.length ? `
+
+${cmp.rows.map((r) => `${r.label}\uFF1A${r.a} \u2192 ${r.b}\uFF08\u0394 ${r.delta}\uFF09`).join("\n")}` : ""),
+        intent,
+        pending: session.pending,
+        session,
+        compareRows: cmp.rows,
+        traces,
+        source: "tools",
+        confirmRequired: false
+      };
+    }
+    if (intent.kind === "sensitivity") {
+      const sens = getSensitivityAnalysisTool(scenario2.inputs);
+      traces.push(sens.trace);
+      const lines = sens.items.map((item, i) => `${i + 1}. ${item.name}\uFF1A${item.evidence}`).join("\n");
+      return {
+        reply: `${sens.summary}
+${lines}`,
+        intent,
+        pending: session.pending,
+        session,
+        traces,
+        source: "tools",
+        confirmRequired: false
+      };
+    }
+    if (intent.kind === "report") {
+      const report = generateReportTool({ project, scenario: scenario2 });
+      traces.push(report.trace);
+      return {
+        reply: report.text,
+        intent,
+        pending: session.pending,
+        session,
+        traces,
+        source: "tools",
+        confirmRequired: false
+      };
+    }
+    if (intent.kind === "advice" || intent.kind === "diagnose") {
+      const diag = localDiagnoseTool({
+        scenario: scenario2,
+        project,
+        question: params.message
+      });
+      traces.push(diag.trace);
+      const insight = diag.insight;
+      const adviceExtra = intent.kind === "advice" ? `
+\u7ECF\u8425\u5EFA\u8BAE\uFF1A
+${insight.suggestions.map((s) => `\xB7 ${s}`).join("\n")}` : `
+\u98CE\u9669\u8981\u70B9\uFF1A
+${insight.risks.slice(0, 4).map((r) => `\xB7 [${r.level}] ${r.name}\uFF1A${r.evidence}`).join("\n")}
+\u5EFA\u8BAE\uFF1A
+${insight.suggestions.map((s) => `\xB7 ${s}`).join("\n")}`;
+      return {
+        reply: `${insight.summary}${adviceExtra}
+
+${insight.disclaimer}`,
+        intent,
+        pending: session.pending,
+        session,
+        traces,
+        source: "local_engine",
+        confirmRequired: false
+      };
+    }
+    try {
+      const fallback = analyzeScenarioLocal({ scenario: scenario2, project, question: params.message });
+      return {
+        reply: `${fallback.summary}
+
+\u82E5\u8981\u6539\u53C2\u6570\uFF0C\u53EF\u8BF4\uFF1A\u300C\u628A\u7535\u4EF7\u6539\u62100.65\u5143\u300D\u6216\u300C\u8F66\u8F86\u589E\u52A010\u53F0\u300D\u3002\u6D89\u53CA\u4FEE\u6539\u4F1A\u5148\u8BF7\u60A8\u786E\u8BA4\u518D\u8C03\u7528\u5F15\u64CE\u3002`,
+        intent,
+        pending: session.pending,
+        session,
+        traces,
+        source: "local_engine",
+        confirmRequired: false
+      };
+    } catch {
+      return {
+        reply: "\u52A9\u624B\u6682\u65F6\u65E0\u6CD5\u7406\u89E3\u8BE5\u95EE\u9898\uFF0C\u4F46\u6D4B\u7B97\u529F\u80FD\u4E0D\u53D7\u5F71\u54CD\u3002\u4F60\u53EF\u4EE5\u95EE\uFF1A\u6708\u5229\u6DA6\u3001\u6210\u672C\u7ED3\u6784\u3001\u6539\u7535\u4EF7\u3001\u65B9\u6848\u5BF9\u6BD4\u3001\u6C47\u62A5\u7ED3\u8BBA\u3002",
+        intent,
+        pending: session.pending,
+        session,
+        traces,
+        source: "local_engine",
+        confirmRequired: false
+      };
+    }
+  }
+  function confirmPendingAction(params) {
+    if (!params.session.pending) {
+      return {
+        reply: "\u6CA1\u6709\u5F85\u786E\u8BA4\u64CD\u4F5C\u3002",
+        intent: { kind: "confirm", title: "\u786E\u8BA4", patches: [], parser: "rule" },
+        pending: null,
+        session: params.session,
+        traces: [],
+        source: "tools",
+        confirmRequired: false
+      };
+    }
+    return executePending(params.repos, params.session.pending, {
+      ...params.session,
+      recentScenarioIds: [...params.session.recentScenarioIds]
+    });
+  }
+
   // src/demo/browser-bridge.ts
   var repos = null;
   function ensureRepos() {
@@ -5042,7 +5850,21 @@ var PmCalcModule = (() => {
       }
       return analyzeScenarioLocal({ scenario: scenario2, project, question });
     },
-    buildAiPayload
+    buildAiPayload,
+    runAssistant: ({ projectId, scenarioId, message, session, project }) => runAssistantTurn({
+      repos: ensureRepos(),
+      projectId,
+      scenarioId,
+      message,
+      session,
+      project
+    }),
+    confirmAssistantAction: (session) => confirmPendingAction({
+      repos: ensureRepos(),
+      session
+    }),
+    createAssistantSession,
+    assistantShortcuts: ASSISTANT_SHORTCUTS
   };
   if (typeof window !== "undefined") {
     window.PmCalc = PmCalc;

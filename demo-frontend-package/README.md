@@ -70,16 +70,16 @@ demo-frontend-package/
 └── pnpm-lock.yaml
 ```
 
-## 项目测算（Phase 3–5）
+## 项目测算（Phase 3–6）
 
 - 入口：项目详情 Header「项目测算」，或侧栏「项目测算中心」
 - 路由：`#/projects/{projectId}/calculation`、`#/calculation`
 - 计算：浏览器真实引擎（`window.PmCalc`），结果写入 LocalStorage
 - UI：对齐 Design Spec（面包屑、object-header、扁平指标、方案对比表；无 Card 套 Card / 无紫色）
-- AI 解读（Phase 5）：
-  - 默认使用本地引擎结构化解读（零配置、无 Secret）
-  - 可选远端润色：仅服务端 `DEMO_AI_*` 环境变量，经 `/api/demo-ai/explain` 代理；前端永不持有 API Key
-  - AI 故障只降级本区域文案，**不阻塞测算结果展示与保存**
+- AI 项目测算助手（Phase 6，由「结果解读」升级）：
+  - 自然语言查询结果 / 修改参数（确认后执行）/ 调用 `calculateProject` 重算 / 方案对比 / 风险诊断 / 汇报结论
+  - 默认本地洞察引擎（零配置、无 Secret）；可选远端润色仍走 `/api/demo-ai/explain`
+  - **数字只来自 Calculation Engine**；AI 故障只降级助手文案，不阻塞测算
 - 重建引擎包（在仓库根目录）：`npm run build:demo-calc`
 
 ## 开发要求

@@ -107,12 +107,31 @@ export function analyzeScenarioLocal(params: {
     top ? `最大成本项为${top.name}。` : ""
   }${highRisks.length ? `高风险关注：${highRisks.map((r) => r.name).join("、")}。` : "暂无高等级风险。"}以上数字均来自计算引擎，本模块只做解释。`;
 
-  if (/最大成本|成本结构/.test(question)) {
+  if (/最大成本|成本结构|分析成本/.test(question)) {
+    const costLines = costs
+      .slice(0, 4)
+      .map((c, i) => `${i + 1}. ${c.name} ${money(c.amount)} 元`)
+      .join("；");
     summary = top
-      ? `测算引擎成本结构中最大项是「${top.name}」，金额 ${money(top.amount)} 元/月。该数字来自 Calculation Engine，不是模型估算。`
+      ? `测算引擎成本结构中最大项是「${top.name}」，金额 ${money(top.amount)} 元/月。主要构成：${costLines || "暂缺"}。该数字来自 Calculation Engine，不是模型估算。`
       : "还没有成本结构结果。";
-  } else if (/敏感|风险/.test(question)) {
-    summary = `敏感性由引擎重算：运价/电价/趟次波动对利润影响见下方风险清单。核心 KPI：月利润 ${money(profit)} 元，利润率 ${pct(margin)}。`;
+  } else if (/为什么.*利润|利润.*低|利润.*不高|项目情况/.test(question)) {
+    const drivers = [
+      `收入侧：月营收 ${money(revenue)} 元`,
+      top ? `成本侧最大项「${top.name}」约 ${money(top.amount)} 元/月` : `成本侧：月总成本 ${money(cost)} 元`,
+      `结果：月利润 ${money(profit)} 元，利润率 ${pct(margin)}`,
+    ];
+    summary = `业务诊断（基于引擎结果）：${drivers.join("；")}。${
+      profit < 0
+        ? "利润为负，优先复核运价、电价与趟次假设。"
+        : margin !== null && margin < 0.08
+          ? "利润偏薄，能源/车辆/司机成本任一上行都可能侵蚀空间。"
+          : "利润尚可，仍建议关注电价与运价敏感性。"
+    }`;
+  } else if (/敏感|风险|异常|检查.*参数/.test(question)) {
+    summary = `敏感性由引擎重算：运价/电价/趟次波动对利润影响见下方风险清单。核心 KPI：月利润 ${money(profit)} 元，利润率 ${pct(margin)}。${
+      highRisks.length ? `当前高风险：${highRisks.map((r) => r.name).join("、")}。` : "暂无高等级风险。"
+    }`;
   } else if (/亏损|盈利|能不能做/.test(question)) {
     summary =
       profit >= 0

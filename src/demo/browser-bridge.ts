@@ -23,6 +23,14 @@ import {
   type DemoRepositories,
 } from "./index";
 import { analyzeScenarioLocal, buildAiPayload, type DemoAiInsight } from "./ai/analyze";
+import {
+  ASSISTANT_SHORTCUTS,
+  confirmPendingAction,
+  createAssistantSession,
+  runAssistantTurn,
+  type AssistantSession,
+  type AssistantTurnResult,
+} from "./ai/assistant";
 import { excelExampleInput } from "../lib/engine/__tests__/fixture";
 
 export type PmCalcBridge = {
@@ -69,6 +77,17 @@ export type PmCalcBridge = {
     question?: string;
   }) => DemoAiInsight;
   buildAiPayload: typeof buildAiPayload;
+  /** AI 项目测算助手：自然语言 → 工具调用 → 真实引擎 */
+  runAssistant: (params: {
+    projectId: string;
+    scenarioId: string;
+    message: string;
+    session?: AssistantSession;
+    project?: DemoProjectContext | null;
+  }) => AssistantTurnResult;
+  confirmAssistantAction: (session: AssistantSession) => AssistantTurnResult;
+  createAssistantSession: typeof createAssistantSession;
+  assistantShortcuts: typeof ASSISTANT_SHORTCUTS;
 };
 
 let repos: DemoRepositories | null = null;
@@ -198,6 +217,22 @@ export const PmCalc: PmCalcBridge = {
     return analyzeScenarioLocal({ scenario, project, question });
   },
   buildAiPayload,
+  runAssistant: ({ projectId, scenarioId, message, session, project }) =>
+    runAssistantTurn({
+      repos: ensureRepos(),
+      projectId,
+      scenarioId,
+      message,
+      session,
+      project,
+    }),
+  confirmAssistantAction: (session) =>
+    confirmPendingAction({
+      repos: ensureRepos(),
+      session,
+    }),
+  createAssistantSession,
+  assistantShortcuts: ASSISTANT_SHORTCUTS,
 };
 
 declare global {

@@ -410,24 +410,77 @@
     box.textContent = message;
   }
 
-  function aiPanelMarkup(scenarioId) {
+  /** 助手会话（页面内保持，刷新后重置） */
+  let assistantSession = null;
+  let assistantHistory = [];
+
+  function ensureAssistantSession() {
+    if (!assistantSession && global.PmCalc?.createAssistantSession) {
+      assistantSession = global.PmCalc.createAssistantSession();
+    }
+    return assistantSession;
+  }
+
+  function pageContextForAssistant(hasResults) {
+    if (/\/calculation\/compare|方案对比/.test(currentRoute())) return "compare";
+    if (hasResults) return "results";
+    return "input";
+  }
+
+  function assistantShortcuts(page) {
+    const map = global.PmCalc?.assistantShortcuts || {
+      project: ["当前项目情况怎么样？", "当前项目有哪些核心参数？", "这个项目有什么风险？"],
+      input: ["哪些参数最影响利润？", "当前参数是否存在明显异常？", "帮我检查一下测算参数。"],
+      results: [
+        "为什么这个项目利润这么低？",
+        "帮我分析成本结构。",
+        "哪些参数最影响利润？",
+        "帮我找出项目风险。",
+        "如果电价下降0.1元会怎么样？",
+        "帮我生成项目汇报结论。",
+      ],
+      compare: ["两个方案有什么区别？", "哪些指标变化最大？", "帮我解释方案差异。"],
+    };
+    return map[page] || map.results;
+  }
+
+  function aiPanelMarkup(scenarioId, hasResults) {
+    const page = pageContextForAssistant(hasResults);
+    const chips = assistantShortcuts(page)
+      .map((q) => `<button type="button" class="calc-ai-chip" data-ai-ask="${esc(q)}">${esc(q)}</button>`)
+      .join("");
     return `<section class="panel calc-workspace-section calc-ai-panel" data-calc-ai-panel="${esc(scenarioId)}">
       <div class="section-title">
         <div>
-          <h2>AI 解读</h2>
-          <p>先由引擎出数，再解释风险与建议 · AI 故障不阻塞测算</p>
+          <h2>AI 项目测算助手</h2>
+          <p>懂项目、懂参数、能调用真实计算引擎 · 数字只来自引擎 · AI 故障不阻塞测算</p>
         </div>
         <div class="head-actions">
-          <button type="button" class="btn small" id="calc-ai-refresh">生成解读</button>
+          <button type="button" class="btn small primary" id="calc-ai-open">打开助手</button>
+          <button type="button" class="btn small" id="calc-ai-refresh">本地解读</button>
         </div>
       </div>
-      <div class="field" style="margin-bottom:12px">
-        <label class="sr-only" for="calc-ai-question">提问</label>
-        <input class="input" id="calc-ai-question" placeholder="例如：能不能做？最大成本是什么？有哪些风险？" value="请解释当前测算结果、主要风险与下一步建议">
-      </div>
+      <div class="calc-ai-chips" id="calc-ai-chips">${chips}</div>
       <div id="calc-ai-body" class="calc-ai-body" aria-live="polite">
-        <div class="help">点击「生成解读」查看基于引擎结果的分析。未配置大模型时使用本地规则解读。</div>
+        <div class="help">可直接点快捷问题，或打开右侧助手用自然语言查询、改参、重算、对比与汇报。</div>
       </div>
+      <aside id="calc-ai-drawer" class="calc-ai-drawer" hidden>
+        <div class="calc-ai-drawer-head">
+          <div>
+            <strong>AI 项目测算助手</strong>
+            <p>修改参数需确认后才会调用 Calculation Engine</p>
+          </div>
+          <button type="button" class="btn ghost small" id="calc-ai-close">关闭</button>
+        </div>
+        <div id="calc-ai-chat" class="calc-ai-chat" aria-live="polite"></div>
+        <div id="calc-ai-confirm" class="calc-ai-confirm" hidden></div>
+        <div class="calc-ai-compose">
+          <textarea id="calc-ai-input" class="textarea" rows="3" placeholder="例如：如果电价从0.8元降到0.65元呢？"></textarea>
+          <button type="button" class="btn primary" id="calc-ai-send">发送</button>
+        </div>
+        <p class="calc-ai-disclaimer">API Key 仅存在服务端；未配置时自动使用本地洞察引擎。</p>
+      </aside>
+      <button type="button" class="calc-ai-fab" id="calc-ai-fab" aria-label="打开 AI 项目测算助手">AI 助手</button>
     </section>`;
   }
 
@@ -459,14 +512,161 @@
       <p class="calc-ai-disclaimer">${esc(insight.disclaimer)} · ${esc(insight.source)} · ${esc((insight.generatedAt || "").replace("T", " ").slice(0, 19))}</p>`;
   }
 
+  function renderChat() {
+    const box = $("#calc-ai-chat");
+    if (!box) return;
+    if (!assistantHistory.length) {
+      box.innerHTML = `<div class="calc-ai-msg assistant"><div class="calc-ai-bubble">你好，我是 AI 项目测算助手。可以帮你查询结果、修改参数（需确认）、调用真实引擎重算、对比方案并生成汇报结论。数字一律来自 Calculation Engine。</div></div>`;
+      return;
+    }
+    box.innerHTML = assistantHistory
+      .map((m) => {
+        const compare =
+          m.compareRows?.length
+            ? `<div class="table-wrap calc-ai-compare"><table><thead><tr><th>指标</th><th class="num">方案A</th><th class="num">方案B</th><th class="num">差值</th></tr></thead><tbody>${m.compareRows
+                .map((r) => `<tr><td>${esc(r.label)}</td><td class="num">${esc(r.a)}</td><td class="num">${esc(r.b)}</td><td class="num">${esc(r.delta)}</td></tr>`)
+                .join("")}</tbody></table></div>`
+            : "";
+        return `<div class="calc-ai-msg ${esc(m.role)}"><div class="calc-ai-bubble">${esc(m.content).replace(/\n/g, "<br>")}${compare}</div></div>`;
+      })
+      .join("");
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function renderConfirmCard(pending) {
+    const slot = $("#calc-ai-confirm");
+    if (!slot) return;
+    if (!pending) {
+      slot.hidden = true;
+      slot.innerHTML = "";
+      return;
+    }
+    const rows = (pending.changes || [])
+      .map((c) => `<li><strong>${esc(c.label)}</strong>：${esc(c.from)} → ${esc(c.to)}${c.unit ? ` ${esc(c.unit)}` : ""}</li>`)
+      .join("");
+    slot.hidden = false;
+    slot.innerHTML = `<div class="calc-ai-confirm-card">
+      <strong>待确认操作</strong>
+      <p>${esc(pending.previewText)}</p>
+      <ul>${rows || "<li>无参数变更</li>"}</ul>
+      <div class="calc-ai-confirm-actions">
+        <button type="button" class="btn primary" id="calc-ai-confirm-btn">确认并测算</button>
+        <button type="button" class="btn" id="calc-ai-cancel-btn">取消</button>
+      </div>
+    </div>`;
+    $("#calc-ai-confirm-btn").onclick = () => void runAssistantMessage("确认并测算");
+    $("#calc-ai-cancel-btn").onclick = () => void runAssistantMessage("取消");
+  }
+
+  function openAssistantDrawer(open) {
+    const drawer = $("#calc-ai-drawer");
+    if (!drawer) return;
+    drawer.hidden = !open;
+    document.body.classList.toggle("calc-ai-drawer-open", open);
+    if (open) {
+      renderChat();
+      renderConfirmCard(ensureAssistantSession()?.pending || null);
+      $("#calc-ai-input")?.focus();
+    }
+  }
+
+  async function runAssistantMessage(text, opts = {}) {
+    const message = (text || "").trim();
+    if (!message || !global.PmCalc?.runAssistant) return;
+    const match = /^\/projects\/([^/]+)\/calculation\/([^/]+)$/.exec(currentRoute());
+    if (!match) return;
+    const [, projectId, scenarioId] = match;
+    const p = projects.find((x) => x.id === projectId);
+    const project = p && global.PmCalc ? global.PmCalc.buildProjectContext(p) : null;
+
+    if (!opts.silentUser) {
+      assistantHistory.push({ role: "user", content: message });
+      renderChat();
+    }
+
+    let result;
+    try {
+      result = global.PmCalc.runAssistant({
+        projectId,
+        scenarioId,
+        message,
+        session: ensureAssistantSession(),
+        project,
+      });
+      assistantSession = result.session;
+    } catch (err) {
+      assistantHistory.push({
+        role: "assistant",
+        content: `助手执行失败：${err?.message || "未知错误"}。测算页面与引擎结果不受影响。`,
+      });
+      renderChat();
+      return;
+    }
+
+    assistantHistory.push({
+      role: "assistant",
+      content: result.reply,
+      compareRows: result.compareRows,
+    });
+    renderChat();
+    renderConfirmCard(result.pending);
+
+    // 可选远端润色：仅增强文案，不改数字；失败则忽略
+    if (!result.confirmRequired && result.reply && result.source === "local_engine") {
+      tryPolishAssistantReply(scenarioId, project, message, result.reply);
+    }
+
+    if (result.refreshedScenarioIds?.length && !result.confirmRequired) {
+      toast("已按引擎结果更新方案");
+      render();
+      openAssistantDrawer(true);
+    }
+  }
+
+  async function tryPolishAssistantReply(scenarioId, project, question, localReply) {
+    try {
+      const scenario = global.PmCalc.getScenario(scenarioId);
+      if (!scenario?.results || !global.PmCalc.buildAiPayload) return;
+      const localInsight = global.PmCalc.analyzeScenario({ scenarioId, project, question });
+      const payload = global.PmCalc.buildAiPayload({
+        scenario,
+        project,
+        question,
+        localInsight: { ...localInsight, summary: localReply },
+      });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 8000);
+      const res = await fetch("/api/demo-ai/explain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.ok && data.text) {
+        const last = assistantHistory[assistantHistory.length - 1];
+        if (last?.role === "assistant") {
+          last.content = `${localReply}\n\n——\n大模型润色（未改动引擎数字）：\n${data.text}`;
+          renderChat();
+        }
+      }
+    } catch {
+      /* 远端失败静默降级 */
+    }
+  }
+
   async function runAiAnalysis(scenarioId, project) {
     const body = $("#calc-ai-body");
-    const question = $("#calc-ai-question")?.value?.trim() || "";
     if (!body || !global.PmCalc?.analyzeScenario) return;
     body.innerHTML = `<div class="help">正在基于引擎结果生成解读…</div>`;
     let insight;
     try {
-      insight = global.PmCalc.analyzeScenario({ scenarioId, project, question });
+      insight = global.PmCalc.analyzeScenario({
+        scenarioId,
+        project,
+        question: "请解释当前测算结果、主要风险与下一步建议",
+      });
     } catch (err) {
       body.innerHTML = `<div class="calc-ai-degrade"><span class="tag warning">解读降级</span><span>${esc(err.message || "本地解读失败")}。测算数字仍可在上方查看。</span></div>`;
       return;
@@ -483,7 +683,7 @@
       const payload = global.PmCalc.buildAiPayload({
         scenario,
         project,
-        question,
+        question: "请解释当前测算结果、主要风险与下一步建议",
         localInsight: insight,
       });
       const controller = new AbortController();
@@ -589,7 +789,7 @@
           </table></div>
         </section>
       </div>
-      ${aiPanelMarkup(scenario.id)}
+      ${aiPanelMarkup(scenario.id, Boolean(scenario.results))}
     </div>`);
   }
 
@@ -751,15 +951,46 @@
     bindDirtyWatchers();
 
     const aiMatch = /^\/projects\/([^/]+)\/calculation\/([^/]+)$/.exec(currentRoute());
-    if (aiMatch && $("#calc-ai-refresh")) {
+    if (aiMatch && ($("#calc-ai-refresh") || $("#calc-ai-open"))) {
       const projectId = aiMatch[1];
       const scenarioId = aiMatch[2];
       const p = projects.find((x) => x.id === projectId);
       const ctx = p && global.PmCalc ? global.PmCalc.buildProjectContext(p) : null;
-      $("#calc-ai-refresh").onclick = () => runAiAnalysis(scenarioId, ctx);
+      $("#calc-ai-refresh")?.addEventListener("click", () => runAiAnalysis(scenarioId, ctx));
+      $("#calc-ai-open")?.addEventListener("click", () => openAssistantDrawer(true));
+      $("#calc-ai-fab")?.addEventListener("click", () => openAssistantDrawer(true));
+      $("#calc-ai-close")?.addEventListener("click", () => openAssistantDrawer(false));
+      $("#calc-ai-send")?.addEventListener("click", () => {
+        const input = $("#calc-ai-input");
+        const text = input?.value || "";
+        if (input) input.value = "";
+        void runAssistantMessage(text);
+      });
+      $("#calc-ai-input")?.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          $("#calc-ai-send")?.click();
+        }
+      });
+      $$("[data-ai-ask]").forEach((btn) => {
+        btn.onclick = () => {
+          openAssistantDrawer(true);
+          void runAssistantMessage(btn.dataset.aiAsk);
+        };
+      });
       const scenario = global.PmCalc.getScenario(scenarioId);
       if (scenario?.results) {
         runAiAnalysis(scenarioId, ctx);
+      }
+      try {
+        const pendingAsk = sessionStorage.getItem("pm-ai-pending-ask");
+        if (pendingAsk) {
+          sessionStorage.removeItem("pm-ai-pending-ask");
+          openAssistantDrawer(true);
+          void runAssistantMessage(pendingAsk);
+        }
+      } catch {
+        /* ignore */
       }
     }
   }

@@ -30,3 +30,17 @@ export { VersionedStore } from "./storage/versioned";
 export { buildSeedProjects, buildSeedScenarios, computeScenarioResults } from "./seed/demo-seed";
 export { analyzeScenarioLocal, buildAiPayload } from "./ai/analyze";
 export type { DemoAiInsight, DemoAiRiskItem, DemoAiRiskLevel } from "./ai/analyze";
+export {
+  ASSISTANT_SHORTCUTS,
+  confirmPendingAction,
+  createAssistantSession,
+  runAssistantTurn,
+} from "./ai/assistant";
+export type {
+  AssistantMessage,
+  AssistantPageContext,
+  AssistantSession,
+  AssistantTurnResult,
+  PendingAssistantAction,
+} from "./ai/assistant";
+export { parseAssistantIntent } from "./ai/intent";

@@ -92,17 +92,81 @@ describe("Phase 3：Demo 融合冒烟", () => {
     expect(css).not.toContain(".calc-metric { border:1px solid");
   });
 
-  it("Phase 5：AI 面板与代理路由存在，且前端无 API Key", () => {
+  it("Phase 5/6：AI 业务助手面板与代理路由存在，且前端无 API Key", () => {
     const calcApp = fs.readFileSync(path.join(demoRoot, "calculation-app.js"), "utf8");
     const server = fs.readFileSync(path.join(demoRoot, "server.mjs"), "utf8");
     const html = fs.readFileSync(path.join(demoRoot, "index.html"), "utf8");
     expect(calcApp).toContain("calc-ai-panel");
+    expect(calcApp).toContain("AI 项目测算助手");
+    expect(calcApp).toContain("确认并测算");
+    expect(calcApp).toContain("runAssistant");
     expect(calcApp).toContain("/api/demo-ai/explain");
     expect(calcApp).toContain("AI 暂不可用");
     expect(server).toContain("DEMO_AI_API_KEY");
     expect(server).toContain("/api/demo-ai/explain");
     expect(html).not.toMatch(/sk-[a-zA-Z0-9]/);
     expect(calcApp).not.toMatch(/DEMO_AI_API_KEY\s*=\s*['\"][^'\"]+/);
+  });
+
+  it("Phase 6：bundle 暴露 runAssistant，改参确认后走真实引擎", () => {
+    const code = fs.readFileSync(path.join(demoRoot, "lib/pm-calc.bundle.js"), "utf8");
+    const store = new Map<string, string>();
+    const localStorage = {
+      getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+      setItem: (k: string, v: string) => {
+        store.set(k, v);
+      },
+      removeItem: (k: string) => {
+        store.delete(k);
+      },
+    };
+    const sandbox: Record<string, unknown> = {
+      window: {},
+      localStorage,
+      console,
+      setTimeout,
+      clearTimeout,
+    };
+    sandbox.window = sandbox;
+    sandbox.globalThis = sandbox;
+    vm.createContext(sandbox);
+    vm.runInContext(code, sandbox, { filename: "pm-calc.bundle.js" });
+    const PmCalc = (sandbox as { PmCalc?: Record<string, unknown> }).PmCalc
+      || (sandbox as { window: { PmCalc?: Record<string, unknown> } }).window.PmCalc;
+    expect(PmCalc).toBeTruthy();
+    const api = PmCalc as {
+      ensureRepos: () => void;
+      createAssistantSession: () => unknown;
+      runAssistant: (p: {
+        projectId: string;
+        scenarioId: string;
+        message: string;
+        session?: unknown;
+      }) => {
+        confirmRequired: boolean;
+        reply: string;
+        session: unknown;
+        scenarioId?: string;
+      };
+      confirmAssistantAction: (session: unknown) => { reply: string; scenarioId?: string };
+      getScenario: (id: string) => { inputs: { routes: { segments: { electricityPrice: string }[] }[] }; results: { metrics: { monthlyProfit: string } } };
+      calculateProject: (input: unknown) => { monthlyProfit: { toString: () => string } };
+    };
+    api.ensureRepos();
+    const session = api.createAssistantSession();
+    const ask = api.runAssistant({
+      projectId: "PRJ-DEMO-001",
+      scenarioId: "SCN-001-BASE",
+      message: "把电价改成0.65元",
+      session,
+    });
+    expect(ask.confirmRequired).toBe(true);
+    expect(ask.reply).toMatch(/确认|重新测算|0\.65/);
+    const done = api.confirmAssistantAction(ask.session);
+    expect(done.reply).toMatch(/引擎|Calculation Engine/);
+    const scenario = api.getScenario("SCN-001-BASE");
+    expect(scenario.inputs.routes[0].segments[0].electricityPrice).toBe("0.65");
+    expect(scenario.results.metrics.monthlyProfit).toBe(api.calculateProject(scenario.inputs).monthlyProfit.toString());
   });
 
   it("Phase 5：bundle 暴露 analyzeScenario / buildAiPayload，无 Key 时本地解读可用", () => {

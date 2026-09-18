@@ -99,7 +99,13 @@ test.describe("终审 Demo 主链路", () => {
     // 打开任一已测算方案看 AI
     await page.getByRole("button", { name: "打开" }).first().click();
     await page.getByRole("button", { name: "生成解读" }).click();
-    await expect(page.locator("#calc-ai-body")).toContainText(/本地解读|大模型|AI 暂不可用|测算结果解读/);
+    await expect(page.locator("#calc-ai-body")).toContainText(/本地解读|大模型|AI 暂不可用|测算结果解读|业务诊断/);
+    await expect(page.locator(".calc-ai-panel")).toContainText("AI 项目测算助手");
+    await page.locator("#calc-ai-open").click();
+    await expect(page.locator("#calc-ai-drawer")).toBeVisible();
+    await page.locator("#calc-ai-input").fill("这个项目月利润多少？");
+    await page.locator("#calc-ai-send").click();
+    await expect(page.locator("#calc-ai-chat")).toContainText(/月利润|引擎/);
 
     await page.getByRole("button", { name: "返回项目详情" }).click();
     await expect(page.locator("h1")).toContainText("临港");
