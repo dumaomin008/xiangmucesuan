@@ -1,0 +1,365 @@
+export type FieldDomain =
+  | "项目基础"
+  | "线路"
+  | "货物/运量"
+  | "运营效率"
+  | "车辆"
+  | "能源"
+  | "收入"
+  | "人员"
+  | "成本"
+  | "金融/资产";
+
+export type MappingStatus = "mapped" | "unmapped";
+export type AiCompletable = "none" | "partial" | "reference_allowed" | "forbidden";
+export type QuestionPriority = "P0" | "P1" | "P2";
+
+export type FieldDefinition = {
+  fieldCode: string;
+  name: string;
+  domain: FieldDomain;
+  unit: string | null;
+  /** 现有测算引擎字段路径；unmapped 表示只进入 AI 草稿，不写入引擎 */
+  enginePath: string | null;
+  mapping: MappingStatus;
+  aiCompletable: AiCompletable;
+  questionPriority: QuestionPriority | null;
+  questionReason: string;
+  impactMetrics: string[];
+  scope: "project" | "route";
+};
+
+/**
+ * V2 冻结字段字典。
+ * 只收录 PRD 已点名的典型字段，以及能映射到现有引擎输入的字段。
+ * 不在此表的字段不得被启发式抽取或静默补全。
+ */
+export const FIELD_DICTIONARY: FieldDefinition[] = [
+  {
+    fieldCode: "project.name",
+    name: "项目名称",
+    domain: "项目基础",
+    unit: null,
+    enginePath: null,
+    mapping: "unmapped",
+    aiCompletable: "partial",
+    questionPriority: null,
+    questionReason: "",
+    impactMetrics: [],
+    scope: "project",
+  },
+  {
+    fieldCode: "project.customer",
+    name: "客户",
+    domain: "项目基础",
+    unit: null,
+    enginePath: null,
+    mapping: "unmapped",
+    aiCompletable: "partial",
+    questionPriority: null,
+    questionReason: "",
+    impactMetrics: [],
+    scope: "project",
+  },
+  {
+    fieldCode: "project.region",
+    name: "区域",
+    domain: "项目基础",
+    unit: null,
+    enginePath: null,
+    mapping: "unmapped",
+    aiCompletable: "partial",
+    questionPriority: "P2",
+    questionReason: "影响参考值检索与区域成本判断，但不阻断测算。",
+    impactMetrics: ["风险判断"],
+    scope: "project",
+  },
+  {
+    fieldCode: "route.name",
+    name: "线路名称",
+    domain: "线路",
+    unit: null,
+    enginePath: "route.routeName",
+    mapping: "mapped",
+    aiCompletable: "partial",
+    questionPriority: null,
+    questionReason: "可由起点-终点自动生成。",
+    impactMetrics: [],
+    scope: "route",
+  },
+  {
+    fieldCode: "route.origin",
+    name: "起点",
+    domain: "线路",
+    unit: null,
+    enginePath: "segment.originName",
+    mapping: "mapped",
+    aiCompletable: "forbidden",
+    questionPriority: "P0",
+    questionReason: "起点无法确定时不能臆造；缺失会导致线路结构无法确认。",
+    impactMetrics: ["线路结构", "正式测算版本"],
+    scope: "route",
+  },
+  {
+    fieldCode: "route.destination",
+    name: "终点",
+    domain: "线路",
+    unit: null,
+    enginePath: "segment.destinationName",
+    mapping: "mapped",
+    aiCompletable: "forbidden",
+    questionPriority: "P0",
+    questionReason: "未知卸货点允许为空，但必须由用户确认业务类型；不能臆造终点。",
+    impactMetrics: ["线路结构", "正式测算版本"],
+    scope: "route",
+  },
+  {
+    fieldCode: "route.distance_km",
+    name: "单程里程",
+    domain: "线路",
+    unit: "km",
+    enginePath: "segment.distanceKm",
+    mapping: "mapped",
+    aiCompletable: "reference_allowed",
+    questionPriority: "P0",
+    questionReason: "缺失会导致收入、能耗、轮胎和周转结果严重失真。",
+    impactMetrics: ["收入", "能耗成本", "里程", "利润"],
+    scope: "route",
+  },
+  {
+    fieldCode: "cargo.name",
+    name: "货物",
+    domain: "货物/运量",
+    unit: null,
+    enginePath: null,
+    mapping: "unmapped",
+    aiCompletable: "partial",
+    questionPriority: "P2",
+    questionReason: "影响载重/运营约束时再升级为关键，当前仅建议补充。",
+    impactMetrics: ["载重约束"],
+    scope: "route",
+  },
+  {
+    fieldCode: "cargo.daily_volume_ton",
+    name: "日运量",
+    domain: "货物/运量",
+    unit: "吨/日",
+    enginePath: null,
+    mapping: "unmapped",
+    aiCompletable: "forbidden",
+    questionPriority: "P0",
+    questionReason: "核心运量缺失会导致收入与车辆规模无法计算或严重失真。日运量不自动换算为单车载重或月趟数。",
+    impactMetrics: ["收入", "运量", "车辆规模"],
+    scope: "route",
+  },
+  {
+    fieldCode: "cargo.load_ton",
+    name: "单车载重",
+    domain: "货物/运量",
+    unit: "吨",
+    enginePath: "segment.loadTon",
+    mapping: "mapped",
+    aiCompletable: "reference_allowed",
+    questionPriority: "P1",
+    questionReason: "测算引擎按单车载重计收；与日运量口径不同，禁止静默换算。",
+    impactMetrics: ["收入", "运量"],
+    scope: "route",
+  },
+  {
+    fieldCode: "cargo.guaranteed_volume",
+    name: "保底量",
+    domain: "货物/运量",
+    unit: null,
+    enginePath: null,
+    mapping: "unmapped",
+    aiCompletable: "forbidden",
+    questionPriority: "P2",
+    questionReason: "属于明确商业条款，禁止 AI 臆造。",
+    impactMetrics: ["收入保底", "风险判断"],
+    scope: "route",
+  },
+  {
+    fieldCode: "ops.trips_per_day",
+    name: "日均趟次",
+    domain: "运营效率",
+    unit: "趟/日",
+    enginePath: null,
+    mapping: "unmapped",
+    aiCompletable: "reference_allowed",
+    questionPriority: "P1",
+    questionReason: "资料值优先；否则可展示参考值。不自动换算为单车月趟数。",
+    impactMetrics: ["周转", "收入", "利润"],
+    scope: "route",
+  },
+  {
+    fieldCode: "ops.trips_per_vehicle_month",
+    name: "单车月趟数",
+    domain: "运营效率",
+    unit: "趟/月",
+    enginePath: "segment.tripsPerVehicleMonth",
+    mapping: "mapped",
+    aiCompletable: "reference_allowed",
+    questionPriority: "P1",
+    questionReason: "现有测算引擎的趟次输入。缺失时引擎无法计算收入。",
+    impactMetrics: ["收入", "里程", "利润"],
+    scope: "route",
+  },
+  {
+    fieldCode: "ops.loading_duration",
+    name: "装卸时长",
+    domain: "运营效率",
+    unit: null,
+    enginePath: null,
+    mapping: "unmapped",
+    aiCompletable: "reference_allowed",
+    questionPriority: "P1",
+    questionReason: "可用参考值测算但影响周转较大；本轮不写入引擎。",
+    impactMetrics: ["日均趟次", "周转风险"],
+    scope: "route",
+  },
+  {
+    fieldCode: "ops.charging_duration",
+    name: "充电时长",
+    domain: "运营效率",
+    unit: null,
+    enginePath: null,
+    mapping: "unmapped",
+    aiCompletable: "reference_allowed",
+    questionPriority: "P2",
+    questionReason: "影响次要周转判断，不阻断测算。",
+    impactMetrics: ["周转"],
+    scope: "route",
+  },
+  {
+    fieldCode: "ops.empty_rate",
+    name: "空驶率",
+    domain: "运营效率",
+    unit: null,
+    enginePath: null,
+    mapping: "unmapped",
+    aiCompletable: "reference_allowed",
+    questionPriority: "P2",
+    questionReason: "现有引擎按规则集处理空驶里程，本字段仅作尽调提示。",
+    impactMetrics: ["能耗成本"],
+    scope: "route",
+  },
+  {
+    fieldCode: "vehicle.type",
+    name: "车型",
+    domain: "车辆",
+    unit: null,
+    enginePath: null,
+    mapping: "unmapped",
+    aiCompletable: "partial",
+    questionPriority: "P2",
+    questionReason: "影响电耗、维修等参考值匹配；参考值规则尚未冻结。",
+    impactMetrics: ["能耗", "维修"],
+    scope: "project",
+  },
+  {
+    fieldCode: "vehicle.fleet_size",
+    name: "车辆数",
+    domain: "车辆",
+    unit: "台",
+    enginePath: "scheme.fleetSize",
+    mapping: "mapped",
+    aiCompletable: "partial",
+    questionPriority: "P0",
+    questionReason: "车辆数为测算关键输入，支持线路级或项目级。",
+    impactMetrics: ["收入", "固定成本", "利润"],
+    scope: "project",
+  },
+  {
+    fieldCode: "energy.loaded_consumption",
+    name: "满载能耗",
+    domain: "能源",
+    unit: "kWh/km",
+    enginePath: "segment.loadedEnergyConsumption",
+    mapping: "mapped",
+    aiCompletable: "reference_allowed",
+    questionPriority: "P1",
+    questionReason: "允许参考值，但必须展示来源；高敏感时需继续尽调。",
+    impactMetrics: ["能耗成本", "利润"],
+    scope: "route",
+  },
+  {
+    fieldCode: "energy.empty_consumption",
+    name: "空载能耗",
+    domain: "能源",
+    unit: "kWh/km",
+    enginePath: "segment.emptyEnergyConsumption",
+    mapping: "mapped",
+    aiCompletable: "reference_allowed",
+    questionPriority: "P1",
+    questionReason: "允许参考值，但必须展示来源。",
+    impactMetrics: ["能耗成本", "利润"],
+    scope: "route",
+  },
+  {
+    fieldCode: "energy.electricity_price",
+    name: "电价",
+    domain: "能源",
+    unit: "元/kWh",
+    enginePath: "segment.electricityPrice",
+    mapping: "mapped",
+    aiCompletable: "reference_allowed",
+    questionPriority: "P1",
+    questionReason: "允许参考值；充电价格未锁定时需提示风险，风险阈值尚未冻结。",
+    impactMetrics: ["能耗成本", "利润"],
+    scope: "route",
+  },
+  {
+    fieldCode: "revenue.freight_price",
+    name: "运价",
+    domain: "收入",
+    unit: null,
+    enginePath: "segment.freightPrice",
+    mapping: "mapped",
+    aiCompletable: "forbidden",
+    questionPriority: "P0",
+    questionReason: "运价原则上不可 AI 臆造；缺失则进入 P0 问题。",
+    impactMetrics: ["收入", "利润", "保本运价"],
+    scope: "route",
+  },
+  {
+    fieldCode: "revenue.freight_price_unit",
+    name: "计价单位",
+    domain: "收入",
+    unit: null,
+    enginePath: "segment.freightPriceUnit",
+    mapping: "mapped",
+    aiCompletable: "forbidden",
+    questionPriority: "P0",
+    questionReason: "运价必须明确数值与单位。",
+    impactMetrics: ["收入", "利润"],
+    scope: "route",
+  },
+];
+
+export const FIELD_BY_CODE = Object.fromEntries(FIELD_DICTIONARY.map((item) => [item.fieldCode, item]));
+
+export const FORBIDDEN_AUTOCOMPLETE_FIELDS = FIELD_DICTIONARY.filter((item) => item.aiCompletable === "forbidden").map(
+  (item) => item.fieldCode,
+);
+
+export function getField(fieldCode: string) {
+  return FIELD_BY_CODE[fieldCode];
+}
+
+export const FREIGHT_UNIT_ALIASES: Record<string, string> = {
+  "元/吨": "PER_TON",
+  吨: "PER_TON",
+  PER_TON: "PER_TON",
+  "元/趟": "PER_TRIP",
+  趟: "PER_TRIP",
+  PER_TRIP: "PER_TRIP",
+  "元/吨公里": "PER_TON_KM",
+  "元/吨·公里": "PER_TON_KM",
+  PER_TON_KM: "PER_TON_KM",
+};
+
+export const FREIGHT_UNIT_LABEL: Record<string, string> = {
+  PER_TON: "元/吨",
+  PER_TRIP: "元/趟",
+  PER_TON_KM: "元/吨公里",
+};

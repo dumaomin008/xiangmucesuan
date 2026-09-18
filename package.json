@@ -9,6 +9,10 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "playwright test --project=api",
+    "test:e2e": "playwright test --project=e2e",
+    "test:acceptance": "npx tsx scripts/run-acceptance.ts",
+    "test:db:init": "npx tsx scripts/run-init-acceptance-db.ts",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma db push --force-reset && tsx prisma/seed.ts",
@@ -39,6 +43,7 @@
     "tailwindcss": "^3.4.17",
     "tsx": "^4.20.5",
     "typescript": "^5.9.2",
-    "vitest": "^3.2.4"
+    "vitest": "^3.2.4",
+    "@playwright/test": "^1.55.2"
   }
 }

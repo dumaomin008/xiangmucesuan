@@ -1,0 +1,12 @@
+export const AI_PROJECT_EXTRACT_SCHEMA_VERSION = "ai_project_extract_v1" as const;
+export const CALCULATION_REQUEST_SCHEMA_VERSION = "calculation_request_v1" as const;
+export const CALCULATION_RESULT_SCHEMA_VERSION = "calculation_result_v1" as const;
+
+export const AI_PROMPT_VERSION = null;
+export const AI_RISK_RULE_VERSION = null;
+export const AI_REFERENCE_RULE_VERSION = null;
+
+export type SchemaVersion =
+  | typeof AI_PROJECT_EXTRACT_SCHEMA_VERSION
+  | typeof CALCULATION_REQUEST_SCHEMA_VERSION
+  | typeof CALCULATION_RESULT_SCHEMA_VERSION;

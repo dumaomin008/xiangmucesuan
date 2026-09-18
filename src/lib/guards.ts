@@ -2,8 +2,13 @@ import { Decimal, EngineError } from "@/lib/engine/decimal";
 
 export async function readJson(req: Request): Promise<Record<string, unknown>> {
   try {
-    return (await req.json()) as Record<string, unknown>;
-  } catch {
+    const parsed: unknown = await req.json();
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new EngineError("INVALID_JSON", "body", "请求体不是合法 JSON 对象");
+    }
+    return parsed as Record<string, unknown>;
+  } catch (err) {
+    if (err instanceof EngineError) throw err;
     throw new EngineError("INVALID_JSON", "body", "请求体不是合法 JSON");
   }
 }

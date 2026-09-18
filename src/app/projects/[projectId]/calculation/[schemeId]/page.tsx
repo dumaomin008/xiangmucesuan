@@ -87,7 +87,12 @@ export default function WizardPage() {
   const { projectId, schemeId } = useParams<{ projectId: string; schemeId: string }>();
   const router = useRouter();
   const [step, setStep] = useState(0);
-  const [scheme, setScheme] = useState<Scheme | null>(null);
+  const [scheme, setSchemeState] = useState<Scheme | null>(null);
+  const schemeRef = useRef<Scheme | null>(null);
+  const setScheme = (next: Scheme) => {
+    schemeRef.current = next;
+    setSchemeState(next);
+  };
   const [meta, setMeta] = useState<Meta | null>(null);
   const [std, setStd] = useState<Std[]>([]);
   const [routeId, setRouteId] = useState<string>("");
@@ -140,13 +145,14 @@ export default function WizardPage() {
               .map((p) => {
                 const field = VEHICLE_FIELDS.find((f) => f.std === p.parameterCode)!;
                 const current = String(next.vehiclePlan[field.key] ?? "");
-                if (current === p.value) return null;
+                const overrideReason = (reasons[p.parameterCode] || "").trim();
+                if (current === p.value || !overrideReason) return null;
                 return {
                   parameterCode: p.parameterCode,
                   parameterName: p.parameterName,
                   standardValue: p.value,
                   overrideValue: current,
-                  overrideReason: reasons[p.parameterCode] || "",
+                  overrideReason,
                   unit: p.unit,
                 };
               })
@@ -210,7 +216,8 @@ export default function WizardPage() {
       clearTimeout(segmentTimers.current[seg.id]);
       delete segmentTimers.current[seg.id];
     }
-    persistSegment(seg).catch(() => undefined);
+    const latest = schemeRef.current?.routes.flatMap((r) => r.segments).find((s) => s.id === seg.id) || seg;
+    persistSegment(latest).catch(() => undefined);
   };
 
   const lease = meta?.leaseTypes.find((l) => l.code === scheme?.leaseType);

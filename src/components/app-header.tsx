@@ -25,7 +25,7 @@ export function AppHeader() {
           </div>
           <div>
             <div className="text-[15px] font-semibold">项目经营测算</div>
-            <div className="text-[12px] text-sn-muted">项目管理系统模块 Demo</div>
+            <div className="text-[12px] text-sn-muted">AI 尽调解析 + 确定性测算引擎</div>
           </div>
         </Link>
         <div className="flex items-center gap-3">

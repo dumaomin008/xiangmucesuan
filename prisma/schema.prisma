@@ -19,6 +19,7 @@ model Project {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   schemes        CalculationScheme[]
+  aiWorkspaces   AiWorkspace[]
 }
 
 model CalculationScheme {
@@ -54,6 +55,7 @@ model CalculationScheme {
   sensitivityTasks  SensitivityTask[]
   changeLogs        ParameterChangeLog[]
   overrides         ParameterOverride[]
+  aiWorkspace       AiWorkspace?
 }
 
 model CalculationSchemeVersion {
@@ -378,4 +380,227 @@ model AuditLog {
   actor      String
   detailJson String
   createdAt  DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------------
+// V2 AI 智能测算：独立于测算引擎的资料/草稿/版本实体。
+// 核心收入、成本、现金流、IRR 仍只来自 Calculation Engine，不在本层计算。
+// ---------------------------------------------------------------------------
+
+model AiWorkspace {
+  id             String   @id @default(cuid())
+  projectId      String
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title          String
+  status         String
+  createMode     String
+  schemaVersion  String   @default("ai_project_extract_v1")
+  schemeId       String?  @unique
+  scheme         CalculationScheme? @relation(fields: [schemeId], references: [id], onDelete: SetNull)
+  inputVersionNo String?
+  notes          String?
+  createdBy      String
+  createdAt      DateTime @default(now())
+  updatedBy      String
+  updatedAt      DateTime @updatedAt
+
+  documents            AiSourceDocument[]
+  tasks                AiExtractionTask[]
+  parameters           AiParameter[]
+  routes               AiRoute[]
+  conflicts            AiConflict[]
+  questions            AiQuestion[]
+  referenceCandidates  AiReferenceCandidate[]
+  scenarios            AiScenario[]
+  analysisResults      AiAnalysisResult[]
+  riskResults          AiRiskResult[]
+  dueDiligenceItems    AiDueDiligenceItem[]
+}
+
+model AiSourceDocument {
+  id           String      @id @default(cuid())
+  workspaceId  String
+  workspace    AiWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sourceType   String
+  fileName     String?
+  mimeType     String?
+  contentHash  String
+  contentText  String      @default("")
+  byteSize     Int         @default(0)
+  parseStatus  String
+  parseMessage String?
+  uploadedBy   String
+  uploadedAt   DateTime    @default(now())
+}
+
+model AiExtractionTask {
+  id                   String      @id @default(cuid())
+  workspaceId          String
+  workspace            AiWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  status               String
+  extractorKind        String
+  modelName            String?
+  promptVersion        String?
+  schemaVersion        String
+  rawResponseJson      String      @default("")
+  validationResultJson String      @default("{}")
+  extractPayloadJson   String      @default("{}")
+  errorMessage         String?
+  startedAt            DateTime?
+  finishedAt           DateTime?
+  createdAt            DateTime    @default(now())
+}
+
+model AiParameter {
+  id                String      @id @default(cuid())
+  workspaceId       String
+  workspace         AiWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  routeId           String?
+  fieldCode         String
+  value             String?
+  unit              String?
+  rawValue          String?
+  sourceType        String
+  sourceRef         String?
+  confidence        Float?
+  status            String
+  editable          Boolean     @default(true)
+  referenceMetaJson String?
+  updatedBy         String
+  updatedAt         DateTime    @updatedAt
+
+  @@index([workspaceId, fieldCode])
+}
+
+model AiRoute {
+  id                     String      @id @default(cuid())
+  workspaceId            String
+  workspace              AiWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sortNo                 Int
+  routeName              String
+  originName             String      @default("")
+  destinationName        String      @default("")
+  distanceKm             String?
+  volumeValue            String?
+  volumeUnit             String?
+  tripsPerDay            String?
+  tripsPerVehicleMonth   String?
+  vehicleCount           String?
+  cargoName              String?
+  freightPrice           String?
+  freightPriceUnit       String?
+  loadTon                String?
+  status                 String
+  enabled                Boolean     @default(true)
+}
+
+model AiConflict {
+  id             String      @id @default(cuid())
+  workspaceId    String
+  workspace      AiWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  fieldCode      String
+  routeId        String?
+  candidatesJson String
+  resolvedValue  String?
+  status         String
+}
+
+model AiQuestion {
+  id            String      @id @default(cuid())
+  workspaceId   String
+  workspace     AiWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  priority      String
+  fieldCode     String
+  routeId       String?
+  question      String
+  reason        String
+  impactMetrics String
+  hasReference  Boolean     @default(false)
+  answerAction  String?
+  answerValue   String?
+  status        String
+}
+
+model AiReferenceCandidate {
+  id                  String      @id @default(cuid())
+  workspaceId         String
+  workspace           AiWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  fieldCode           String
+  routeId             String?
+  suggestedValue      String?
+  rangeMin            String?
+  rangeMax            String?
+  sourceLevel         String
+  sampleSize          Int?
+  statisticMethod     String?
+  sourceUpdatedAt     DateTime?
+  applicableCondition String?
+  confidenceLevel     String?
+  status              String
+  sourceMetaJson      String      @default("{}")
+}
+
+model AiScenario {
+  id             String      @id @default(cuid())
+  workspaceId    String
+  workspace      AiWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  schemeId       String?
+  kind           String
+  name           String
+  inputVersionId String?
+  resultId       String?
+  payloadJson    String      @default("{}")
+  createdAt      DateTime    @default(now())
+}
+
+model AiAnalysisResult {
+  id              String      @id @default(cuid())
+  workspaceId     String
+  workspace       AiWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  basedOnResultId String?
+  schemaVersion   String
+  status          String
+  analysisJson    String      @default("{}")
+  createdAt       DateTime    @default(now())
+}
+
+model AiRiskResult {
+  id              String      @id @default(cuid())
+  workspaceId     String
+  workspace       AiWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  basedOnResultId String?
+  status          String
+  payloadJson     String      @default("[]")
+  createdAt       DateTime    @default(now())
+}
+
+model AiDueDiligenceItem {
+  id                String      @id @default(cuid())
+  workspaceId       String
+  workspace         AiWorkspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  priority          String
+  item              String
+  reason            String
+  currentAssumption String?
+  impactMetrics     String
+  sensitivity       String?
+  suggestedMethod   String?
+  completionStatus  String
+}
+
+model ParameterReferenceValue {
+  id                  String   @id @default(cuid())
+  fieldCode           String
+  sourceLevel         String
+  suggestedValue      String
+  rangeMin            String?
+  rangeMax            String?
+  sampleSize          Int?
+  statisticMethod     String?
+  applicableCondition String?
+  confidenceLevel     String?
+  unit                String?
+  enabled             Boolean  @default(true)
+  updatedAt           DateTime @updatedAt
+  sourceMetaJson      String   @default("{}")
 }

@@ -16,7 +16,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     headers: {
       "Content-Type": "application/json",
       "x-demo-role": getDemoRole(),
-      "x-demo-user": getDemoUser(),
+      "x-demo-user": encodeURIComponent(getDemoUser()),
       ...(options.headers || {}),
     },
   });

@@ -1,12 +1,13 @@
 import { prisma } from "@/lib/db";
 import { fail, ok } from "@/lib/api";
+import { EngineError } from "@/lib/engine/decimal";
 import { summarizeFreightPricing } from "@/lib/engine/revenue";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const ids: string[] = (body.schemeIds || []).slice(0, 3);
-    if (ids.length < 2) return fail(new Error("请选择 2–3 个方案进行对比"), 400);
+    if (ids.length < 2) return fail(new EngineError("CALC_PARAMETER_INVALID", "schemeIds", "请选择 2–3 个方案进行对比"));
     const schemes = await prisma.calculationScheme.findMany({
       where: { id: { in: ids } },
       include: {

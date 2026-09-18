@@ -92,17 +92,7 @@ export default function SchemeListPage() {
             >
               从已有方案复制
             </Button>
-            <Button
-              onClick={() =>
-                run("new", async () => {
-                  const created = await api<{ id: string }>(`/api/projects/${projectId}/calculation-schemes`, {
-                    method: "POST",
-                    body: JSON.stringify({ schemeName: "新测算方案", fleetSize: 20, calculationYears: 5 }),
-                  });
-                  router.push(`/projects/${projectId}/calculation/${created.id}`);
-                })
-              }
-            >
+            <Button onClick={() => router.push(`/projects/${projectId}/calculation/new`)}>
               新建测算
             </Button>
           </>
@@ -137,7 +127,7 @@ export default function SchemeListPage() {
           <EmptyState
             title="还没有测算方案"
             body="从一条线路、一个车队规模开始。保存草稿随时可回，正式测算才会冻结参数快照。"
-            action={<Button onClick={() => router.push(`/projects/${projectId}/calculation`)}>新建测算</Button>}
+            action={<Button onClick={() => router.push(`/projects/${projectId}/calculation/new`)}>新建测算</Button>}
           />
         </Card>
       ) : (

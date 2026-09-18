@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { fail, ok } from "@/lib/api";
+import { EngineError } from "@/lib/engine/decimal";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ taskId: string }> }) {
   try {
@@ -8,7 +9,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ taskId:
       where: { id: taskId },
       include: { results: true },
     });
-    if (!task) return fail(new Error("任务不存在"), 404);
+    if (!task) return fail(new EngineError("NOT_FOUND", "task", "任务不存在"));
     return ok(task);
   } catch (err) {
     return fail(err);

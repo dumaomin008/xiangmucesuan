@@ -10,7 +10,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     const { role, actor } = actorFrom(req);
     if (!canEdit(role)) return fail(new EngineError("FORBIDDEN", "role", "当前角色不能归档"), 403);
     const scheme = await prisma.calculationScheme.findUnique({ where: { id } });
-    if (!scheme) return fail(new Error("方案不存在"), 404);
+    if (!scheme) return fail(new EngineError("NOT_FOUND", "scheme", "方案不存在"));
     if (scheme.status === "baseline") {
       return fail(new EngineError("CALC_PARAMETER_INVALID", "status", "基准方案请先取消基准再归档"), 400);
     }

@@ -23,8 +23,15 @@ export function fail(err: unknown, status?: number) {
 }
 
 export function actorFrom(req: Request): { role: DemoRole; actor: string } {
+  const raw = req.headers.get("x-demo-user") || "王经理";
+  let actor = raw;
+  try {
+    actor = decodeURIComponent(raw);
+  } catch {
+    actor = raw;
+  }
   return {
     role: parseRole(req.headers.get("x-demo-role")),
-    actor: req.headers.get("x-demo-user") || "王经理",
+    actor: actor || "王经理",
   };
 }

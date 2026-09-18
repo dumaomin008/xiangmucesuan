@@ -9,6 +9,7 @@ export function ProjectTabs({ projectId }: { projectId: string }) {
   const tabs = [
     { href: `/projects/${projectId}`, label: "项目概览", match: "overview" },
     { href: `/projects/${projectId}/progress`, label: "项目进度", match: "progress" },
+    { href: `/projects/${projectId}/ai`, label: "AI智能测算", match: "ai" },
     { href: `/projects/${projectId}/calculation`, label: "项目测算", match: "calculation" },
   ];
   return (
