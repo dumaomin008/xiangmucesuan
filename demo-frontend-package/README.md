@@ -86,7 +86,7 @@ demo-frontend-package/
 
 领导演示默认是 **mock**。第一次打开不请求 DeepSeek；只有用户在演示工具里主动切到 deepseek 后，才会走服务端润色。清除演示数据 / 重置演示后回到 mock。DeepSeek 失败不会改写 CalculationResult。
 
-开发时如需看到模式切换和「模拟 AI 超时」，在浏览器执行 `localStorage.setItem("pm-demo-tools","1")` 后刷新，或打开带 `tools=1` 的地址。正式演示页只显示「AI服务：就绪」和「重置演示」。
+开发时如需看到模式切换和「模拟 AI 超时」，在浏览器执行 `localStorage.setItem("pm-demo-tools","1")` 后刷新，或打开带 `tools=1` 的地址。页面上的 AI 状态只显示「AI 服务正常」或「AI 深度分析暂不可用，测算功能不受影响」。
 
 ### 纯静态部署支持
 
@@ -127,8 +127,10 @@ DeepSeek Key（仅服务端环境变量 AI_API_KEY 或 DEMO_AI_API_KEY）
 调用路径：
 
 ```text
-Browser → /api/demo-ai/explain → server.mjs → DeepSeek
+Browser → DemoApi（DEMO_API_BASE_URL，同源可留空）→ server.mjs → DeepSeek
 ```
+
+静态站和 API 不同源时，设置 `DEMO_API_BASE_URL` 为 API 源，并在 API 进程设置 `DEMO_CORS_ORIGINS` 为前端 Origin。不要使用 `*`。`AI_MODEL` 没有内置默认值，必须写成演示环境实际调用成功的模型。
 
 DeepSeek 只润色解释，不计算利润。超时约 9 秒；401 / 403 / 429 / 5xx / 网络异常 / 非 JSON / 空内容 / 无法核对的数字，都保留 Calculation Engine 结果并使用本地解读。
 
@@ -151,9 +153,13 @@ DeepSeek 只润色解释，不计算利润。超时约 9 秒；401 / 403 / 429 /
 
 | 变量 | 说明 |
 |------|------|
-| `DEMO_AI_API_KEY` | 仅服务端；未配置时返回 `AI_NOT_CONFIGURED`，前端自动用本地解读 |
-| `DEMO_AI_BASE_URL` | 默认 `https://api.openai.com/v1` |
-| `DEMO_AI_MODEL` | 默认 `gpt-4o-mini` |
+| `AI_PROVIDER` | 例如 `deepseek`。未设置时按 Base URL 推断 |
+| `AI_API_KEY` | 仅服务端。也可回退读取 `DEMO_AI_API_KEY`。禁止写入前端 |
+| `AI_BASE_URL` | 例如 `https://api.deepseek.com`。未设置时按 provider 选择官方地址 |
+| `AI_MODEL` | 必填才算 AI 已配置。不要依赖代码里的模型默认值 |
+| `DEMO_API_BASE_URL` | 静态前端指向 API 的源。同源留空 |
+| `DEMO_CORS_ORIGINS` | 允许调用 API 的前端 Origin，逗号分隔。不要使用 `*` |
+| `DOCUMENT_PARSER_MODE` | `demo` 或 `real`。未设置时为演示解析 |
 
 约束：
 
