@@ -12,6 +12,8 @@
     "test:calc": "vitest run src/lib/engine/__tests__ tests/golden src/calculation/__tests__",
     "test:calc:consistency": "vitest run src/calculation/__tests__/browser-consistency.test.ts",
     "test:demo": "vitest run src/demo/__tests__",
+    "test:ai-eval": "vitest run src/demo/__tests__/ai-eval.test.ts",
+    "test:deepseek-smoke": "tsx scripts/deepseek-smoke.ts",
     "test:phase12": "vitest run src/lib/engine/__tests__ tests/golden src/calculation/__tests__ src/demo/__tests__",
     "test:phase3": "vitest run src/demo/__tests__/phase3-fusion.test.ts",
     "build:demo-calc": "node scripts/build-demo-calc-bundle.mjs",

@@ -6,6 +6,9 @@ out
 *.db-journal
 .env
 .env.local
+.env.*.local
+uploads/
+tmp/
 next-env.d.ts
 tsconfig.tsbuildinfo
 docs/acceptance-artifacts/

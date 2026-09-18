@@ -34,7 +34,8 @@
     const map = {
       EXTRACTED: ["已识别", "success"],
       MISSING: ["缺失", "warning"],
-      CONFLICT: ["冲突", "danger"],
+      CONFLICT: ["需要确认", "danger"],
+      NEED_CONFIRMATION: ["需要确认", "warning"],
       INFERRED: ["AI推断", "info"],
       MANUAL: ["人工", "info"],
       CONFIRMED: ["已确认", "success"],
@@ -59,6 +60,49 @@
         finance: "财务参数",
       }[g] || g
     );
+  }
+
+  function timeLabel(ctx) {
+    return { current: "当前", historical: "历史", planned: "规划", unknown: "" }[ctx] || "";
+  }
+
+  function sourceLine(source) {
+    if (!source) return "";
+    const loc = source.page ? `第${source.page}页` : source.sheetName ? source.sheetName : source.paragraph ? `段落${source.paragraph}` : "";
+    return `来源：${source.fileName || "资料"}${loc ? ` ${loc}` : ""}`;
+  }
+
+  function displayValue(p) {
+    if (p.valueRange && (p.status === "NEED_CONFIRMATION" || p.normalizedValue == null || p.normalizedValue === "")) {
+      return `${esc(p.valueRange.min)}~${esc(p.valueRange.max)}${p.unit ? ` ${esc(p.unit)}` : ""}`;
+    }
+    if (p.status === "MISSING" || p.status === "CONFLICT" || p.status === "NEED_CONFIRMATION" || p.normalizedValue == null || p.normalizedValue === "") {
+      return "—";
+    }
+    const tags = [p.qualifier, timeLabel(p.timeContext)].filter(Boolean).join(" · ");
+    return `${esc(p.normalizedValue)}${p.unit ? ` ${esc(p.unit)}` : ""}${tags ? ` <small>${esc(tags)}</small>` : ""}`;
+  }
+
+  function confirmChoices(p) {
+    const list = p.alternatives || [];
+    if (!list.length) return "";
+    const rangeHint = p.valueRange
+      ? `<p>资料给出了区间，请确认测算值。系统不会替你选择。</p>`
+      : `<p>存在多个口径，请选择测算值。系统不会自动采用。</p>`;
+    const cards = list
+      .map((a, i) => {
+        const tags = [a.qualifier, timeLabel(a.timeContext)].filter(Boolean).join(" · ");
+        return `<label class="calc-candidate-card"><input type="radio" name="conflict-${esc(p.field)}" value="${i}">
+          <strong>${esc(a.value)}${a.unit ? ` ${esc(a.unit)}` : ""}</strong>
+          ${tags ? `<span>${esc(tags)}</span>` : ""}
+          <small>${esc(sourceLine(a.source))}</small>
+        </label>`;
+      })
+      .join("");
+    return `<div class="calc-conflict-box">${rangeHint}<div class="calc-candidate-list">${cards}</div>
+      <label><input type="radio" name="conflict-${esc(p.field)}" value="manual"> 手动填写 <input class="input" data-conflict-manual="${esc(p.field)}" placeholder="输入值" style="width:120px;display:inline-block"></label>
+      <button type="button" class="btn small primary" data-resolve-conflict="${esc(p.field)}">确认选择</button>
+    </div>`;
   }
 
   function openCreateCalcModal() {
@@ -172,21 +216,10 @@
       .map(([g, list]) => {
         const rows = list
           .map((p) => {
-            const val =
-              p.status === "MISSING" || p.normalizedValue == null || p.normalizedValue === ""
-                ? "—"
-                : `${esc(p.normalizedValue)}${p.unit ? ` ${esc(p.unit)}` : ""}`;
+            const val = displayValue(p);
             let actions = "";
-            if (p.status === "CONFLICT" && p.alternatives?.length) {
-              actions = `<div class="calc-conflict-box">${p.alternatives
-                .map(
-                  (a, i) =>
-                    `<label><input type="radio" name="conflict-${esc(p.field)}" value="${i}"> ${esc(a.value)}${a.unit ? esc(a.unit) : ""} <small>（${esc(a.source?.fileName || "")}）</small></label>`,
-                )
-                .join("")}
-                <label><input type="radio" name="conflict-${esc(p.field)}" value="manual"> 手动填写 <input class="input" data-conflict-manual="${esc(p.field)}" placeholder="输入值" style="width:120px;display:inline-block"></label>
-                <button type="button" class="btn small primary" data-resolve-conflict="${esc(p.field)}">确认选择</button>
-              </div>`;
+            if ((p.status === "CONFLICT" || p.status === "NEED_CONFIRMATION") && p.alternatives?.length) {
+              actions = confirmChoices(p);
             }
             if (p.status === "INFERRED") {
               actions = `<div class="calc-infer-box"><p>${esc(p.inferReason || "AI 推断，需人工确认")}</p>
@@ -512,7 +545,7 @@
         const only = e.target.checked;
         $$("[data-param-status]").forEach((tr) => {
           const st = tr.dataset.paramStatus;
-          const pending = st === "MISSING" || st === "CONFLICT" || st === "INFERRED";
+          const pending = st === "MISSING" || st === "CONFLICT" || st === "NEED_CONFIRMATION" || st === "INFERRED";
           tr.hidden = only && !pending;
         });
       });

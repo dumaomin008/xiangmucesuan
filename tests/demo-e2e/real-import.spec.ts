@@ -62,6 +62,21 @@ test.describe("真实资料导入", () => {
     await expect(page.locator("#app")).not.toHaveText(/NaN|Infinity/);
   });
 
+  test("区间和多候选进入确认，不替用户选值", async ({ page }) => {
+    const semantic = path.join(fixtureDir, "semantic-confirm.xlsx");
+    const { buildSemanticConfirmXlsx } = await import("../../src/demo/import/real/sample-docs");
+    writeFileSync(semantic, await buildSemanticConfirmXlsx());
+    await loginAsSales(page);
+    await page.goto("/#/calculation/import");
+    await expect(page.locator("#calc-import-mode")).toContainText("real");
+    await page.locator("#calc-import-file").setInputFiles(semantic);
+    await page.locator("#calc-import-parse").click();
+    await expect(page.locator("[data-param-field='distanceKm']")).toContainText("80~85", { timeout: 20000 });
+    await expect(page.locator("[data-param-field='fleetSize']")).toContainText("首批");
+    await expect(page.locator("[data-param-field='fleetSize']")).toContainText("35");
+    await expect(page.locator("#calc-import-start")).toBeDisabled();
+  });
+
   test("同一文件改名后仍读出相同车辆数", async ({ page }) => {
     const renamed = path.join(fixtureDir, `rename-${Date.now()}.xlsx`);
     writeFileSync(renamed, await buildTransportXlsx(30));

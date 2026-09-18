@@ -6,9 +6,12 @@ export type ExtractedParamStatus =
   | "EXTRACTED"
   | "MISSING"
   | "CONFLICT"
+  | "NEED_CONFIRMATION"
   | "INFERRED"
   | "MANUAL"
   | "CONFIRMED";
+
+export type TimeContext = "current" | "historical" | "planned" | "unknown";
 
 export type ParameterSource = {
   fileId: string;
@@ -25,6 +28,8 @@ export type ParameterAlternative = {
   value: string | number | null;
   unit?: string;
   source: ParameterSource;
+  qualifier?: string;
+  timeContext?: TimeContext;
 };
 
 export type ExtractedParameter = {
@@ -49,6 +54,13 @@ export type ExtractedParameter = {
     | "cost"
     | "finance";
   inferReason?: string;
+  /** 语义修饰：首批、规划、含税、谷电、综合预计等 */
+  qualifier?: string;
+  /** 区间值。未人工点选前不得写入 normalizedValue */
+  valueRange?: { min: number; max: number };
+  timeContext?: TimeContext;
+  /** 确定性换算说明，例如日趟次 × 运营天数 */
+  derivation?: string;
   /** 单位无法确定性换算时为 true，确认前禁止测算 */
   unitUnresolved?: boolean;
   /** 资料缺失但系统有默认值：必须人工点选后才可采用 */

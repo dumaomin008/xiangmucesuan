@@ -49,7 +49,7 @@ export function mapToSchemeCalculationInput(parameters: ExtractedParameter[]): M
 
   // 冲突 / 未确认推断 / 必填缺失 → 禁止映射
   for (const p of byField.values()) {
-    if (p.status === "CONFLICT") errors.push(`${p.label} 仍有冲突未处理`);
+    if (p.status === "CONFLICT" || p.status === "NEED_CONFIRMATION") errors.push(`${p.label} 仍需人工确认`);
     if (p.status === "INFERRED") errors.push(`${p.label} 为 AI 推断，需人工确认`);
     if (p.unitUnresolved) errors.push(`${p.label} 单位无法换算`);
     if (p.offerSystemDefault && p.status === "MISSING" && !p.confirmedByUser) {
@@ -151,7 +151,7 @@ export function summarizeParameterStates(parameters: ExtractedParameter[]) {
   for (const p of parameters) {
     if (p.status === "EXTRACTED") counts.extracted += 1;
     else if (p.status === "MISSING") counts.missing += 1;
-    else if (p.status === "CONFLICT") counts.conflict += 1;
+    else if (p.status === "CONFLICT" || p.status === "NEED_CONFIRMATION") counts.conflict += 1;
     else if (p.status === "INFERRED") counts.inferred += 1;
     else if (p.status === "MANUAL") counts.manual += 1;
     else if (p.status === "CONFIRMED") counts.confirmed += 1;
@@ -162,7 +162,7 @@ export function summarizeParameterStates(parameters: ExtractedParameter[]) {
 export function canStartCalculation(parameters: ExtractedParameter[]): { ok: boolean; reasons: string[] } {
   const reasons: string[] = [];
   for (const p of parameters) {
-    if (p.status === "CONFLICT") reasons.push(`${p.label}：冲突未解决`);
+    if (p.status === "CONFLICT" || p.status === "NEED_CONFIRMATION") reasons.push(`${p.label}：需要确认`);
     if (p.status === "INFERRED") reasons.push(`${p.label}：推断未确认`);
     if (p.unitUnresolved) reasons.push(`${p.label}：单位无法换算`);
     if (p.offerSystemDefault && p.status === "MISSING" && !p.confirmedByUser) {

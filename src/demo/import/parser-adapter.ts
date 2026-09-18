@@ -245,35 +245,54 @@ export function mergeExtractedParameters(batches: ParseFileResult[]): ExtractedP
       }
       if (p.status === "MISSING") continue;
 
+      const sameRange =
+        existing.valueRange &&
+        p.valueRange &&
+        existing.valueRange.min === p.valueRange.min &&
+        existing.valueRange.max === p.valueRange.max;
       const same =
+        !existing.valueRange &&
+        !p.valueRange &&
         String(existing.normalizedValue ?? existing.value) === String(p.normalizedValue ?? p.value);
-      if (same) {
+      if (same || sameRange) {
         existing.sources = [...existing.sources, ...p.sources];
         if ((p.confidence ?? 0) > (existing.confidence ?? 0)) existing.confidence = p.confidence;
+        existing.qualifier = existing.qualifier || p.qualifier;
+        existing.timeContext = existing.timeContext || p.timeContext;
+        continue;
+      }
+
+      if (existing.status === "CONFLICT" && existing.alternatives?.some((alt) => String(alt.value) === String(p.normalizedValue ?? p.value))) {
+        existing.sources = [...existing.sources, ...p.sources];
         continue;
       }
 
       const alternatives = [
         ...(existing.alternatives || [
           {
-            value: existing.value,
+            value: existing.valueRange ? `${existing.valueRange.min}~${existing.valueRange.max}` : existing.value,
             unit: existing.unit,
             source: existing.sources[0] || { fileId: "", fileName: "未知" },
+            qualifier: existing.qualifier,
+            timeContext: existing.timeContext,
           },
         ]),
         {
-          value: p.value,
+          value: p.valueRange ? `${p.valueRange.min}~${p.valueRange.max}` : p.value,
           unit: p.unit,
           source: p.sources[0] || { fileId: "", fileName: "未知" },
+          qualifier: p.qualifier,
+          timeContext: p.timeContext,
         },
       ];
       map.set(p.field, {
         ...existing,
-        status: "CONFLICT",
+        status: existing.valueRange || p.valueRange ? "NEED_CONFIRMATION" : "CONFLICT",
         value: null,
         normalizedValue: null,
         sources: [...existing.sources, ...p.sources],
         alternatives,
+        valueRange: existing.valueRange || p.valueRange,
         confidence: Math.min(existing.confidence ?? 1, p.confidence ?? 1),
       });
     }

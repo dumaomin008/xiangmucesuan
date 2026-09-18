@@ -217,7 +217,7 @@ export function resolveConflictTool(
   const session = repos.imports.getSession(sessionId);
   if (!session) return { session: null, trace: { tool: "resolveConflict", ok: false } };
   const p = session.parameters.find((x) => x.field === field);
-  if (!p || p.status !== "CONFLICT") {
+  if (!p || (p.status !== "CONFLICT" && p.status !== "NEED_CONFIRMATION")) {
     return { session, trace: { tool: "resolveConflict", ok: false, detail: "not conflict" } };
   }
 
@@ -226,10 +226,14 @@ export function resolveConflictTool(
   if (choice.manualValue != null && choice.manualValue !== "") {
     value = choice.manualValue;
     p.status = "MANUAL";
+    p.valueRange = undefined;
   } else if (choice.alternativeIndex != null && p.alternatives?.[choice.alternativeIndex]) {
     picked = p.alternatives[choice.alternativeIndex];
     value = picked.value;
     p.status = "CONFIRMED";
+    p.qualifier = picked.qualifier || p.qualifier;
+    p.timeContext = picked.timeContext || p.timeContext;
+    p.valueRange = undefined;
     if (picked.source) p.sources = [picked.source];
   } else {
     return { session, trace: { tool: "resolveConflict", ok: false, detail: "no choice" } };

@@ -94,16 +94,28 @@ function parseMultipart(buffer, boundary) {
   return parts;
 }
 
+function documentAiConfig() {
+  if (documentImport?.resolveDocumentAiConfig) return documentImport.resolveDocumentAiConfig(process.env);
+  const apiKey = process.env.AI_API_KEY || process.env.DEMO_AI_API_KEY || '';
+  const provider = (process.env.AI_PROVIDER || 'deepseek').toLowerCase();
+  const baseUrl = (process.env.AI_BASE_URL || process.env.DEMO_AI_BASE_URL || 'https://api.deepseek.com').replace(/\/$/, '');
+  const model = process.env.AI_MODEL || process.env.DEMO_AI_MODEL || (provider === 'deepseek' ? 'deepseek-flash' : 'gpt-4o-mini');
+  return { provider, apiKey, baseUrl, model, configured: Boolean(apiKey) };
+}
+
 async function handleImportConfig(_request, response) {
   const mode = documentImport ? documentImport.getDocumentParserMode() : 'demo';
   const limits = documentImport?.UPLOAD_LIMITS || { maxFiles: 8, maxFileBytes: 10 * 1024 * 1024, maxTotalBytes: 25 * 1024 * 1024 };
+  const ai = documentAiConfig();
   return sendJson(response, 200, {
     ok: true,
     mode,
     maxFiles: limits.maxFiles,
     maxFileBytes: limits.maxFileBytes,
     maxTotalBytes: limits.maxTotalBytes,
-    aiConfigured: Boolean(process.env.DEMO_AI_API_KEY),
+    aiConfigured: ai.configured,
+    aiProvider: ai.provider,
+    aiModel: ai.model,
     bundleReady: Boolean(documentImport)
   });
 }
@@ -196,14 +208,14 @@ async function handleImportParse(request, response) {
       bytes: readFileSync(blobPath)
     });
   }
-  const aiKey = process.env.DEMO_AI_API_KEY || '';
+  const ai = documentAiConfig();
   const outcome = await documentImport.parseRealDocuments(files, {
     projects: Array.isArray(body.projects) ? body.projects : [],
-    llm: aiKey
+    llm: ai.configured
       ? {
-          apiKey: aiKey,
-          baseUrl: process.env.DEMO_AI_BASE_URL || 'https://api.openai.com/v1',
-          model: process.env.DEMO_AI_MODEL || 'gpt-4o-mini'
+          apiKey: ai.apiKey,
+          baseUrl: ai.baseUrl,
+          model: ai.model
         }
       : undefined
   });
@@ -236,10 +248,11 @@ async function readJson(request) {
  * 未配置时返回 503，前端应降级到本地引擎解读。
  */
 function aiConfig() {
+  const resolved = documentAiConfig();
   return {
-    apiKey: process.env.DEMO_AI_API_KEY || '',
-    baseUrl: (process.env.DEMO_AI_BASE_URL || 'https://api.openai.com/v1').replace(/\/$/, ''),
-    model: process.env.DEMO_AI_MODEL || 'gpt-4o-mini'
+    apiKey: resolved.apiKey,
+    baseUrl: resolved.baseUrl,
+    model: resolved.model
   };
 }
 
@@ -436,8 +449,9 @@ const server = createServer(async (request, response) => {
   if (request.method === 'GET' && url.pathname === '/api/demo-ai/status') {
     return sendJson(response, 200, {
       ok: true,
-      configured: Boolean(process.env.DEMO_AI_API_KEY),
-      model: process.env.DEMO_AI_MODEL || 'gpt-4o-mini'
+      configured: documentAiConfig().configured,
+      model: documentAiConfig().model,
+      provider: documentAiConfig().provider
     });
   }
   if (request.method === 'GET' && url.pathname === '/api/demo-import/config') {
@@ -466,5 +480,8 @@ const server = createServer(async (request, response) => {
 
 server.listen(port, host, () => {
   console.log(`Demo Frontend: http://${host}:${port}/#/login`);
-  console.log(`AI proxy: ${process.env.DEMO_AI_API_KEY ? 'configured' : 'local-only (set DEMO_AI_API_KEY to enable)'}`);
+  const ai = documentAiConfig();
+  console.log(`AI Provider: ${ai.provider}`);
+  console.log(`AI Model: ${ai.model}`);
+  console.log(`AI Configured: ${ai.configured}`);
 });

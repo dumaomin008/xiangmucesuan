@@ -78,3 +78,18 @@ export function buildProjectDocx(): Buffer {
 export function buildQuotePng(): Buffer {
   return tinyPng();
 }
+
+export async function buildSemanticConfirmXlsx(): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("方案");
+  sheet.addRow(["说明", "昆钢到大开门单边约80~85公里。本项目首批计划投入30辆新能源牵引车，后续根据货量增加至35辆。"]);
+  sheet.addRow(["单车月租", 8600, "元/车/月"]);
+  sheet.addRow(["载重", 32, "吨"]);
+  sheet.addRow(["单车月趟次", 28, "趟/月"]);
+  sheet.addRow(["运价", 120, "元/吨"]);
+  sheet.addRow(["电价", 0.68, "元/度"]);
+  sheet.addRow(["重载能耗", 1.45, "kWh/km"]);
+  sheet.addRow(["司机单趟成本", 120, "元/趟"]);
+  const buf = await workbook.xlsx.writeBuffer();
+  return Buffer.from(buf);
+}
