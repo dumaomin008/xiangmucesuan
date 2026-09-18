@@ -569,6 +569,119 @@
 
   const AI_CHAT_TIMEOUT_MS = 9000;
 
+  function aiMoney(value) {
+    if (value === null || value === undefined || !Number.isFinite(Number(value))) return "待确认";
+    return global.PmCalc?.formatMoney ? global.PmCalc.formatMoney(value) : Number(value).toLocaleString("zh-CN");
+  }
+
+  function aiRatio(value) {
+    if (value === null || value === undefined || !Number.isFinite(Number(value))) return "待确认";
+    return global.PmCalc?.formatPercent ? global.PmCalc.formatPercent(value) : `${(Number(value) * 100).toFixed(2)}%`;
+  }
+
+  function displayNarrative(text) {
+    const raw = String(text || "").trim();
+    const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+    const body = fenced ? fenced[1] : raw;
+    const start = body.indexOf("{");
+    const end = body.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      try {
+        const parsed = JSON.parse(body.slice(start, end + 1));
+        const conclusion = parsed?.summary?.conclusion;
+        const highlights = Array.isArray(parsed?.summary?.highlights) ? parsed.summary.highlights.filter((item) => typeof item === "string") : [];
+        if (conclusion) return [conclusion, ...highlights].join("\n");
+      } catch {
+        return "";
+      }
+    }
+    return raw;
+  }
+
+  function renderVisualReport(report) {
+    if (!report) return "";
+    const metrics = (report.keyMetrics || [])
+      .map((metric) => {
+        let value = "待确认";
+        if (metric.value !== null && metric.value !== undefined && Number.isFinite(Number(metric.value))) {
+          if (metric.unit === "ratio") value = aiRatio(metric.value);
+          else if (metric.unit === "月") value = Number(metric.value) === 0 ? "无需回收" : Number(metric.value) >= 12 ? `${(Number(metric.value) / 12).toFixed(1)}年` : `第 ${metric.value} 月`;
+          else value = aiMoney(metric.value);
+        }
+        return `<article class="calc-ai-kpi"><span>${esc(metric.name)}</span><strong>${esc(value)}</strong><em>${esc(metric.statusLabel || "")}</em></article>`;
+      })
+      .join("");
+    const costs = (report.costStructure || []).filter((item) => Number(item.value) > 0);
+    const colors = ["#667EEA", "#82C0A8", "#F0B46A", "#E07A7A", "#8E8EA8", "#5B9BF5", "#C4B5FD", "#94A3B8"];
+    let cursor = 0;
+    const stops = costs.map((item, index) => {
+      const start = cursor;
+      cursor += Number(item.percentage) || 0;
+      return `${colors[index % colors.length]} ${start}% ${cursor}%`;
+    });
+    const maxCost = Math.max(...costs.map((item) => Number(item.value) || 0), 1);
+    const bars = costs
+      .map(
+        (item, index) =>
+          `<div class="calc-ai-bar-row"><span>${esc(item.name)}</span><div class="calc-ai-bar-track"><i style="width:${Math.max(4, (Number(item.value) / maxCost) * 100)}%;background:${colors[index % colors.length]}"></i></div><b>${esc(aiMoney(item.value))}</b></div>`,
+      )
+      .join("");
+    const scenarios = report.scenarios || [];
+    const maxScene = Math.max(...scenarios.flatMap((item) => [Math.abs(Number(item.revenue) || 0), Math.abs(Number(item.cost) || 0), Math.abs(Number(item.profit) || 0)]), 1);
+    const sceneHtml = scenarios
+      .map((item) => {
+        const col = (val, cls, label) =>
+          `<div class="calc-ai-scene-col"><i class="${cls}" style="height:${Math.max(6, (Math.abs(Number(val) || 0) / maxScene) * 100)}%"></i><span>${esc(label)} ${esc(aiMoney(val))}</span></div>`;
+        return `<div class="calc-ai-scene"><strong>${esc(item.name)}</strong><div class="calc-ai-scene-bars">${col(item.revenue, "rev", "收入")}${col(item.cost, "cost", "成本")}${col(item.profit, "profit", "利润")}</div><p>${esc(item.scenarioSource === "demo_rule" ? "演示规则" : "当前参数")} · 利润率 ${esc(item.roi == null ? "待确认" : aiRatio(item.roi))} · 回收期 ${esc(item.paybackPeriod == null ? "待确认" : `${item.paybackPeriod}月`)}</p></div>`;
+      })
+      .join("");
+    const points = report.trend?.points || [];
+    const maxFlow = Math.max(...points.map((item) => Math.abs(Number(item.cumulativeCashFlow) || 0)), 1);
+    const trend = report.trend?.available
+      ? `<div class="calc-ai-trend">${points.slice(0, 24).map((item) => `<span title="第${esc(String(item.monthIndex))}月 ${esc(aiMoney(item.cumulativeCashFlow))}" style="height:${Math.max(8, (Math.abs(Number(item.cumulativeCashFlow) || 0) / maxFlow) * 100)}%"></span>`).join("")}</div><p class="calc-ai-source-quiet">柱高表示累计现金流。盈亏平衡：${esc(report.trend.breakevenMonth == null ? "待确认" : `第 ${report.trend.breakevenMonth} 月`)}</p>`
+      : `<p class="help">${esc(report.trend?.message || "当前测算结果未提供分期现金流数据，暂无法生成趋势分析。")}</p>`;
+    const names = [...new Set((report.sensitivity || []).map((item) => item.parameter))];
+    const tornado = names.map((name) => {
+      const down = (report.sensitivity || []).find((item) => item.parameter === name && Number(item.change) === -10);
+      const up = (report.sensitivity || []).find((item) => item.parameter === name && Number(item.change) === 10);
+      return { name, down: Number(down?.profitChange) || 0, up: Number(up?.profitChange) || 0 };
+    });
+    const maxSwing = Math.max(...tornado.flatMap((item) => [Math.abs(item.down), Math.abs(item.up)]), 1);
+    const tornadoHtml = tornado
+      .map(
+        (item) =>
+          `<div class="calc-ai-bar-row"><span>${esc(item.name)}</span><div class="calc-ai-tornado"><i class="down" style="width:${(Math.abs(item.down) / maxSwing) * 48}%"></i><i class="up" style="width:${(Math.abs(item.up) / maxSwing) * 48}%"></i></div><b>-10% ${esc(aiMoney(item.down))} / +10% ${esc(aiMoney(item.up))}</b></div>`,
+      )
+      .join("");
+    const levelText = { high: "高", medium: "中", low: "低" };
+    const risks = (report.risks || [])
+      .map(
+        (item) =>
+          `<article class="calc-ai-risk"><div class="calc-ai-risk-head"><strong>${esc(item.name)}</strong><span class="tag ${item.level === "high" ? "danger" : item.level === "medium" ? "warning" : "success"}">${esc(levelText[item.level] || item.level)}</span></div><p>${esc(item.description || "")}</p><p>依据：${esc(item.evidence || "")}</p><p>影响：${esc((item.affectedMetrics || []).join("、"))}</p><p class="calc-ai-reco">建议：${esc(item.suggestion || "")}</p></article>`,
+      )
+      .join("");
+    const recs = (report.recommendations || [])
+      .map(
+        (item) =>
+          `<li><strong>${esc(String(item.priority).padStart(2, "0"))} ${esc(item.action)}</strong><p>${esc(item.reason)}</p><p class="calc-ai-source-quiet">影响指标：${esc(item.affectedMetric || "")}</p></li>`,
+      )
+      .join("");
+    const assumptionBlock = (title, items) =>
+      `<div><h3>${title}</h3><ul>${(items || []).map((item) => `<li>${esc(item.label)}</li>`).join("") || "<li>暂无</li>"}</ul></div>`;
+    return `<article class="calc-ai-report">
+      <header><p class="calc-ai-report-kicker">AI已完成项目分析</p><p class="calc-ai-source-quiet">正式分析报告与对话分开。金额、比率和回收期只来自测算引擎。</p>${report.notice ? `<p class="calc-ai-notice">${esc(report.notice)}</p>` : ""}</header>
+      <section class="calc-ai-report-block"><h3>AI综合结论</h3><p>${esc(report.summary?.conclusion || "")}</p><ul>${(report.summary?.highlights || []).map((item) => `<li>${esc(item)}</li>`).join("")}</ul></section>
+      <section class="calc-ai-report-block"><h3>核心KPI</h3><div class="calc-ai-kpi-grid">${metrics}</div></section>
+      <section class="calc-ai-report-block"><h3>成本结构</h3><div class="calc-ai-cost">${costs.length ? `<div class="calc-ai-donut" style="background:conic-gradient(${stops.join(",")})"></div>` : `<p class="help">成本结构暂无可用金额。</p>`}<div class="calc-ai-bars">${bars}</div></div><p>${esc([report.costInsight?.largest ? `最大成本项：${report.costInsight.largest}` : "", report.costInsight?.anomaly || "", report.costInsight?.optimize ? `优先核对：${report.costInsight.optimize}` : ""].filter(Boolean).join(" · "))}</p></section>
+      <section class="calc-ai-report-block"><h3>方案对比</h3><p class="calc-ai-source-quiet">${esc(report.scenarioNote || "")}</p><div class="calc-ai-scenes">${sceneHtml}</div></section>
+      <section class="calc-ai-report-block"><h3>收益与现金流</h3>${trend}</section>
+      <section class="calc-ai-report-block"><h3>敏感性分析</h3><p class="calc-ai-source-quiet">${esc(report.sensitivityHighlight?.reason || "参数变化由测算引擎重算。")}</p>${tornadoHtml || `<p class="help">敏感性重算暂不可用，基准结果不受影响。</p>`}</section>
+      <section class="calc-ai-report-block"><h3>风险</h3><div class="calc-ai-risk-grid">${risks || `<div class="help">按当前规则，没有达到中高风险阈值的项目。</div>`}</div></section>
+      <section class="calc-ai-report-block"><h3>关键假设</h3><div class="calc-ai-columns">${assumptionBlock("已确认", report.assumptions?.confirmed)}${assumptionBlock("系统计算", report.assumptions?.calculated)}${assumptionBlock("AI推断", report.assumptions?.aiInferred)}${assumptionBlock("缺失", report.assumptions?.missing)}</div></section>
+      <section class="calc-ai-report-block"><h3>AI建议</h3><ol class="calc-ai-recs">${recs}</ol></section>
+    </article>`;
+  }
+
   function renderAiBody(insight, remoteText, mode) {
     const riskHtml = (insight.risks || [])
       .map(
@@ -581,13 +694,16 @@
       .join("");
     const highlights = (insight.highlights || []).map((h) => `<li>${esc(h)}</li>`).join("");
     const suggestions = (insight.suggestions || []).map((s) => `<li>${esc(s)}</li>`).join("");
+    const safeRemote = remoteText && insight.visual && global.PmCalc?.narrativeIsGrounded && !global.PmCalc.narrativeIsGrounded(remoteText, insight.visual) ? "" : remoteText;
+    const shownRemote = safeRemote ? displayNarrative(safeRemote) : "";
     const remoteBlock =
-      mode === "remote" && remoteText
-        ? `<div class="calc-ai-remote"><div class="calc-ai-remote-label">AI智能分析</div><div class="calc-ai-remote-text">${esc(remoteText)}</div></div>`
-        : `<p class="calc-ai-source-quiet">本地智能分析</p>`;
-    const label = mode === "remote" ? "AI智能分析" : "本地智能分析";
+      mode === "remote" && shownRemote
+        ? `<div class="calc-ai-remote"><div class="calc-ai-remote-label">AI智能分析</div><div class="calc-ai-remote-text">${esc(shownRemote)}</div></div>`
+        : `<p class="calc-ai-source-quiet">${insight.visual?.notice ? esc(insight.visual.notice) : "本地智能分析"}</p>`;
+    const label = mode === "remote" && shownRemote ? "AI智能分析" : "本地智能分析";
 
-    return `${remoteBlock}
+    return `${renderVisualReport(insight.visual)}
+      ${remoteBlock}
       <div class="calc-ai-summary"><strong>${esc(insight.title)}</strong><p>${esc(insight.summary)}</p></div>
       <div class="calc-ai-columns">
         <div><h3>要点</h3><ul>${highlights || "<li>暂无</li>"}</ul></div>

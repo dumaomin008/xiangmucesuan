@@ -1,4 +1,5 @@
 import { calculateProject, runSensitivity, type SchemeCalculationInput } from "@/calculation";
+import { buildEngineAnalysisReport, type AIAnalysisReport } from "@/lib/ai/analysis";
 import type { DemoCalcScenario, DemoProjectContext } from "../types";
 
 export type DemoAiRiskLevel = "高" | "中" | "低";
@@ -21,6 +22,7 @@ export type DemoAiInsight = {
   suggestions: string[];
   disclaimer: string;
   generatedAt: string;
+  visual?: AIAnalysisReport;
 };
 
 function money(n: number) {
@@ -149,7 +151,16 @@ export function analyzeScenarioLocal(params: {
     suggestions,
     disclaimer: "AI/规则解读不得修改或替代核心测算数字；失败时仅本区域降级。",
     generatedAt: new Date().toISOString(),
+    visual: buildVisual(scenario.inputs, params.question),
   };
+}
+
+function buildVisual(input: SchemeCalculationInput, question?: string): AIAnalysisReport | undefined {
+  try {
+    return buildEngineAnalysisReport(input, { question });
+  } catch {
+    return undefined;
+  }
 }
 
 function buildRisksFromEngine(input: SchemeCalculationInput, baselineMargin: number | null): DemoAiRiskItem[] {

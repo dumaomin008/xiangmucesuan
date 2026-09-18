@@ -12,6 +12,8 @@ import { parseSourceInput, parseUploadedFile } from "@/lib/ai/services/document-
 import { orchestrateParse } from "@/lib/ai/services/orchestrator";
 import { evaluateRisks } from "@/lib/ai/services/risk-engine";
 import { runCopilotTurn } from "@/lib/ai/services/copilot-run";
+import { buildLocalAnalysisReport, enrichAnalysisReport, resolveAnalysisMode } from "@/lib/ai/analysis";
+import type { AIAnalysisReport } from "@/lib/ai/analysis/schema";
 import { buildDueDiligence } from "@/lib/ai/due-diligence";
 import { FIELD_BY_CODE } from "@/lib/ai/schema/field-dictionary";
 import { AI_PROJECT_EXTRACT_SCHEMA_VERSION, CALCULATION_RESULT_SCHEMA_VERSION } from "@/lib/ai/schema/versions";
@@ -1024,6 +1026,32 @@ export async function confirmAndCalculate(workspaceId: string, actor: string, mo
   };
 }
 
+function readScenarioAssumptions(workspace: { scenarios: Array<{ kind: string; payloadJson: string }> }): unknown[] {
+  const baseline = workspace.scenarios.find((item) => item.kind === "baseline");
+  if (!baseline) return [];
+  try {
+    const parsed = JSON.parse(baseline.payloadJson || "{}") as { assumptions?: unknown[] };
+    return parsed.assumptions || [];
+  } catch {
+    return [];
+  }
+}
+
+function readScenarioInput(
+  workspace: { scenarios: Array<{ id: string; payloadJson: string }> },
+  scenarioId?: string,
+): SchemeCalculationInput | null {
+  if (!scenarioId) return null;
+  const row = workspace.scenarios.find((item) => item.id === scenarioId);
+  if (!row) return null;
+  try {
+    const parsed = JSON.parse(row.payloadJson || "{}") as { engineInput?: SchemeCalculationInput };
+    return parsed.engineInput ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function getWorkspaceResult(workspaceId: string) {
   const workspace = await requireWorkspace(workspaceId);
   const serialized = serializeWorkspace(workspace);
@@ -1037,6 +1065,8 @@ export async function getWorkspaceResult(workspaceId: string) {
     cashFlows: [] as unknown[],
     sensitivity: [] as unknown[],
     scenarios: [] as unknown[],
+    analysisReport: null as AIAnalysisReport | null,
+    analysisMode: resolveAnalysisMode(),
     schema_version: CALCULATION_RESULT_SCHEMA_VERSION,
   };
   if (!workspace.schemeId) return empty;
@@ -1052,13 +1082,15 @@ export async function getWorkspaceResult(workspaceId: string) {
   });
   let sensitivity: unknown[] = [];
   let assumptions: unknown[] = [];
+  let calcInput: SchemeCalculationInput | null = null;
   try {
-    const calcInput = await loadCalculationInput(workspace.schemeId);
+    const loaded = await loadCalculationInput(workspace.schemeId);
+    calcInput = loaded;
     const vars = ["freight_price", "electricity_price", "trips_per_vehicle_month", "monthly_rent_per_vehicle", "loaded_energy_consumption"] as const;
     sensitivity = vars.map((variable) => ({
       variable,
       rows: runSensitivity({
-        input: calcInput,
+        input: loaded,
         variable,
         changeMode: "PERCENT",
         minChange: "-10",
@@ -1068,6 +1100,7 @@ export async function getWorkspaceResult(workspaceId: string) {
     }));
   } catch {
     sensitivity = [];
+    calcInput = null;
   }
   const baselineScenario = workspace.scenarios.find((item) => item.kind === "baseline");
   if (baselineScenario) {
@@ -1092,6 +1125,10 @@ export async function getWorkspaceResult(workspaceId: string) {
       const parsed = JSON.parse(item.payloadJson || "{}") as { result?: unknown; difference?: unknown };
       return { id: item.id, kind: item.kind, name: item.name, result: parsed.result ?? null, difference: parsed.difference ?? null };
     });
+  let analysisReport: AIAnalysisReport | null = null;
+  if (calcInput) {
+    analysisReport = buildLocalAnalysisReport(calcInput, { assumptions });
+  }
   return {
     result: toCalculationResultV1({
       ruleVersion: latest.ruleVersionId,
@@ -1125,6 +1162,8 @@ export async function getWorkspaceResult(workspaceId: string) {
     scenarios,
     schemeId: workspace.schemeId,
     schema_version: CALCULATION_RESULT_SCHEMA_VERSION,
+    analysisReport,
+    analysisMode: resolveAnalysisMode(),
   };
 }
 
@@ -1186,9 +1225,17 @@ export async function runWorkspaceCopilot(
     });
   }
   await audit("AI_COPILOT", "AiWorkspace", workspaceId, actor, { title: turn.intent.title });
+  const activeInput =
+    turn.scenario?.patchedInput ?? (body.base === "last_scenario" && stored.last ? stored.last : baselineInput);
+  const analysisReport = buildLocalAnalysisReport(activeInput, {
+    assumptions: readScenarioAssumptions(workspace),
+    question: body.question,
+  });
   return {
     ...turn,
     scenarioId: scenarioRow?.id ?? null,
+    analysis: analysisReport,
+    analysisReport,
     compare: turn.scenario
       ? {
           baseline: turn.scenario.baseline,
@@ -1197,6 +1244,21 @@ export async function runWorkspaceCopilot(
         }
       : null,
   };
+}
+
+export async function enrichWorkspaceAnalysis(
+  workspaceId: string,
+  body: { scenarioId?: string; question?: string } = {},
+) {
+  const workspace = await requireWorkspace(workspaceId);
+  if (!workspace.schemeId) throw new EngineError("CALC_PARAMETER_INVALID", "scheme", "请先完成正式测算");
+  const input = readScenarioInput(workspace, body.scenarioId) ?? (await loadCalculationInput(workspace.schemeId));
+  const draft = buildLocalAnalysisReport(input, {
+    assumptions: readScenarioAssumptions(workspace),
+    question: body.question,
+  });
+  if (!draft) return { report: null };
+  return { report: await enrichAnalysisReport(draft) };
 }
 
 export async function saveScenarioAsScheme(workspaceId: string, scenarioId: string, actor: string) {

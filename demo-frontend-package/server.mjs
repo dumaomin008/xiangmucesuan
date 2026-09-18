@@ -278,10 +278,11 @@ async function handleAiExplain(request, response) {
   }
 
   const system = [
-    '你是新能源重卡「AI项目测算助手」。',
-    '你只能解释用户提供的引擎测算结果与本地洞察，禁止重新计算或编造数字。',
-    '若本地分析已给出风险与建议，可在其基础上润色，不得推翻引擎 KPI。',
-    '输出简体中文，结构：结论 / 风险 / 建议。'
+    '你是新能源重卡项目测算分析助手。',
+    '你收到的数据已经由项目测算引擎计算完成。你的任务不是重新计算，而是解释结果、识别风险并给出核实建议。',
+    '不得修改输入中的计算结果，不得虚构任何业务数据。缺失数据必须标明待确认。',
+    '所有数字必须来自输入。只输出 JSON，不要 Markdown，不要在 JSON 外写文字。',
+    'JSON 只包含 summary.conclusion、summary.highlights、risks、recommendations 这些文字字段。'
   ].join('');
 
   const ai = documentAiConfig();

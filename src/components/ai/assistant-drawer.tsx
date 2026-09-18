@@ -5,6 +5,8 @@ import { Button, Card, TextArea } from "@/components/ui";
 import { AI_ASSISTANT_SHORTCUTS } from "@/lib/ai/tools";
 import { api } from "@/lib/client";
 import { formatMoney, formatPercent } from "@/lib/format";
+import { AIAnalysisResult } from "@/components/ai/analysis/ai-analysis-result";
+import type { AIAnalysisReport } from "@/lib/ai/analysis/schema";
 
 type CopilotResponse = {
   intent: { kind: string; title: string; parser: string };
@@ -13,6 +15,7 @@ type CopilotResponse = {
   scenarioId: string | null;
   engineErrors: string[];
   baselineUnchanged: boolean;
+  analysis?: AIAnalysisReport | null;
   compare: {
     baseline: { kpis: Record<string, string | null> };
     scenario: { kpis: Record<string, string | null> };
@@ -25,11 +28,13 @@ export function AssistantDrawer({
   onClose,
   workspaceId,
   onSaved,
+  onAnalysis,
 }: {
   open: boolean;
   onClose: () => void;
   workspaceId?: string;
   onSaved?: () => void;
+  onAnalysis?: (report: AIAnalysisReport, meta?: { scenarioId: string | null; question: string }) => void;
 }) {
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState("");
@@ -49,6 +54,7 @@ export function AssistantDrawer({
         body: JSON.stringify({ question: text, base }),
       });
       setReply(data);
+      if (data.analysis) onAnalysis?.(data.analysis, { scenarioId: data.scenarioId, question: text });
     } catch (e) {
       setError(e instanceof Error ? e.message : "助手请求失败");
     } finally {
@@ -59,7 +65,7 @@ export function AssistantDrawer({
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-black/20" onClick={onClose}>
       <aside
-        className="h-full w-full max-w-md overflow-y-auto border-l border-white/50 bg-white/72 p-6 shadow-sn-float backdrop-blur-[20px] saturate-150"
+        className="h-full w-full max-w-3xl overflow-y-auto border-l border-white/50 bg-white/72 p-6 shadow-sn-float backdrop-blur-[20px] saturate-150"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-4 flex items-start justify-between">
@@ -153,6 +159,11 @@ export function AssistantDrawer({
               </Button>
             )}
           </Card>
+        )}
+        {reply?.analysis && (
+          <div className="mt-4">
+            <AIAnalysisResult report={reply.analysis} variant="compact" />
+          </div>
         )}
       </aside>
     </div>

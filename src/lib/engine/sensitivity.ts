@@ -94,3 +94,15 @@ export function runSensitivity(params: {
     };
   });
 }
+
+/** 在既有敏感性字段上叠加百分比，再交给 calculateScheme。不新增公式。 */
+export function applyPercentChanges(
+  input: SchemeCalculationInput,
+  changes: Array<{ variable: SensitivityVariableCode; percent: number }>,
+): SchemeCalculationInput {
+  const next = cloneInput(input);
+  for (const change of changes) {
+    applyChange(next, change.variable, new Decimal(change.percent), "PERCENT");
+  }
+  return next;
+}

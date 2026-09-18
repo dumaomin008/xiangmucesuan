@@ -1176,8 +1176,45 @@ table .btn.ghost:not(.danger):hover { color:var(--brand-strong); background:var(
 .calc-ai-confirm-actions { display:flex; gap:8px; }
 .calc-ai-compare { margin-top:8px; font-size:12px; }
 body.calc-ai-drawer-open { overflow:hidden; }
+.calc-ai-report { display:grid; gap:14px; padding:16px; border-radius:16px; background:#f7f8fc; border:1px solid rgba(102,126,234,.18); }
+.calc-ai-report-kicker { margin:0; color:#4c64c8; font-size:13px; font-weight:600; }
+.calc-ai-notice { margin:8px 0 0; color:#c47b12; font-size:13px; }
+.calc-ai-report-block { background:#fff; border-radius:14px; padding:14px; box-shadow:0 4px 18px rgba(0,0,0,.04); animation: calc-ai-rise .45s ease both; }
+.calc-ai-report-block:nth-child(2) { animation-delay:.05s; }
+.calc-ai-report-block:nth-child(3) { animation-delay:.1s; }
+.calc-ai-report-block:nth-child(4) { animation-delay:.15s; }
+.calc-ai-report-block:nth-child(5) { animation-delay:.2s; }
+.calc-ai-report-block h3 { margin:0 0 8px; font-size:15px; }
+.calc-ai-kpi-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+.calc-ai-kpi { background:#fafafa; border-radius:12px; padding:12px; display:grid; gap:6px; }
+.calc-ai-kpi span, .calc-ai-kpi em { color:var(--text-3); font-size:12px; font-style:normal; }
+.calc-ai-kpi strong { font-size:18px; letter-spacing:-.02em; }
+.calc-ai-cost { display:grid; grid-template-columns:140px 1fr; gap:16px; align-items:center; }
+.calc-ai-donut { width:120px; height:120px; border-radius:50%; margin:0 auto; box-shadow:inset 0 0 0 28px #fff; }
+.calc-ai-bars, .calc-ai-tornado { display:grid; gap:8px; }
+.calc-ai-bar-row { display:grid; grid-template-columns:92px 1fr auto; gap:8px; align-items:center; font-size:12px; color:var(--text-2); }
+.calc-ai-bar-track { height:8px; background:#f0f0f3; border-radius:99px; overflow:hidden; }
+.calc-ai-bar-track i { display:block; height:100%; border-radius:99px; }
+.calc-ai-scenes { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+.calc-ai-scene { background:#fafafa; border-radius:12px; padding:10px; }
+.calc-ai-scene-bars { display:flex; align-items:flex-end; gap:8px; height:110px; margin:10px 0; }
+.calc-ai-scene-col { flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; height:100%; gap:4px; font-size:11px; color:var(--text-3); }
+.calc-ai-scene-col i { display:block; width:100%; border-radius:8px 8px 2px 2px; }
+.calc-ai-scene-col i.rev { background:#667eea; }
+.calc-ai-scene-col i.cost { background:#f0b46a; }
+.calc-ai-scene-col i.profit { background:#82c0a8; }
+.calc-ai-trend { display:flex; align-items:flex-end; gap:3px; height:92px; }
+.calc-ai-trend span { flex:1; background:#5b9bf5; border-radius:4px 4px 0 0; min-height:4px; }
+.calc-ai-tornado { position:relative; height:10px; background:#f0f0f3; border-radius:99px; overflow:hidden; }
+.calc-ai-tornado i { position:absolute; top:0; height:100%; }
+.calc-ai-tornado i.down { right:50%; background:#ff6b6b; }
+.calc-ai-tornado i.up { left:50%; background:#34c759; }
+.calc-ai-recs { margin:0; padding-left:0; list-style:none; display:grid; gap:8px; }
+.calc-ai-recs li { background:#fafafa; border-radius:12px; padding:10px 12px; }
+.calc-ai-recs p { margin:4px 0 0; color:var(--text-2); }
+@keyframes calc-ai-rise { from { opacity:0; transform:translateY(8px);} to { opacity:1; transform:none;} }
 @media (max-width:900px) {
-  .calc-ai-columns, .calc-ai-risk-grid { grid-template-columns:1fr; }
+  .calc-ai-columns, .calc-ai-risk-grid, .calc-ai-kpi-grid, .calc-ai-scenes, .calc-ai-cost { grid-template-columns:1fr; }
 }
 
 /* ===== V2.0 AI 资料导入测算 ===== */

@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AssistantDrawer } from "@/components/ai/assistant-drawer";
+import { AIAnalysisResult } from "@/components/ai/analysis/ai-analysis-result";
 import { StatusPill } from "@/components/ai/status-pill";
 import { Character } from "@/components/empty";
 import { Button, Card, MetricCard, PageHeader } from "@/components/ui";
@@ -12,6 +13,7 @@ import { PageCanvas } from "@/components/shell/app-shell";
 import { api } from "@/lib/client";
 import { formatFirstPositiveMonth, formatMoney, formatPercent, formatQty } from "@/lib/format";
 import type { CalculationResultV1 } from "@/lib/ai/schema/types";
+import { FALLBACK_ANALYSIS_NOTICE, type AIAnalysisReport } from "@/lib/ai/analysis/schema";
 
 type ResultResponse = {
   result: CalculationResultV1 | null;
@@ -47,6 +49,8 @@ type ResultResponse = {
     result: CalculationResultV1 | null;
     difference: Record<string, string | null> | null;
   }>;
+  analysisReport?: AIAnalysisReport | null;
+  analysisMode?: "online" | "demo";
 };
 
 function parseRisks(payload: string | null | undefined) {
@@ -77,8 +81,11 @@ const HIGHLIGHT_ASSUMPTIONS = new Set([
 export default function AiResultPage() {
   const { projectId, workspaceId } = useParams<{ projectId: string; workspaceId: string }>();
   const [data, setData] = useState<ResultResponse | null>(null);
+  const [liveReport, setLiveReport] = useState<AIAnalysisReport | null>(null);
   const [error, setError] = useState("");
   const [assistant, setAssistant] = useState(false);
+  const seq = useRef(0);
+  const resultId = data?.result?.result_id ?? "";
 
   const load = () =>
     api<ResultResponse>(`/api/ai/workspaces/${workspaceId}/result`)
@@ -89,12 +96,30 @@ export default function AiResultPage() {
     load();
   }, [workspaceId]);
 
+  const baselineReport = data?.analysisReport;
+  useEffect(() => {
+    if (data?.analysisMode !== "online" || !baselineReport) return;
+    const token = ++seq.current;
+    api<{ report: AIAnalysisReport | null }>(`/api/ai/workspaces/${workspaceId}/analysis`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    })
+      .then((payload) => {
+        if (seq.current === token && payload.report) setLiveReport(payload.report);
+      })
+      .catch(() => {
+        if (seq.current !== token) return;
+        setLiveReport({ ...baselineReport, mode: "fallback", notice: FALLBACK_ANALYSIS_NOTICE });
+      });
+  }, [workspaceId, resultId, data?.analysisMode, baselineReport]);
+
   const result = data?.result;
   const costData = (result?.cost_breakdown || []).map((item) => ({
     name: item.name,
     amount: Number(item.amount || 0),
   }));
   const risks = parseRisks(data?.risks?.payloadJson);
+  const report = liveReport || data?.analysisReport || null;
   const routes = (result?.routes || []) as Array<{
     routeName?: string;
     monthlyRevenue?: string;
@@ -129,6 +154,11 @@ export default function AiResultPage() {
         </Card>
       ) : (
         <div className="space-y-5">
+          {data?.analysisMode === "online" && report && report.mode !== "online" && report.mode !== "fallback" && (
+            <p className="text-[13px] text-sn-info">正在生成 AI 解读，图表数字已由测算引擎确定。</p>
+          )}
+          {report && <AIAnalysisResult report={report} />}
+          {!report && (
           <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-4">
             <MetricCard label="月收入" value={formatMoney(result.kpis.monthly_revenue)} hint={`规则 ${result.rule_version}`} />
             <MetricCard label="月总成本" value={formatMoney(result.kpis.monthly_total_cost)} />
@@ -139,6 +169,7 @@ export default function AiResultPage() {
             <MetricCard label="首次现金流转正" value={formatFirstPositiveMonth(result.kpis.first_positive_month)} />
             <MetricCard label="IRR" value={result.kpis.irr ? formatPercent(result.kpis.irr) : "无法计算"} hint={result.kpis.irr_reason || ""} />
           </div>
+          )}
 
           <Card>
             <h2 className="text-[20px] font-semibold">测算假设</h2>
@@ -189,6 +220,7 @@ export default function AiResultPage() {
           </Card>
 
           <div className="grid gap-5 lg:grid-cols-2">
+            {!report && (
             <Card>
               <h2 className="text-[20px] font-semibold">成本结构</h2>
               <div className="mt-4 h-72">
@@ -203,6 +235,7 @@ export default function AiResultPage() {
                 </ResponsiveContainer>
               </div>
             </Card>
+            )}
             <Card>
               <h2 className="text-[20px] font-semibold">线路贡献</h2>
               <div className="mt-3 overflow-x-auto text-[13px]">
@@ -229,6 +262,8 @@ export default function AiResultPage() {
             </Card>
           </div>
 
+          {!report && (
+          <>
           <Card>
             <h2 className="text-[20px] font-semibold">现金流</h2>
             <div className="mt-4 h-72">
@@ -327,6 +362,26 @@ export default function AiResultPage() {
               </div>
             </Card>
           )}
+          </>
+          )}
+
+          {report && (data?.dueDiligence || []).length > 0 && (
+            <Card>
+              <h2 className="text-[20px] font-semibold">下一步尽调</h2>
+              <div className="mt-3 space-y-3">
+                {(data?.dueDiligence || []).slice(0, 6).map((item) => (
+                  <div key={item.item} className="rounded-sn-md bg-sn-subtle p-3">
+                    <div className="flex items-center gap-2">
+                      <StatusPill value={item.priority} />
+                      <span className="text-[13px] font-medium">{item.item}</span>
+                    </div>
+                    <p className="mt-1 text-[12px] text-sn-secondary">当前：{item.current_assumption}</p>
+                    <p className="mt-1 text-[12px] text-sn-muted">影响：{item.impact_metrics.join("、")} · 建议：{item.suggested_method}</p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
 
           {data?.schemeId && (
             <Link className="inline-block text-sn-info" href={`/projects/${projectId}/calculation/${data.schemeId}/results`}>
@@ -335,7 +390,28 @@ export default function AiResultPage() {
           )}
         </div>
       )}
-      <AssistantDrawer open={assistant} onClose={() => setAssistant(false)} workspaceId={workspaceId} onSaved={load} />
+      <AssistantDrawer
+        open={assistant}
+        onClose={() => setAssistant(false)}
+        workspaceId={workspaceId}
+        onSaved={load}
+        onAnalysis={(next, meta) => {
+          const token = ++seq.current;
+          setLiveReport(next);
+          if (data?.analysisMode !== "online") return;
+          void api<{ report: AIAnalysisReport | null }>(`/api/ai/workspaces/${workspaceId}/analysis`, {
+            method: "POST",
+            body: JSON.stringify({ scenarioId: meta?.scenarioId, question: meta?.question }),
+          })
+            .then((payload) => {
+              if (seq.current === token && payload.report) setLiveReport(payload.report);
+            })
+            .catch(() => {
+              if (seq.current !== token) return;
+              setLiveReport({ ...next, mode: "fallback", notice: FALLBACK_ANALYSIS_NOTICE });
+            });
+        }}
+      />
     </PageCanvas>
   );
 }

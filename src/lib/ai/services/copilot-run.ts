@@ -3,6 +3,7 @@ import { validateSchemeInput } from "@/lib/engine/validate";
 import type { SchemeCalculationInput } from "@/lib/engine/types";
 import { runScenario } from "../copilot/scenario";
 import { explainFromEngine } from "../copilot/explain";
+import { buildEngineAnalysisReport, type AIAnalysisReport } from "../analysis";
 import { resolveIntent } from "../copilot/parse-intent";
 import { toCalculationResultV1 } from "../map/from-engine";
 import { assertEngineSourced } from "../map/guard";
@@ -35,6 +36,14 @@ function resultFrom(input: SchemeCalculationInput) {
   return result;
 }
 
+function safeAnalysis(input: SchemeCalculationInput, question?: string): AIAnalysisReport | null {
+  try {
+    return buildEngineAnalysisReport(input, { question });
+  } catch {
+    return null;
+  }
+}
+
 export async function runCopilotTurn(input: {
   question: string;
   baselineInput: SchemeCalculationInput;
@@ -61,6 +70,7 @@ export async function runCopilotTurn(input: {
       intent,
       steps: intent.kind === "due_diligence" ? ["读取缺失项与敏感度", "生成尽调建议"] : ["读取当前测算结果", "生成解释"],
       explanation: text.text,
+      analysis: safeAnalysis(sourceInput, input.question),
       scenario: null as ReturnType<typeof runScenario> | null,
       engineErrors: [] as string[],
       baselineUnchanged: JSON.stringify(frozenBaseline) === JSON.stringify(input.baselineInput),
@@ -74,6 +84,7 @@ export async function runCopilotTurn(input: {
       intent,
       steps: [intent.parser === "llm" ? "大模型识别场景意图" : "识别场景意图", "参数校验失败"],
       explanation: `场景参数未通过测算引擎校验：${errors.map((e) => e.message).join("；")}`,
+      analysis: safeAnalysis(sourceInput, input.question),
       scenario: null,
       engineErrors: errors.map((e) => e.message),
       baselineUnchanged: JSON.stringify(frozenBaseline) === JSON.stringify(input.baselineInput),
@@ -91,6 +102,7 @@ export async function runCopilotTurn(input: {
       "对比基准方案",
     ],
     explanation: `已按「${intent.title}」创建临时方案并由测算引擎重算。月利润变化 ${delta.monthly_profit} 元，月收入变化 ${delta.monthly_revenue} 元，月成本变化 ${delta.monthly_total_cost} 元。这些数字来自 Calculation Engine，不是模型估算。`,
+    analysis: safeAnalysis(preview.patchedInput, input.question),
     scenario: preview,
     engineErrors: [],
     baselineUnchanged: JSON.stringify(frozenBaseline) === JSON.stringify(input.baselineInput),

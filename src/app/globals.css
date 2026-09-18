@@ -41,6 +41,22 @@ textarea:focus {
   width: 8px;
   height: 8px;
 }
+
+@keyframes ai-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.ai-rise {
+  animation: ai-rise 0.45s ease both;
+}
+
 .sn-scroll::-webkit-scrollbar-thumb {
   background: rgba(0, 0, 0, 0.12);
   border-radius: 999px;

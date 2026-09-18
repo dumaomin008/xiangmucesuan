@@ -3801,6 +3801,13 @@ var PmCalcModule = (() => {
       };
     });
   }
+  function applyPercentChanges(input, changes) {
+    const next = cloneInput(input);
+    for (const change of changes) {
+      applyChange(next, change.variable, new decimal_default(change.percent), "PERCENT");
+    }
+    return next;
+  }
 
   // src/calculation/core/serialize.ts
   function serializeCalculationResult(output) {
@@ -4789,15 +4796,534 @@ var PmCalcModule = (() => {
     });
   }
 
+  // src/lib/ai/analysis/rules.ts
+  var DEMO_SCENARIO_RULES = {
+    scenarioSource: "demo_rule",
+    conservative: [
+      { variable: "freight_price", parameter: "\u8FD0\u8F93\u5355\u4EF7", percent: -8 },
+      { variable: "trips_per_vehicle_month", parameter: "\u65E5\u5747\u8D9F\u6B21", percent: -10 },
+      { variable: "electricity_price", parameter: "\u5145\u7535\u5355\u4EF7", percent: 10 }
+    ],
+    optimistic: [
+      { variable: "trips_per_vehicle_month", parameter: "\u65E5\u5747\u8D9F\u6B21", percent: 8 },
+      { variable: "electricity_price", parameter: "\u5145\u7535\u5355\u4EF7", percent: -8 }
+    ]
+  };
+  var ANALYSIS_SENSITIVITY_VARIABLES = [
+    { code: "freight_price", name: "\u8FD0\u8F93\u5355\u4EF7" },
+    { code: "trips_per_vehicle_month", name: "\u65E5\u5747\u8D9F\u6B21" },
+    { code: "electricity_price", name: "\u5145\u7535\u5355\u4EF7" },
+    { code: "loaded_energy_consumption", name: "\u767E\u516C\u91CC\u7535\u8017" },
+    { code: "monthly_rent_per_vehicle", name: "\u8F66\u8F86\u79DF\u8D41\u6210\u672C" }
+  ];
+  var COST_GROUPS = [
+    { code: "energy", name: "\u80FD\u6E90\u6210\u672C", codes: ["energy_cost"] },
+    { code: "driver", name: "\u53F8\u673A\u6210\u672C", codes: ["driver_cost"] },
+    { code: "vehicle", name: "\u8F66\u8F86\u6298\u65E7/\u79DF\u8D41", codes: ["vehicle_cost", "finance_cost"] },
+    {
+      code: "maintenance",
+      name: "\u7EF4\u4FEE\u4FDD\u517B",
+      codes: ["maintenance_fee", "tire_cost", "consumable_fee", "heater_fee", "inspection_fee", "road_maintenance_fee"]
+    },
+    { code: "insurance", name: "\u4FDD\u9669", codes: ["insurance_fee"] },
+    { code: "toll", name: "\u8DEF\u6865\u8D39", codes: ["toll", "parking_fee"] },
+    { code: "management", name: "\u7BA1\u7406\u6210\u672C", codes: ["management_fee"] },
+    { code: "other", name: "\u5176\u4ED6\u6210\u672C", codes: ["loading_unloading", "information_fee", "tax_cost"] }
+  ];
+  function scenarioNote() {
+    const conservative = DEMO_SCENARIO_RULES.conservative.map((item) => `${item.parameter}${item.percent}%`).join("\u3001");
+    const optimistic = DEMO_SCENARIO_RULES.optimistic.map((item) => `${item.parameter}${item.percent}%`).join("\u3001");
+    return `\u4FDD\u5B88/\u4E50\u89C2\u65B9\u6848\u4F7F\u7528\u6F14\u793A\u89C4\u5219\u91CD\u7B97\uFF08scenarioSource=demo_rule\uFF09\uFF0C\u4E0D\u662F\u6A21\u578B\u4F30\u7B97\u3002\u4FDD\u5B88\uFF1A${conservative}\u3002\u4E50\u89C2\uFF1A${optimistic}\u3002\u57FA\u51C6\u65B9\u6848\u4E3A\u5F53\u524D\u53C2\u6570\u3002`;
+  }
+
+  // src/lib/ai/schema/versions.ts
+  var AI_ANALYSIS_REPORT_SCHEMA_VERSION = "ai_analysis_report_v1";
+
+  // src/lib/ai/analysis/narrative.ts
+  function yuanText(value) {
+    const abs2 = Math.abs(value);
+    if (abs2 >= 1e4) {
+      const wan = value / 1e4;
+      const rounded = Math.round(wan * 10) / 10;
+      const text = Math.abs(rounded - Math.round(rounded)) < 0.05 ? String(Math.round(rounded)) : rounded.toFixed(1);
+      return `${text}\u4E07\u5143`;
+    }
+    return `${Math.round(value).toLocaleString("zh-CN")}\u5143`;
+  }
+  function percentText(ratio2) {
+    if (ratio2 === null || !Number.isFinite(ratio2)) return "\u5F85\u786E\u8BA4";
+    return `${(ratio2 * 100).toFixed(1)}%`;
+  }
+  function writeSummary(input) {
+    const profitTone = input.profit < 0 ? "\u5F53\u524D\u65B9\u6848\u4F4E\u4E8E\u76C8\u4E8F\u5E73\u8861" : input.margin !== null && input.margin < 0.08 ? "\u9879\u76EE\u6709\u76C8\u5229\u7A7A\u95F4\uFF0C\u4F46\u5229\u6DA6\u504F\u8584" : "\u9879\u76EE\u5177\u5907\u76C8\u5229\u7A7A\u95F4";
+    const focus = [
+      input.topParameter ? `${input.topParameter}\u5BF9\u6536\u76CA\u5F71\u54CD\u8F83\u5927` : "",
+      input.topCost ? `${input.topCost}\u662F\u6700\u5927\u6210\u672C\u9879` : ""
+    ].filter(Boolean).join("\uFF0C");
+    const prefix = input.question && /如果|下降|上涨|提高|降低/.test(input.question) ? "\u4EE5\u4E0B\u4E3A\u6D4B\u7B97\u5F15\u64CE\u6309\u5F53\u524D\u573A\u666F\u91CD\u7B97\u540E\u7684\u7ED3\u679C\u3002" : "";
+    const conclusion = `${prefix}\u5F53\u524D\u57FA\u51C6\u65B9\u6848\u6708\u5229\u6DA6 ${yuanText(input.profit)}\uFF0C${profitTone}\u3002${focus ? `${focus}\u3002` : ""}\u5EFA\u8BAE\u8FDB\u4E00\u6B65\u6838\u5B9E\u65E5\u5747\u8D9F\u6B21\u3001\u6709\u6548\u8FD0\u8425\u5B89\u6392\u53CA\u5B9E\u9645\u80FD\u6E90\u4EF7\u683C\u3002\u4EE5\u4E0A\u6570\u5B57\u5747\u6765\u81EA\u6D4B\u7B97\u5F15\u64CE\u3002`;
+    const highlights = [
+      `\u6708\u8425\u4E1A\u6536\u5165 ${yuanText(input.revenue)}\uFF0C\u6708\u8FD0\u8425\u6210\u672C ${yuanText(input.cost)}\uFF0C\u6708\u5229\u6DA6 ${yuanText(input.profit)}\uFF0C\u5229\u6DA6\u7387 ${percentText(input.margin)}\u3002`,
+      input.topCost ? `\u6210\u672C\u7ED3\u6784\u6700\u5927\u9879\u662F${input.topCost}\u3002` : "\u6210\u672C\u7ED3\u6784\u660E\u7EC6\u6682\u7F3A\uFF0C\u672A\u4F30\u7B97\u5360\u6BD4\u3002",
+      input.topParameter ? `\u654F\u611F\u5EA6\u6700\u9AD8\u7684\u53C2\u6570\u662F${input.topParameter}\uFF0C\u53D8\u5316\u5E45\u5EA6\u6765\u81EA\u5F15\u64CE\u91CD\u7B97\u3002` : "\u654F\u611F\u6027\u91CD\u7B97\u6682\u4E0D\u53EF\u7528\u3002",
+      input.highRisks.length ? `\u9700\u5173\u6CE8\uFF1A${input.highRisks.join("\u3001")}\u3002` : "\u6309\u5F53\u524D\u654F\u611F\u6027\u89C4\u5219\uFF0C\u6682\u65E0\u9AD8\u7B49\u7EA7\u98CE\u9669\u3002"
+    ].slice(0, 4);
+    return { conclusion, highlights };
+  }
+
+  // src/lib/ai/analysis/schema.ts
+  var DEMO_ANALYSIS_NOTICE = "AI\u667A\u80FD\u5206\u6790\u6682\u65F6\u4F7F\u7528\u672C\u5730\u5206\u6790\u6A21\u5F0F\uFF0C\u6D4B\u7B97\u7ED3\u679C\u4E0D\u53D7\u5F71\u54CD\u3002";
+  var TREND_UNAVAILABLE_MESSAGE = "\u5F53\u524D\u6D4B\u7B97\u7ED3\u679C\u672A\u63D0\u4F9B\u5206\u671F\u73B0\u91D1\u6D41\u6570\u636E\uFF0C\u6682\u65E0\u6CD5\u751F\u6210\u8D8B\u52BF\u5206\u6790\u3002";
+
+  // src/lib/ai/analysis/build-report.ts
+  function money2(value) {
+    if (!value) return null;
+    const next = Number(value.toFixed(2));
+    return Number.isFinite(next) ? next : null;
+  }
+  function ratio(value) {
+    if (!value) return null;
+    const next = Number(value.toFixed(4));
+    return Number.isFinite(next) ? next : null;
+  }
+  function profitStatus(profit, margin) {
+    if (profit < 0) return { status: "below_breakeven", statusLabel: "\u4F4E\u4E8E\u76C8\u4E8F\u5E73\u8861" };
+    if (margin === null) return { status: "pending", statusLabel: "\u5F85\u786E\u8BA4" };
+    if (margin < 0.08) return { status: "near_breakeven", statusLabel: "\u63A5\u8FD1\u76C8\u4E8F\u5E73\u8861\u70B9" };
+    return { status: "normal", statusLabel: "\u76C8\u5229" };
+  }
+  function pendingMetric(key, name, unit) {
+    return { key, name, value: null, unit, source: "calculation_engine", status: "pending", statusLabel: "\u5F85\u786E\u8BA4" };
+  }
+  function buildMetrics(input, output) {
+    const profit = money2(output.monthlyProfit) ?? 0;
+    const revenue = money2(output.monthlyRevenue) ?? 0;
+    const cost = money2(output.monthlyTotalCost) ?? 0;
+    const margin = ratio(output.profitMargin);
+    const tone = profitStatus(profit, margin);
+    const fleet = input.fleetSize > 0 ? input.fleetSize : 0;
+    const vehicleProfit = money2(output.vehicleMonthlyProfit) ?? (fleet > 0 ? Number((profit / fleet).toFixed(2)) : null);
+    const payback = output.firstPositiveMonth;
+    const metrics = [
+      { key: "monthlyProfit", name: "\u6708\u5229\u6DA6", value: profit, unit: "\u5143", source: "calculation_engine", ...tone },
+      { key: "monthlyRevenue", name: "\u6708\u8425\u4E1A\u6536\u5165", value: revenue, unit: "\u5143", source: "calculation_engine", status: "normal", statusLabel: "\u5F15\u64CE\u7ED3\u679C" },
+      { key: "monthlyCost", name: "\u6708\u8FD0\u8425\u6210\u672C", value: cost, unit: "\u5143", source: "calculation_engine", status: "normal", statusLabel: "\u5F15\u64CE\u7ED3\u679C" },
+      margin === null ? pendingMetric("profitMargin", "\u5229\u6DA6\u7387", "ratio") : { key: "profitMargin", name: "\u5229\u6DA6\u7387", value: margin, unit: "ratio", source: "calculation_engine", ...tone },
+      output.irr ? { key: "irr", name: "\u5185\u90E8\u6536\u76CA\u7387", value: ratio(output.irr), unit: "ratio", source: "calculation_engine", status: "normal", statusLabel: "\u5F15\u64CE\u7ED3\u679C" } : pendingMetric("irr", "\u5185\u90E8\u6536\u76CA\u7387", "ratio"),
+      payback === null ? pendingMetric("paybackPeriod", "\u6295\u8D44\u56DE\u6536\u671F", "\u6708") : {
+        key: "paybackPeriod",
+        name: "\u6295\u8D44\u56DE\u6536\u671F",
+        value: payback,
+        unit: "\u6708",
+        source: "calculation_engine",
+        status: "normal",
+        statusLabel: payback === 0 ? "\u65E0\u9700\u56DE\u6536\u521D\u59CB\u6295\u8D44" : "\u5F15\u64CE\u7ED3\u679C"
+      }
+    ];
+    if (vehicleProfit !== null) {
+      metrics.push({
+        key: "vehicleProfit",
+        name: "\u5355\u8F66\u6708\u5229\u6DA6",
+        value: vehicleProfit,
+        unit: "\u5143",
+        source: "calculation_engine",
+        status: vehicleProfit < 0 ? "below_breakeven" : "normal",
+        statusLabel: vehicleProfit < 0 ? "\u4F4E\u4E8E\u76C8\u4E8F\u5E73\u8861" : "\u5F15\u64CE\u7ED3\u679C"
+      });
+    }
+    metrics.push({
+      key: "cumulativeCashFlow",
+      name: "\u7D2F\u8BA1\u73B0\u91D1\u6D41",
+      value: money2(output.cumulativeCashFlow) ?? 0,
+      unit: "\u5143",
+      source: "calculation_engine",
+      status: "normal",
+      statusLabel: "\u5F15\u64CE\u7ED3\u679C"
+    });
+    return metrics.slice(0, 8);
+  }
+  function buildCost(output) {
+    const amounts = /* @__PURE__ */ new Map();
+    for (const item of output.costBreakdown) {
+      amounts.set(item.code, money2(item.amount) ?? 0);
+    }
+    const used = /* @__PURE__ */ new Set();
+    const groups = COST_GROUPS.map((group) => {
+      let value = 0;
+      for (const code of group.codes) {
+        if (!amounts.has(code)) continue;
+        value += amounts.get(code) || 0;
+        used.add(code);
+      }
+      return { code: group.code, name: group.name, value: Number(value.toFixed(2)), percentage: 0 };
+    });
+    let other = groups.find((item) => item.code === "other");
+    if (!other) {
+      other = { code: "other", name: "\u5176\u4ED6\u6210\u672C", value: 0, percentage: 0 };
+      groups.push(other);
+    }
+    for (const [code, value] of amounts) {
+      if (used.has(code)) continue;
+      other.value = Number((other.value + value).toFixed(2));
+    }
+    const total = groups.reduce((sum2, item) => sum2 + item.value, 0);
+    return groups.map((item) => ({
+      ...item,
+      percentage: total > 0 ? Number((item.value / total * 100).toFixed(1)) : 0
+    })).filter((item) => item.value !== 0 || item.code === "energy");
+  }
+  function scenarioFromOutput(name, output, source2, adjustments) {
+    return {
+      name,
+      revenue: money2(output.monthlyRevenue) ?? 0,
+      cost: money2(output.monthlyTotalCost) ?? 0,
+      profit: money2(output.monthlyProfit) ?? 0,
+      roi: ratio(output.profitMargin),
+      paybackPeriod: output.firstPositiveMonth,
+      scenarioSource: source2,
+      adjustments: adjustments.map((item) => ({ parameter: item.parameter, percent: item.percent }))
+    };
+  }
+  function buildScenarios(input, baseline) {
+    const rows = [
+      scenarioFromOutput("\u57FA\u51C6\u65B9\u6848", baseline, "calculation_engine", [])
+    ];
+    for (const [name, changes] of [
+      ["\u4FDD\u5B88\u65B9\u6848", DEMO_SCENARIO_RULES.conservative],
+      ["\u4E50\u89C2\u65B9\u6848", DEMO_SCENARIO_RULES.optimistic]
+    ]) {
+      try {
+        const patched = applyPercentChanges(input, changes);
+        rows.push(scenarioFromOutput(name, calculateScheme(patched), "demo_rule", [...changes]));
+      } catch {
+        continue;
+      }
+    }
+    return rows;
+  }
+  function levelFromDrop(drop, profitTurnsNegative) {
+    if (profitTurnsNegative || drop >= 0.2) return "high";
+    if (drop >= 0.08) return "medium";
+    return "low";
+  }
+  function impactRank(index) {
+    if (index === 0) return "high";
+    if (index <= 2) return "medium";
+    return "low";
+  }
+  function buildSensitivity(input) {
+    const points = [];
+    for (const variable of ANALYSIS_SENSITIVITY_VARIABLES) {
+      try {
+        const rows = runSensitivity({
+          input,
+          variable: variable.code,
+          changeMode: "PERCENT",
+          minChange: "-20",
+          maxChange: "20",
+          step: "10"
+        });
+        for (const row of rows) {
+          points.push({
+            parameter: variable.name,
+            parameterKey: variable.code,
+            change: Number(row.parameterChange),
+            profit: Number(row.monthlyProfit),
+            profitChange: Number(row.profitDelta),
+            impactLevel: "low"
+          });
+        }
+      } catch {
+        continue;
+      }
+    }
+    const names = [...new Set(points.map((item) => item.parameter))];
+    const ranked = names.map((parameter) => {
+      const related = points.filter((item) => item.parameter === parameter && item.change !== 0);
+      const swing = related.reduce((max2, item) => Math.max(max2, Math.abs(item.profitChange)), 0);
+      return { parameter, swing };
+    }).sort((a, b) => b.swing - a.swing);
+    const rank = new Map(ranked.map((item, index) => [item.parameter, impactRank(index)]));
+    return points.map((item) => ({ ...item, impactLevel: rank.get(item.parameter) || "low" }));
+  }
+  function pointAt(points, parameter, change) {
+    return points.find((item) => item.parameter === parameter && item.change === change);
+  }
+  function buildRisks(points, baselineProfit) {
+    const names = [...new Set(points.map((item) => item.parameter))];
+    const risks = [];
+    for (const parameter of names) {
+      const down = pointAt(points, parameter, -10) || pointAt(points, parameter, -20);
+      const up = pointAt(points, parameter, 10) || pointAt(points, parameter, 20);
+      const adverse = [down, up].filter((item) => Boolean(item)).sort((a, b) => a.profitChange - b.profitChange)[0];
+      if (!adverse || adverse.profitChange >= 0) continue;
+      const drop = baselineProfit === 0 ? 1 : -adverse.profitChange / Math.abs(baselineProfit);
+      const level = levelFromDrop(drop, baselineProfit > 0 && adverse.profit < 0);
+      if (level === "low" && adverse.impactLevel === "low") continue;
+      const direction = adverse.change < 0 ? "\u4E0B\u964D" : "\u4E0A\u5347";
+      risks.push({
+        name: `${parameter}\u98CE\u9669`,
+        level,
+        description: `\u5F53\u524D\u65B9\u6848\u5BF9${parameter}\u8F83\u654F\u611F\uFF0C\u8BE5\u5224\u65AD\u6765\u81EA\u6D4B\u7B97\u5F15\u64CE\u7684\u53C2\u6570\u91CD\u7B97\u3002`,
+        affectedMetrics: ["\u6708\u5229\u6DA6", "\u5229\u6DA6\u7387"],
+        evidence: `${parameter}${direction} ${Math.abs(adverse.change)}% \u540E\uFF0C\u6708\u5229\u6DA6\u53D8\u5316 ${adverse.profitChange.toFixed(2)} \u5143\u3002`,
+        suggestion: `\u6838\u5B9E${parameter}\u7684\u5408\u540C\u6216\u73B0\u573A\u53D6\u503C\uFF0C\u4E0D\u8981\u7528\u4F30\u7B97\u503C\u8986\u76D6\u5F15\u64CE\u7ED3\u679C\u3002`
+      });
+    }
+    if (baselineProfit < 0) {
+      risks.unshift({
+        name: "\u76C8\u5229\u98CE\u9669",
+        level: "high",
+        description: "\u6309\u5F53\u524D\u53C2\u6570\uFF0C\u6D4B\u7B97\u5F15\u64CE\u7ED9\u51FA\u7684\u6708\u5229\u6DA6\u4E3A\u8D1F\u3002",
+        affectedMetrics: ["\u6708\u5229\u6DA6", "\u5229\u6DA6\u7387"],
+        evidence: `\u5F15\u64CE\u6708\u5229\u6DA6 ${baselineProfit.toFixed(2)} \u5143\uFF0C\u4F4E\u4E8E\u76C8\u4E8F\u5E73\u8861\u3002`,
+        suggestion: "\u5148\u6838\u5BF9\u8FD0\u4EF7\u3001\u8D9F\u6B21\u548C\u4E3B\u8981\u6210\u672C\uFF0C\u518D\u51B3\u5B9A\u662F\u5426\u63A8\u8FDB\u3002"
+      });
+    }
+    const weight = { high: 0, medium: 1, low: 2 };
+    return risks.sort((a, b) => weight[a.level] - weight[b.level]).slice(0, 4);
+  }
+  function buildTrend(cashFlows, breakevenMonth) {
+    const operating = cashFlows.filter((row) => row.monthIndex > 0);
+    if (operating.length < 2) {
+      return { available: false, message: TREND_UNAVAILABLE_MESSAGE, breakevenMonth, points: [] };
+    }
+    const points = operating.slice(0, 36).map((row) => {
+      const revenue = money2(row.revenueCashIn) ?? 0;
+      const cost = Number(
+        ((money2(row.operatingCashOut) ?? 0) + (money2(row.vehicleCashOut) ?? 0) + (money2(row.financingCashFlow) ?? 0) + (money2(row.taxCashOut) ?? 0)).toFixed(2)
+      );
+      return {
+        monthIndex: row.monthIndex,
+        revenue,
+        cost,
+        profit: money2(row.currentNetCashFlow) ?? 0,
+        cumulativeCashFlow: money2(row.cumulativeCashFlow) ?? 0
+      };
+    });
+    const hasSignal = points.some((item) => item.revenue !== 0 || item.cost !== 0 || item.profit !== 0);
+    if (!hasSignal) {
+      return { available: false, message: TREND_UNAVAILABLE_MESSAGE, breakevenMonth, points: [] };
+    }
+    return { available: true, message: null, breakevenMonth, points };
+  }
+  function isRecord(value) {
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  }
+  function textOf(value) {
+    return typeof value === "string" ? value.trim() : "";
+  }
+  function normalizeAssumptionSeeds(input) {
+    if (!Array.isArray(input)) return [];
+    return input.filter(isRecord).map((item) => ({
+      field_code: textOf(item.field_code),
+      field_name: textOf(item.field_name),
+      value: textOf(item.value),
+      unit: textOf(item.unit) || null,
+      label: textOf(item.label),
+      status: textOf(item.status),
+      source_label: textOf(item.source_label)
+    }));
+  }
+  function assumptionLabel(item) {
+    const name = item.field_name || item.field_code || "\u672A\u547D\u540D\u5B57\u6BB5";
+    return name;
+  }
+  function buildAssumptions(seeds, output) {
+    const confirmed = [];
+    const calculated = [];
+    const missing = [];
+    for (const item of seeds) {
+      const name = assumptionLabel(item);
+      const status = `${item.status || ""} ${item.source_label || ""}`;
+      const empty = !item.value || item.value === "\u672A\u5199\u5165\u5F15\u64CE";
+      if (empty || /missing|缺失|待确认|pending/i.test(status)) {
+        missing.push({ tag: "missing", label: `${name}\uFF1A\u5F85\u786E\u8BA4\uFF0C\u672A\u7528\u4F30\u7B97\u503C\u8865\u9F50` });
+        continue;
+      }
+      const detail = `${name}\uFF1A${item.value}${item.unit || ""}`;
+      if (/confirmed|已确认/i.test(status)) {
+        confirmed.push({ tag: "confirmed", label: detail });
+      } else {
+        calculated.push({ tag: "calculated", label: `${detail}\uFF08${item.source_label || item.status || "\u53C2\u4E0E\u6D4B\u7B97"}\uFF09` });
+      }
+    }
+    calculated.push(
+      { tag: "calculated", label: `\u6708\u5229\u6DA6 ${yuanText(money2(output.monthlyProfit) ?? 0)}\uFF0C\u7531\u6D4B\u7B97\u5F15\u64CE\u8BA1\u7B97` },
+      { tag: "calculated", label: `\u6708\u8425\u4E1A\u6536\u5165 ${yuanText(money2(output.monthlyRevenue) ?? 0)}\uFF0C\u7531\u6D4B\u7B97\u5F15\u64CE\u8BA1\u7B97` }
+    );
+    if (!output.irr) missing.push({ tag: "missing", label: "\u5185\u90E8\u6536\u76CA\u7387\uFF1A\u6D4B\u7B97\u5F15\u64CE\u672A\u80FD\u6C42\u89E3\uFF0C\u672A\u586B\u5165\u4F30\u7B97\u503C" });
+    if (!output.profitMargin) missing.push({ tag: "missing", label: "\u5229\u6DA6\u7387\uFF1A\u6D4B\u7B97\u5F15\u64CE\u65E0\u6CD5\u8BA1\u7B97\uFF0C\u672A\u586B\u5165\u4F30\u7B97\u503C" });
+    if (!confirmed.length) {
+      confirmed.push({ tag: "confirmed", label: "\u5F53\u524D\u65B9\u6848\u5DF2\u63D0\u4EA4\u6D4B\u7B97\u5F15\u64CE\u7684\u53C2\u6570\uFF0C\u4F5C\u4E3A\u57FA\u51C6\u65B9\u6848\u8F93\u5165" });
+    }
+    return {
+      confirmed: confirmed.slice(0, 8),
+      calculated: calculated.slice(0, 8),
+      aiInferred: [{ tag: "ai_inferred", label: "\u7EFC\u5408\u7ED3\u8BBA\u3001\u98CE\u9669\u8BF4\u660E\u548C\u5EFA\u8BAE\u7531\u5206\u6790\u5C42\u5F52\u7EB3\uFF0C\u4E0D\u65B0\u589E\u8D22\u52A1\u6570\u5B57" }],
+      missing: missing.slice(0, 8)
+    };
+  }
+  function buildRecommendations(input) {
+    const rows = [];
+    if (input.topParameter) {
+      rows.push({
+        priority: rows.length + 1,
+        action: `\u6838\u5B9E${input.topParameter}`,
+        reason: `${input.topParameter}\u5BF9\u6708\u5229\u6DA6\u7684\u5F71\u54CD\u6700\u5927\uFF0C\u4F9D\u636E\u662F\u6D4B\u7B97\u5F15\u64CE\u7684 \xB110%/\xB120% \u91CD\u7B97\u3002`,
+        affectedMetric: "\u6708\u5229\u6DA6"
+      });
+    }
+    if (input.topCost) {
+      rows.push({
+        priority: rows.length + 1,
+        action: `\u9A8C\u8BC1${input.topCost}`,
+        reason: `${input.topCost}\u5360\u6210\u672C ${input.topCostShare.toFixed(1)}%\uFF0C\u5EFA\u8BAE\u6838\u5BF9\u5408\u540C\u4EF7\u6216\u53F0\u8D26\uFF0C\u800C\u4E0D\u662F\u76F4\u63A5\u6539\u7ED3\u679C\u3002`,
+        affectedMetric: "\u6708\u8FD0\u8425\u6210\u672C"
+      });
+    }
+    rows.push({
+      priority: rows.length + 1,
+      action: "\u5BF9\u7167\u4FDD\u5B88\u65B9\u6848\u505A\u538B\u529B\u6D4B\u8BD5",
+      reason: input.conservativeProfit === null ? "\u4FDD\u5B88\u65B9\u6848\u6682\u672A\u751F\u6210\uFF0C\u4E0D\u5F71\u54CD\u5F53\u524D\u57FA\u51C6\u7ED3\u679C\u3002" : `\u6F14\u793A\u89C4\u5219\u4E0B\u4FDD\u5B88\u65B9\u6848\u6708\u5229\u6DA6\u4E3A ${yuanText(input.conservativeProfit)}\uFF0C\u8BE5\u6570\u5B57\u7531\u6D4B\u7B97\u5F15\u64CE\u91CD\u7B97\u3002`,
+      affectedMetric: "\u6708\u5229\u6DA6"
+    });
+    if (input.missing.length) {
+      rows.push({
+        priority: rows.length + 1,
+        action: "\u8865\u5145\u5F85\u786E\u8BA4\u6570\u636E",
+        reason: input.missing[0]?.label || "\u5B58\u5728\u672A\u786E\u8BA4\u5B57\u6BB5\u3002",
+        affectedMetric: "\u6D4B\u7B97\u5B8C\u6574\u6027"
+      });
+    }
+    return rows.slice(0, 5).map((item, index) => ({ ...item, priority: index + 1 }));
+  }
+  function buildEngineAnalysisReport(input, options = {}) {
+    const output = calculateScheme(input);
+    const profit = money2(output.monthlyProfit) ?? 0;
+    const margin = ratio(output.profitMargin);
+    const costStructure = buildCost(output);
+    const largest = [...costStructure].sort((a, b) => b.value - a.value)[0];
+    const controllable = costStructure.filter((item) => ["\u80FD\u6E90\u6210\u672C", "\u53F8\u673A\u6210\u672C", "\u8DEF\u6865\u8D39", "\u7EF4\u4FEE\u4FDD\u517B"].includes(item.name));
+    const optimize = [...controllable].sort((a, b) => b.value - a.value)[0] || largest;
+    const scenarios = buildScenarios(input, output);
+    const sensitivity = buildSensitivity(input);
+    const ranked = [...new Set(sensitivity.map((item) => item.parameter))];
+    const swings = ranked.map((parameter) => ({
+      parameter,
+      swing: sensitivity.filter((item) => item.parameter === parameter && item.change !== 0).reduce((max2, item) => Math.max(max2, Math.abs(item.profitChange)), 0)
+    })).sort((a, b) => b.swing - a.swing);
+    const topParameter = swings[0]?.swing ? swings[0].parameter : null;
+    const topPoint = topParameter ? sensitivity.filter((item) => item.parameter === topParameter && item.change !== 0).sort((a, b) => Math.abs(b.profitChange) - Math.abs(a.profitChange))[0] : void 0;
+    const risks = buildRisks(sensitivity, profit);
+    const assumptions = buildAssumptions(normalizeAssumptionSeeds(options.assumptions), output);
+    const conservative = scenarios.find((item) => item.name === "\u4FDD\u5B88\u65B9\u6848");
+    const summary = writeSummary({
+      profit,
+      revenue: money2(output.monthlyRevenue) ?? 0,
+      cost: money2(output.monthlyTotalCost) ?? 0,
+      margin,
+      topCost: largest && largest.value > 0 ? largest.name : null,
+      topParameter,
+      highRisks: risks.filter((item) => item.level === "high").map((item) => item.name),
+      question: options.question
+    });
+    const report = {
+      schemaVersion: AI_ANALYSIS_REPORT_SCHEMA_VERSION,
+      mode: "demo",
+      notice: DEMO_ANALYSIS_NOTICE,
+      scenarioSource: "demo_rule",
+      scenarioNote: scenarioNote(),
+      summary: { title: "AI\u7EFC\u5408\u7ED3\u8BBA", ...summary },
+      keyMetrics: buildMetrics(input, output),
+      costStructure,
+      costInsight: {
+        largest: largest && largest.value > 0 ? largest.name : null,
+        anomaly: largest && largest.percentage >= 40 ? `${largest.name}\u5360\u6BD4 ${largest.percentage.toFixed(1)}%\uFF0C\u9AD8\u4E8E\u5176\u4F59\u6210\u672C\u9879\u3002` : null,
+        optimize: optimize && optimize.value > 0 ? optimize.name : null
+      },
+      trend: buildTrend(output.cashFlows, output.firstPositiveMonth),
+      scenarios,
+      sensitivity,
+      sensitivityHighlight: topParameter ? {
+        parameter: topParameter,
+        reason: topPoint ? `${topParameter}\u53D8\u52A8 ${topPoint.change}% \u65F6\uFF0C\u6708\u5229\u6DA6\u53D8\u5316 ${topPoint.profitChange.toFixed(2)} \u5143\uFF0C\u4E3A\u5F53\u524D\u91CD\u7B97\u4E2D\u5F71\u54CD\u6700\u5927\u7684\u53C2\u6570\u3002` : `${topParameter}\u662F\u5F53\u524D\u91CD\u7B97\u4E2D\u5F71\u54CD\u6700\u5927\u7684\u53C2\u6570\u3002`
+      } : null,
+      risks,
+      assumptions,
+      recommendations: buildRecommendations({
+        topParameter,
+        topCost: largest && largest.value > 0 ? largest.name : null,
+        topCostShare: largest?.percentage ?? 0,
+        conservativeProfit: conservative ? conservative.profit : null,
+        missing: assumptions.missing
+      }),
+      visualizations: [
+        { type: "kpi", title: "\u6838\u5FC3\u6307\u6807", dataSource: "keyMetrics" },
+        { type: "cost_structure", title: "\u6210\u672C\u7ED3\u6784", dataSource: "costStructure" },
+        { type: "scenario_comparison", title: "\u65B9\u6848\u5BF9\u6BD4", dataSource: "scenarios" },
+        { type: "profit_trend", title: "\u6536\u76CA\u8D8B\u52BF", dataSource: "trend" },
+        { type: "cashflow", title: "\u7D2F\u8BA1\u73B0\u91D1\u6D41", dataSource: "trend" },
+        { type: "sensitivity", title: "\u654F\u611F\u6027\u5206\u6790", dataSource: "sensitivity" },
+        { type: "risk", title: "\u98CE\u9669", dataSource: "risks" }
+      ]
+    };
+    return report;
+  }
+
+  // src/lib/ai/analysis/guard.ts
+  var NUMBER_RE = /-?\d+(?:\.\d+)?/g;
+  function collectAllowedNumbers(report) {
+    const found = [];
+    const walk = (value) => {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        found.push(value);
+        return;
+      }
+      if (typeof value === "string") {
+        const matches = value.match(NUMBER_RE) || [];
+        for (const item of matches) found.push(Number(item));
+        return;
+      }
+      if (Array.isArray(value)) {
+        value.forEach(walk);
+        return;
+      }
+      if (value && typeof value === "object") {
+        Object.values(value).forEach(walk);
+      }
+    };
+    walk(report);
+    return found;
+  }
+  function nearly(left, right) {
+    if (!Number.isFinite(left) || !Number.isFinite(right)) return false;
+    const diff = Math.abs(left - right);
+    const scale = Math.max(Math.abs(left), Math.abs(right), 1);
+    return diff <= 0.11 || diff / scale <= 0.02;
+  }
+  function numberIsAllowed(value, allowed) {
+    return allowed.some(
+      (item) => nearly(value, item) || nearly(value, item * 100) || nearly(value, item / 100) || nearly(value, item / 1e4) || nearly(value, item / 12)
+    );
+  }
+  function narrativeIsGrounded(text, report) {
+    return narrativeUsesKnownNumbers(text, collectAllowedNumbers(report));
+  }
+  function narrativeUsesKnownNumbers(text, allowed) {
+    const matches = text.match(NUMBER_RE) || [];
+    return matches.every((raw) => numberIsAllowed(Number(raw), allowed));
+  }
+
   // src/demo/ai/analyze.ts
-  function money2(n) {
+  function money3(n) {
     return n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
   function pct(n) {
     if (n === null || !Number.isFinite(n)) return "\u65E0\u6CD5\u8BA1\u7B97";
     return `${(n * 100).toFixed(2)}%`;
   }
-  function levelFromDrop(drop, high, mid) {
+  function levelFromDrop2(drop, high, mid) {
     if (drop >= high) return "\u9AD8";
     if (drop >= mid) return "\u4E2D";
     return "\u4F4E";
@@ -4828,9 +5354,9 @@ var PmCalcModule = (() => {
     const risks = buildRisksFromEngine(scenario2.inputs, margin);
     const highRisks = risks.filter((r) => r.level === "\u9AD8");
     const highlights = [
-      `\u6708\u8425\u6536 ${money2(revenue)} \u5143\uFF0C\u6708\u6210\u672C ${money2(cost)} \u5143\uFF0C\u6708\u5229\u6DA6 ${money2(profit)} \u5143\uFF08\u5229\u6DA6\u7387 ${pct(margin)}\uFF09\u3002`,
-      top ? `\u6210\u672C\u7ED3\u6784\u6700\u5927\u9879\uFF1A${top.name}\uFF0C\u7EA6 ${money2(top.amount)} \u5143/\u6708\u3002` : "\u6210\u672C\u7ED3\u6784\u660E\u7EC6\u6682\u7F3A\u3002",
-      metrics.irr ? `IRR ${pct(Number(metrics.irr))}\uFF1B\u7D2F\u8BA1\u73B0\u91D1\u6D41 ${money2(Number(metrics.cumulativeCashFlow))} \u5143\u3002` : `IRR \u6682\u4E0D\u53EF\u7528\uFF08${metrics.irrReason || "\u672A\u6C42\u89E3"}\uFF09\uFF1B\u7D2F\u8BA1\u73B0\u91D1\u6D41 ${money2(Number(metrics.cumulativeCashFlow))} \u5143\u3002`,
+      `\u6708\u8425\u6536 ${money3(revenue)} \u5143\uFF0C\u6708\u6210\u672C ${money3(cost)} \u5143\uFF0C\u6708\u5229\u6DA6 ${money3(profit)} \u5143\uFF08\u5229\u6DA6\u7387 ${pct(margin)}\uFF09\u3002`,
+      top ? `\u6210\u672C\u7ED3\u6784\u6700\u5927\u9879\uFF1A${top.name}\uFF0C\u7EA6 ${money3(top.amount)} \u5143/\u6708\u3002` : "\u6210\u672C\u7ED3\u6784\u660E\u7EC6\u6682\u7F3A\u3002",
+      metrics.irr ? `IRR ${pct(Number(metrics.irr))}\uFF1B\u7D2F\u8BA1\u73B0\u91D1\u6D41 ${money3(Number(metrics.cumulativeCashFlow))} \u5143\u3002` : `IRR \u6682\u4E0D\u53EF\u7528\uFF08${metrics.irrReason || "\u672A\u6C42\u89E3"}\uFF09\uFF1B\u7D2F\u8BA1\u73B0\u91D1\u6D41 ${money3(Number(metrics.cumulativeCashFlow))} \u5143\u3002`,
       project ? `\u5173\u8054\u9879\u76EE ${project.projectName}\uFF08${project.projectId}\uFF09\xB7 ${project.customer || "\u672A\u586B\u5BA2\u6237"}\u3002` : `\u65B9\u6848 ${scenario2.name}\uFF08${scenario2.id}\uFF09\u3002`
     ];
     const suggestions = [];
@@ -4848,21 +5374,21 @@ var PmCalcModule = (() => {
       suggestions.push("\u6682\u65E0\u9AD8\u7B49\u7EA7\u654F\u611F\u6027\u98CE\u9669\uFF0C\u53EF\u7EE7\u7EED\u5B8C\u5584\u73B0\u573A\u8FD0\u91CF\u4E0E\u5408\u540C\u539F\u4EF6\u62BD\u67E5\u3002");
     }
     const question = params.question?.trim() || "";
-    let summary = `\u5F15\u64CE\u7ED3\u679C\u663E\u793A\u65B9\u6848\u300C${scenario2.name}\u300D\u6708\u5229\u6DA6 ${money2(profit)} \u5143\u3001\u5229\u6DA6\u7387 ${pct(margin)}\u3002${top ? `\u6700\u5927\u6210\u672C\u9879\u4E3A${top.name}\u3002` : ""}${highRisks.length ? `\u9AD8\u98CE\u9669\u5173\u6CE8\uFF1A${highRisks.map((r) => r.name).join("\u3001")}\u3002` : "\u6682\u65E0\u9AD8\u7B49\u7EA7\u98CE\u9669\u3002"}\u4EE5\u4E0A\u6570\u5B57\u5747\u6765\u81EA\u8BA1\u7B97\u5F15\u64CE\uFF0C\u672C\u6A21\u5757\u53EA\u505A\u89E3\u91CA\u3002`;
+    let summary = `\u5F15\u64CE\u7ED3\u679C\u663E\u793A\u65B9\u6848\u300C${scenario2.name}\u300D\u6708\u5229\u6DA6 ${money3(profit)} \u5143\u3001\u5229\u6DA6\u7387 ${pct(margin)}\u3002${top ? `\u6700\u5927\u6210\u672C\u9879\u4E3A${top.name}\u3002` : ""}${highRisks.length ? `\u9AD8\u98CE\u9669\u5173\u6CE8\uFF1A${highRisks.map((r) => r.name).join("\u3001")}\u3002` : "\u6682\u65E0\u9AD8\u7B49\u7EA7\u98CE\u9669\u3002"}\u4EE5\u4E0A\u6570\u5B57\u5747\u6765\u81EA\u8BA1\u7B97\u5F15\u64CE\uFF0C\u672C\u6A21\u5757\u53EA\u505A\u89E3\u91CA\u3002`;
     if (/最大成本|成本结构|分析成本/.test(question)) {
-      const costLines = costs.slice(0, 4).map((c, i) => `${i + 1}. ${c.name} ${money2(c.amount)} \u5143`).join("\uFF1B");
-      summary = top ? `\u6D4B\u7B97\u5F15\u64CE\u6210\u672C\u7ED3\u6784\u4E2D\u6700\u5927\u9879\u662F\u300C${top.name}\u300D\uFF0C\u91D1\u989D ${money2(top.amount)} \u5143/\u6708\u3002\u4E3B\u8981\u6784\u6210\uFF1A${costLines || "\u6682\u7F3A"}\u3002\u8BE5\u6570\u5B57\u6765\u81EA Calculation Engine\uFF0C\u4E0D\u662F\u6A21\u578B\u4F30\u7B97\u3002` : "\u8FD8\u6CA1\u6709\u6210\u672C\u7ED3\u6784\u7ED3\u679C\u3002";
+      const costLines = costs.slice(0, 4).map((c, i) => `${i + 1}. ${c.name} ${money3(c.amount)} \u5143`).join("\uFF1B");
+      summary = top ? `\u6D4B\u7B97\u5F15\u64CE\u6210\u672C\u7ED3\u6784\u4E2D\u6700\u5927\u9879\u662F\u300C${top.name}\u300D\uFF0C\u91D1\u989D ${money3(top.amount)} \u5143/\u6708\u3002\u4E3B\u8981\u6784\u6210\uFF1A${costLines || "\u6682\u7F3A"}\u3002\u8BE5\u6570\u5B57\u6765\u81EA Calculation Engine\uFF0C\u4E0D\u662F\u6A21\u578B\u4F30\u7B97\u3002` : "\u8FD8\u6CA1\u6709\u6210\u672C\u7ED3\u6784\u7ED3\u679C\u3002";
     } else if (/为什么.*利润|利润.*低|利润.*不高|项目情况/.test(question)) {
       const drivers = [
-        `\u6536\u5165\u4FA7\uFF1A\u6708\u8425\u6536 ${money2(revenue)} \u5143`,
-        top ? `\u6210\u672C\u4FA7\u6700\u5927\u9879\u300C${top.name}\u300D\u7EA6 ${money2(top.amount)} \u5143/\u6708` : `\u6210\u672C\u4FA7\uFF1A\u6708\u603B\u6210\u672C ${money2(cost)} \u5143`,
-        `\u7ED3\u679C\uFF1A\u6708\u5229\u6DA6 ${money2(profit)} \u5143\uFF0C\u5229\u6DA6\u7387 ${pct(margin)}`
+        `\u6536\u5165\u4FA7\uFF1A\u6708\u8425\u6536 ${money3(revenue)} \u5143`,
+        top ? `\u6210\u672C\u4FA7\u6700\u5927\u9879\u300C${top.name}\u300D\u7EA6 ${money3(top.amount)} \u5143/\u6708` : `\u6210\u672C\u4FA7\uFF1A\u6708\u603B\u6210\u672C ${money3(cost)} \u5143`,
+        `\u7ED3\u679C\uFF1A\u6708\u5229\u6DA6 ${money3(profit)} \u5143\uFF0C\u5229\u6DA6\u7387 ${pct(margin)}`
       ];
       summary = `\u4E1A\u52A1\u8BCA\u65AD\uFF08\u57FA\u4E8E\u5F15\u64CE\u7ED3\u679C\uFF09\uFF1A${drivers.join("\uFF1B")}\u3002${profit < 0 ? "\u5229\u6DA6\u4E3A\u8D1F\uFF0C\u4F18\u5148\u590D\u6838\u8FD0\u4EF7\u3001\u7535\u4EF7\u4E0E\u8D9F\u6B21\u5047\u8BBE\u3002" : margin !== null && margin < 0.08 ? "\u5229\u6DA6\u504F\u8584\uFF0C\u80FD\u6E90/\u8F66\u8F86/\u53F8\u673A\u6210\u672C\u4EFB\u4E00\u4E0A\u884C\u90FD\u53EF\u80FD\u4FB5\u8680\u7A7A\u95F4\u3002" : "\u5229\u6DA6\u5C1A\u53EF\uFF0C\u4ECD\u5EFA\u8BAE\u5173\u6CE8\u7535\u4EF7\u4E0E\u8FD0\u4EF7\u654F\u611F\u6027\u3002"}`;
     } else if (/敏感|风险|异常|检查.*参数/.test(question)) {
-      summary = `\u654F\u611F\u6027\u7531\u5F15\u64CE\u91CD\u7B97\uFF1A\u8FD0\u4EF7/\u7535\u4EF7/\u8D9F\u6B21\u6CE2\u52A8\u5BF9\u5229\u6DA6\u5F71\u54CD\u89C1\u4E0B\u65B9\u98CE\u9669\u6E05\u5355\u3002\u6838\u5FC3 KPI\uFF1A\u6708\u5229\u6DA6 ${money2(profit)} \u5143\uFF0C\u5229\u6DA6\u7387 ${pct(margin)}\u3002${highRisks.length ? `\u5F53\u524D\u9AD8\u98CE\u9669\uFF1A${highRisks.map((r) => r.name).join("\u3001")}\u3002` : "\u6682\u65E0\u9AD8\u7B49\u7EA7\u98CE\u9669\u3002"}`;
+      summary = `\u654F\u611F\u6027\u7531\u5F15\u64CE\u91CD\u7B97\uFF1A\u8FD0\u4EF7/\u7535\u4EF7/\u8D9F\u6B21\u6CE2\u52A8\u5BF9\u5229\u6DA6\u5F71\u54CD\u89C1\u4E0B\u65B9\u98CE\u9669\u6E05\u5355\u3002\u6838\u5FC3 KPI\uFF1A\u6708\u5229\u6DA6 ${money3(profit)} \u5143\uFF0C\u5229\u6DA6\u7387 ${pct(margin)}\u3002${highRisks.length ? `\u5F53\u524D\u9AD8\u98CE\u9669\uFF1A${highRisks.map((r) => r.name).join("\u3001")}\u3002` : "\u6682\u65E0\u9AD8\u7B49\u7EA7\u98CE\u9669\u3002"}`;
     } else if (/亏损|盈利|能不能做/.test(question)) {
-      summary = profit >= 0 ? `\u6309\u5F53\u524D\u53C2\u6570\uFF0C\u5F15\u64CE\u7ED9\u51FA\u6B63\u5229\u6DA6 ${money2(profit)} \u5143/\u6708\u3002\u662F\u5426\u7ACB\u9879\u8FD8\u9700\u7ED3\u5408\u5408\u540C\u9501\u4EF7\u3001\u573A\u7AD9\u7535\u4EF7\u4E0E\u5B9E\u9645\u8D9F\u6B21\u3002` : `\u6309\u5F53\u524D\u53C2\u6570\uFF0C\u5F15\u64CE\u7ED9\u51FA\u4E8F\u635F ${money2(profit)} \u5143/\u6708\u3002\u4E0D\u5EFA\u8BAE\u5728\u672A\u4FEE\u6B63\u5173\u952E\u5047\u8BBE\u524D\u63A8\u8FDB\u7B7E\u7EA6\u3002`;
+      summary = profit >= 0 ? `\u6309\u5F53\u524D\u53C2\u6570\uFF0C\u5F15\u64CE\u7ED9\u51FA\u6B63\u5229\u6DA6 ${money3(profit)} \u5143/\u6708\u3002\u662F\u5426\u7ACB\u9879\u8FD8\u9700\u7ED3\u5408\u5408\u540C\u9501\u4EF7\u3001\u573A\u7AD9\u7535\u4EF7\u4E0E\u5B9E\u9645\u8D9F\u6B21\u3002` : `\u6309\u5F53\u524D\u53C2\u6570\uFF0C\u5F15\u64CE\u7ED9\u51FA\u4E8F\u635F ${money3(profit)} \u5143/\u6708\u3002\u4E0D\u5EFA\u8BAE\u5728\u672A\u4FEE\u6B63\u5173\u952E\u5047\u8BBE\u524D\u63A8\u8FDB\u7B7E\u7EA6\u3002`;
     }
     return {
       source: "local_engine",
@@ -4873,8 +5399,16 @@ var PmCalcModule = (() => {
       risks,
       suggestions,
       disclaimer: "AI/\u89C4\u5219\u89E3\u8BFB\u4E0D\u5F97\u4FEE\u6539\u6216\u66FF\u4EE3\u6838\u5FC3\u6D4B\u7B97\u6570\u5B57\uFF1B\u5931\u8D25\u65F6\u4EC5\u672C\u533A\u57DF\u964D\u7EA7\u3002",
-      generatedAt: (/* @__PURE__ */ new Date()).toISOString()
+      generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      visual: buildVisual(scenario2.inputs, params.question)
     };
+  }
+  function buildVisual(input, question) {
+    try {
+      return buildEngineAnalysisReport(input, { question });
+    } catch {
+      return void 0;
+    }
   }
   function buildRisksFromEngine(input, baselineMargin) {
     const risks = [];
@@ -4895,7 +5429,7 @@ var PmCalcModule = (() => {
         risks.push({
           code: "RISK-01",
           name: "\u8FD0\u4EF7\u98CE\u9669",
-          level: levelFromDrop(drop, 0.05, 0.02),
+          level: levelFromDrop2(drop, 0.05, 0.02),
           evidence: `\u8FD0\u4EF7\u4E0B\u964D 10% \u540E\u5229\u6DA6\u53D8\u5316 ${freightDown.profitDelta} \u5143\uFF0C\u5229\u6DA6\u7387 ${(nextMargin * 100).toFixed(2)}%\u3002`,
           recommendation: "\u6838\u5B9E\u5408\u540C\u8FD0\u4EF7\u9501\u5B9A\u671F\u548C\u8C03\u4EF7\u6761\u6B3E\u3002"
         });
@@ -4914,7 +5448,7 @@ var PmCalcModule = (() => {
         risks.push({
           code: "RISK-02",
           name: "\u7535\u4EF7\u98CE\u9669",
-          level: levelFromDrop(drop, 0.03, 0.01),
+          level: levelFromDrop2(drop, 0.03, 0.01),
           evidence: `\u7535\u4EF7\u4E0A\u6DA8 20% \u540E\u5229\u6DA6\u53D8\u5316 ${powerUp.profitDelta} \u5143\u3002`,
           recommendation: "\u786E\u8BA4\u5145\u7535\u4EF7\u683C\u662F\u5426\u9501\u5B9A\u53CA\u6CE2\u52A8\u533A\u95F4\u3002"
         });
@@ -4933,7 +5467,7 @@ var PmCalcModule = (() => {
         risks.push({
           code: "RISK-03",
           name: "\u8D9F\u6B21\u98CE\u9669",
-          level: levelFromDrop(drop, 0.04, 0.015),
+          level: levelFromDrop2(drop, 0.04, 0.015),
           evidence: `\u5355\u8F66\u6708\u8D9F\u6570\u4E0B\u964D 20% \u540E\u5229\u6DA6\u53D8\u5316 ${tripsDown.profitDelta} \u5143\u3002`,
           recommendation: "\u6838\u5BF9\u8FD1 3 \u4E2A\u6708\u6709\u6548\u8D9F\u6B21\u4E0E\u88C5\u5378\u7B49\u5F85\u3002"
         });
@@ -5473,7 +6007,7 @@ var PmCalcModule = (() => {
   }
 
   // src/demo/ai/tools.ts
-  function money3(n) {
+  function money4(n) {
     if (n === null || n === void 0 || n === "") return "\u2014";
     const v = Number(n);
     if (!Number.isFinite(v)) return "\u2014";
@@ -5571,7 +6105,7 @@ var PmCalcModule = (() => {
       let changeRate = "\u2014";
       if (na != null && nb != null && Number.isFinite(na) && Number.isFinite(nb)) {
         const diff2 = nb - na;
-        delta = d.kind === "pct" ? `${(diff2 * 100).toFixed(2)} ppt` : money3(diff2);
+        delta = d.kind === "pct" ? `${(diff2 * 100).toFixed(2)} ppt` : money4(diff2);
         if (d.kind === "pct") {
           changeRate = `${(diff2 * 100).toFixed(2)} ppt`;
         } else if (na === 0) {
@@ -5582,14 +6116,14 @@ var PmCalcModule = (() => {
       }
       const fmt = (v) => {
         if (v == null) return "\u2014";
-        return d.kind === "pct" ? pct2(v) : d.kind === "money" ? money3(v) : String(v);
+        return d.kind === "pct" ? pct2(v) : d.kind === "money" ? money4(v) : String(v);
       };
       return { key: String(d.key), label: d.label, a: fmt(va), b: fmt(vb), delta, changeRate };
     });
     const profitA = Number(ma.monthlyProfit);
     const profitB = Number(mb.monthlyProfit);
     const diff = profitB - profitA;
-    const summary = `\u300C${a.name}\u300D\u6708\u5229\u6DA6 ${money3(profitA)} \u5143\uFF0C\u300C${b.name}\u300D\u6708\u5229\u6DA6 ${money3(profitB)} \u5143\uFF0C\u5DEE\u503C ${money3(diff)} \u5143\u3002\u4EE5\u4E0A\u6570\u5B57\u5747\u6765\u81EA\u5DF2\u4FDD\u5B58\u7684\u5F15\u64CE\u7ED3\u679C\uFF0CAI \u672A\u91CD\u65B0\u8BA1\u7B97\u3002`;
+    const summary = `\u300C${a.name}\u300D\u6708\u5229\u6DA6 ${money4(profitA)} \u5143\uFF0C\u300C${b.name}\u300D\u6708\u5229\u6DA6 ${money4(profitB)} \u5143\uFF0C\u5DEE\u503C ${money4(diff)} \u5143\u3002\u4EE5\u4E0A\u6570\u5B57\u5747\u6765\u81EA\u5DF2\u4FDD\u5B58\u7684\u5F15\u64CE\u7ED3\u679C\uFF0CAI \u672A\u91CD\u65B0\u8BA1\u7B97\u3002`;
     return {
       rows,
       summary,
@@ -5634,7 +6168,7 @@ var PmCalcModule = (() => {
         const impact = Math.abs(nextProfit - baseProfit);
         return {
           name: spec.name,
-          evidence: row ? `${spec.name} \u540E\u6708\u5229\u6DA6 ${money3(row.monthlyProfit)} \u5143\uFF08\u76F8\u5BF9\u57FA\u51C6\u53D8\u5316 ${money3(row.profitDelta)} \u5143\uFF09` : "\u654F\u611F\u6027\u884C\u7F3A\u5931",
+          evidence: row ? `${spec.name} \u540E\u6708\u5229\u6DA6 ${money4(row.monthlyProfit)} \u5143\uFF08\u76F8\u5BF9\u57FA\u51C6\u53D8\u5316 ${money4(row.profitDelta)} \u5143\uFF09` : "\u654F\u611F\u6027\u884C\u7F3A\u5931",
           impact
         };
       });
@@ -5669,7 +6203,7 @@ var PmCalcModule = (() => {
       `\u3010\u9879\u76EE\u6D4B\u7B97\u6C47\u62A5\u7ED3\u8BBA\u3011`,
       `\u9879\u76EE\uFF1A${projectName}${params.project ? `\uFF08${params.project.projectId}\uFF09` : ""}`,
       `\u65B9\u6848\uFF1A${params.scenario.name}\uFF08${params.scenario.id}\uFF09`,
-      `\u6838\u5FC3\u6307\u6807\uFF08Calculation Engine\uFF09\uFF1A\u6708\u6536\u5165 ${money3(m.monthlyRevenue)} \u5143\uFF1B\u6708\u603B\u6210\u672C ${money3(m.monthlyTotalCost)} \u5143\uFF1B\u6708\u5229\u6DA6 ${money3(m.monthlyProfit)} \u5143\uFF1B\u5229\u6DA6\u7387 ${pct2(m.profitMargin)}\uFF1BIRR ${pct2(m.irr)}\uFF1B\u7D2F\u8BA1\u73B0\u91D1\u6D41 ${money3(m.cumulativeCashFlow)} \u5143\u3002`,
+      `\u6838\u5FC3\u6307\u6807\uFF08Calculation Engine\uFF09\uFF1A\u6708\u6536\u5165 ${money4(m.monthlyRevenue)} \u5143\uFF1B\u6708\u603B\u6210\u672C ${money4(m.monthlyTotalCost)} \u5143\uFF1B\u6708\u5229\u6DA6 ${money4(m.monthlyProfit)} \u5143\uFF1B\u5229\u6DA6\u7387 ${pct2(m.profitMargin)}\uFF1BIRR ${pct2(m.irr)}\uFF1B\u7D2F\u8BA1\u73B0\u91D1\u6D41 ${money4(m.cumulativeCashFlow)} \u5143\u3002`,
       `\u7ED3\u8BBA\uFF1A${verdict}`,
       `\u8BF4\u660E\uFF1A\u4EE5\u4E0A\u6570\u5B57\u5747\u6765\u81EA\u5DF2\u4FDD\u5B58\u7684\u5F15\u64CE\u7ED3\u679C\uFF0CAI \u4EC5\u8D1F\u8D23\u5F52\u7EB3\u4E0E\u8868\u8FBE\uFF0C\u4E0D\u66FF\u4EE3\u8BA1\u7B97\u3002`
     ].join("\n");
@@ -5691,11 +6225,11 @@ var PmCalcModule = (() => {
     }
     switch (target) {
       case "monthlyProfit":
-        return `\u5F53\u524D\u65B9\u6848\u300C${scenario2.name}\u300D\u6708\u5229\u6DA6\u4E3A ${money3(m.monthlyProfit)} \u5143\uFF08\u5F15\u64CE\u7ED3\u679C\uFF09\u3002`;
+        return `\u5F53\u524D\u65B9\u6848\u300C${scenario2.name}\u300D\u6708\u5229\u6DA6\u4E3A ${money4(m.monthlyProfit)} \u5143\uFF08\u5F15\u64CE\u7ED3\u679C\uFF09\u3002`;
       case "monthlyRevenue":
-        return `\u5F53\u524D\u65B9\u6848\u6708\u6536\u5165\u4E3A ${money3(m.monthlyRevenue)} \u5143\uFF08\u5F15\u64CE\u7ED3\u679C\uFF09\u3002`;
+        return `\u5F53\u524D\u65B9\u6848\u6708\u6536\u5165\u4E3A ${money4(m.monthlyRevenue)} \u5143\uFF08\u5F15\u64CE\u7ED3\u679C\uFF09\u3002`;
       case "monthlyTotalCost":
-        return `\u5F53\u524D\u65B9\u6848\u6708\u603B\u6210\u672C\u4E3A ${money3(m.monthlyTotalCost)} \u5143\uFF08\u5F15\u64CE\u7ED3\u679C\uFF09\u3002`;
+        return `\u5F53\u524D\u65B9\u6848\u6708\u603B\u6210\u672C\u4E3A ${money4(m.monthlyTotalCost)} \u5143\uFF08\u5F15\u64CE\u7ED3\u679C\uFF09\u3002`;
       case "profitMargin":
         return `\u5F53\u524D\u65B9\u6848\u5229\u6DA6\u7387\u4E3A ${pct2(m.profitMargin)}${m.profitMarginReason ? `\uFF08${m.profitMarginReason}\uFF09` : ""}\u3002`;
       case "irr":
@@ -5706,7 +6240,7 @@ var PmCalcModule = (() => {
       }
       case "topCost": {
         const top = topCostFromScenario(scenario2);
-        return top ? `\u6210\u672C\u7ED3\u6784\u6700\u5927\u9879\u662F\u300C${top.name}\u300D\uFF0C\u7EA6 ${money3(top.amount)} \u5143/\u6708\uFF08\u6765\u81EA\u5F15\u64CE costBreakdown\uFF09\u3002` : "\u6682\u65E0\u6210\u672C\u7ED3\u6784\u660E\u7EC6\u3002";
+        return top ? `\u6210\u672C\u7ED3\u6784\u6700\u5927\u9879\u662F\u300C${top.name}\u300D\uFF0C\u7EA6 ${money4(top.amount)} \u5143/\u6708\uFF08\u6765\u81EA\u5F15\u64CE costBreakdown\uFF09\u3002` : "\u6682\u65E0\u6210\u672C\u7ED3\u6784\u660E\u7EC6\u3002";
       }
       case "scenarioCount":
         return `\u5F53\u524D\u9879\u76EE\u5171\u6709 ${scenarioCount ?? 0} \u4E2A\u6D4B\u7B97\u65B9\u6848\u3002`;
@@ -5715,7 +6249,7 @@ var PmCalcModule = (() => {
         return `\u5F53\u524D\u6838\u5FC3\u53C2\u6570\uFF1A${snaps.map((s) => `${s.label} ${s.display}`).join("\uFF1B")}\u3002`;
       }
       default:
-        return m ? `\u65B9\u6848\u300C${scenario2.name}\u300D\u6708\u5229\u6DA6 ${money3(m.monthlyProfit)} \u5143\uFF0C\u5229\u6DA6\u7387 ${pct2(m.profitMargin)}\u3002` : "\u6682\u65E0\u6D4B\u7B97\u7ED3\u679C\u3002";
+        return m ? `\u65B9\u6848\u300C${scenario2.name}\u300D\u6708\u5229\u6DA6 ${money4(m.monthlyProfit)} \u5143\uFF0C\u5229\u6DA6\u7387 ${pct2(m.profitMargin)}\u3002` : "\u6682\u65E0\u6D4B\u7B97\u7ED3\u679C\u3002";
     }
   }
 
@@ -7444,6 +7978,7 @@ ${insight.disclaimer}`,
       }
       return analyzeScenarioLocal({ scenario: scenario2, project, question });
     },
+    narrativeIsGrounded,
     buildAiPayload,
     runAssistant: ({ projectId, scenarioId, message, session, project, parsedIntent }) => runAssistantTurn({
       repos: ensureRepos(),

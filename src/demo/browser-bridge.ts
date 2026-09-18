@@ -23,6 +23,7 @@ import {
   type DemoRepositories,
 } from "./index";
 import { analyzeScenarioLocal, buildAiPayload, type DemoAiInsight } from "./ai/analyze";
+import { narrativeIsGrounded } from "@/lib/ai/analysis";
 import {
   ASSISTANT_SHORTCUTS,
   confirmPendingAction,
@@ -97,6 +98,7 @@ export type PmCalcBridge = {
     project?: DemoProjectContext | null;
     question?: string;
   }) => DemoAiInsight;
+  narrativeIsGrounded: typeof narrativeIsGrounded;
   buildAiPayload: typeof buildAiPayload;
   runAssistant: (params: {
     projectId: string;
@@ -277,6 +279,7 @@ export const PmCalc: PmCalcBridge = {
     }
     return analyzeScenarioLocal({ scenario, project, question });
   },
+  narrativeIsGrounded,
   buildAiPayload,
   runAssistant: ({ projectId, scenarioId, message, session, project, parsedIntent }) =>
     runAssistantTurn({
