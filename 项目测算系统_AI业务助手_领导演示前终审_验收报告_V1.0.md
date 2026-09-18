@@ -5,7 +5,7 @@
 
 ## 1. 最新 Commit SHA
 
-见本提交（执行 `git rev-parse HEAD`）。
+`4be8e7e44e7270b769d02d53505f5c9f36108fe2`（基线 `d0440417c0ab1d917b46fb291851db52e6c128da`）
 
 ## 2. 修改文件清单
 
